@@ -1,0 +1,33 @@
+// Copyright (C) 2026 The ArkUI Project; SPDX-License-Identifier: Apache-2.0
+package {
+    default_applicable_licenses: ["ArkWheel_license"],
+}
+license {
+    name: "ArkWheel_license",
+    visibility: [":__subpackages__"],
+    license_kinds: ["SPDX-license-identifier-Apache-2.0"],
+    license_text: ["NOTICE"],
+}
+java_library {
+    name: "ArkWheelProtocol",
+    srcs: ["protocol/**/*.java"],
+}
+android_app {
+    name: "ArkWheel",
+    defaults: ["platform_app_defaults"],
+    srcs: ["src/**/*.java"],
+    platform_apis: true,
+    certificate: "platform",
+    system_ext_specific: true,
+    static_libs: [
+        "ArkWheelProtocol",
+        "SettingsLibCollapsingToolbarBaseActivity",
+        "SettingsLibSettingsTheme",
+        "SettingsLibMainSwitchPreference",
+        "SettingsLibAppPreference",
+        "SettingsLibSliderPreference",
+        "SettingsLibTopIntroPreference",
+        "androidx.preference_preference",
+        "androidx.recyclerview_recyclerview",
+    ],
+}

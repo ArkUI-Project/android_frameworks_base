@@ -339,6 +339,11 @@ public abstract class SystemUIModule {
     @ClassKey(com.android.systemui.arkui.SidebarManager.class)
     abstract CoreStartable bindArkSidebar(com.android.systemui.arkui.SidebarManager manager);
 
+    @Binds
+    @IntoMap
+    @ClassKey(com.android.systemui.arkui.WheelManager.class)
+    abstract CoreStartable bindArkWheel(com.android.systemui.arkui.WheelManager manager);
+
     @Multibinds
     @Dependencies
     abstract Map<Class<?>, Set<Class<? extends CoreStartable>>> startableDependencyMap();
