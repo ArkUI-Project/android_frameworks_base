@@ -79,6 +79,7 @@ class PinnedWindowOverlayController {
     private volatile int mOverlayGeneration;
 
     private static class OverlayPosition {
+        Task task;
         int generation;
         int left;
         int top;
@@ -472,11 +473,14 @@ class PinnedWindowOverlayController {
         mBound.setEmpty();
     }
 
-    void updateOverlayPosition(int left, int top, int taskWidth, int taskHeight, float scale) {
-        if (mTask == null) {
+    void updateOverlayPosition(Task task, int left, int top, int taskWidth, int taskHeight,
+            float scale) {
+        // Both windows can animate at once. Only the current mini owns this input overlay.
+        if (task == null || mTask != task) {
             return;
         }
         final OverlayPosition position = new OverlayPosition();
+        position.task = task;
         position.generation = mOverlayGeneration;
         position.left = left;
         position.top = top;
@@ -488,7 +492,8 @@ class PinnedWindowOverlayController {
     }
 
     private void updateOverlayPositionInternal(OverlayPosition position) {
-        if (position == null || position.generation != mOverlayGeneration
+        if (position == null || position.task != mTask
+                || position.generation != mOverlayGeneration
                 || mView == null || mParams == null || mWindowManager == null
                 || !mView.isAttachedToWindow()) {
             return;

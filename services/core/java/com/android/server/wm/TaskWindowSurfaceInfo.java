@@ -147,6 +147,45 @@ class TaskWindowSurfaceInfo {
         return new Point(mWindowCenterPosition.x, mWindowCenterPosition.y);
     }
 
+    void setWindowPlacementFrom(TaskWindowSurfaceInfo other) {
+        final Rect bounds = mTask.getBounds();
+        if (bounds.isEmpty() || mTask.mDisplayContent == null) {
+            return;
+        }
+        final Rect displayBounds = mTask.mDisplayContent.getBounds();
+        mWindowCenterPosition.set(other.mWindowCenterPosition);
+        final int orientation = mTask.getConfiguration().orientation;
+        final int otherOrientation = other.mConfiguration.orientation;
+        final float defaultScale;
+        final float otherDefaultScale;
+        if (mTask.getWindowConfiguration().isPinnedExtWindowMode()) {
+            mWindowBoundaryGap.set(other.mWindowBoundaryGap);
+            mPinnedWindowVerticalPosRatio.set(other.mPinnedWindowVerticalPosRatio);
+            mIsPinnedWindowSmall = other.mIsPinnedWindowSmall;
+            mWindowSurfaceScaleFactor = 1f;
+            defaultScale = WindowResizingAlgorithm.getDefaultPinnedWindowScale(
+                    orientation, mIsPinnedWindowSmall);
+            otherDefaultScale = WindowResizingAlgorithm.getDefaultPinnedWindowScale(
+                    otherOrientation, mIsPinnedWindowSmall);
+        } else {
+            resetWindowBoundaryGap();
+            mWindowSurfaceScaleFactor = WindowResizingAlgorithm
+                    .getPositionAndScaleFactorForTask(bounds, displayBounds,
+                            mWindowCenterPosition, 1f, false, new Point());
+            final int rotation = mTask.mDisplayContent.getRotation();
+            defaultScale = WindowResizingAlgorithm.getDefaultMiniWindowScale(
+                    orientation, rotation);
+            otherDefaultScale = WindowResizingAlgorithm.getDefaultMiniWindowScale(
+                    otherOrientation, rotation);
+        }
+        // Transfer the user's size relative to that mode's orientation-specific default.
+        // Fitting each app inside the other's rectangle would shrink mixed orientations
+        // again on every swap, and rounding the visible rectangle would accumulate drift.
+        mWindowSurfaceScale = other.mWindowSurfaceScale * defaultScale / otherDefaultScale;
+        // An earlier entry gesture must not override the start of this mode exchange.
+        mGestureStartBounds.setEmpty();
+    }
+
     PopUpViewInfo getPopUpViewInfo() {
         if (!mTransitionGeometryPrepared && mTask.getWindowConfiguration().isMiniExtWindowMode()
                 && mTask.mDisplayContent != null) {
@@ -480,7 +519,7 @@ class TaskWindowSurfaceInfo {
                 setWindowSurfaceScaleFactor(1.0f);
                 final Rect surfaceBounds = getTaskWindowSurfaceBounds();
                 PinnedWindowOverlayController.getInstance().updateOverlayPosition(
-                        surfaceBounds.left, surfaceBounds.top,
+                        mTask, surfaceBounds.left, surfaceBounds.top,
                         mTask.getBounds().width(), mTask.getBounds().height(), mWindowSurfaceScale);
                 mLastSurfaceX = Integer.MIN_VALUE;
                 mLastSurfaceY = Integer.MIN_VALUE;
@@ -546,7 +585,7 @@ class TaskWindowSurfaceInfo {
         if (isPinned && !mIsDragging && !mIsDockedToEdge) {
             if (mPopUpAnimationController.getCurrentAnimPosition(mAnimationPosition, mAnimationScale)) {
                 PinnedWindowOverlayController.getInstance().updateOverlayPosition(
-                        mAnimationPosition[0], mAnimationPosition[1], mTask.getBounds().width(),
+                        mTask, mAnimationPosition[0], mAnimationPosition[1], mTask.getBounds().width(),
                         mTask.getBounds().height(), mAnimationScale[0]);
                 if (!animating) {
                     mPopUpAnimationController.clearAnimPosition();
@@ -622,7 +661,7 @@ class TaskWindowSurfaceInfo {
                 if (surfaceBounds.left != mLastSurfaceX || surfaceBounds.top != mLastSurfaceY
                         || mLastSurfaceScale != mWindowSurfaceScale) {
                     PinnedWindowOverlayController.getInstance().updateOverlayPosition(
-                            surfaceBounds.left, surfaceBounds.top,
+                            mTask, surfaceBounds.left, surfaceBounds.top,
                             mTask.getBounds().width(), mTask.getBounds().height(), mWindowSurfaceScale);
                 }
                 mLastSurfaceX = surfaceBounds.left;
@@ -639,7 +678,7 @@ class TaskWindowSurfaceInfo {
         // so no cropped app contents remain visible at the screen edge.
         t.setAlpha(mTask.mSurfaceControl, 0f);
         PinnedWindowOverlayController.getInstance().updateOverlayPosition(
-                dock.left, dock.top, dock.width(), dock.height(), 1f);
+                mTask, dock.left, dock.top, dock.width(), dock.height(), 1f);
     }
 
     void scheduleTransition(TaskWindowSurfaceInfo freezeTaskWindowSurfaceInfo, DisplayInfo displayInfo) {
@@ -795,7 +834,7 @@ class TaskWindowSurfaceInfo {
                 mTask.mDisplayContent.getBounds(displayBound);
             }
             setPinnedWindowVerticalPosRatio(mWindowCenterPosition, displayBound, true);
-            PinnedWindowOverlayController.getInstance().updateOverlayPosition(newLeft, newTop,
+            PinnedWindowOverlayController.getInstance().updateOverlayPosition(mTask, newLeft, newTop,
                     mTask.getBounds().width(), mTask.getBounds().height(), scale);
         }
 
@@ -909,7 +948,7 @@ class TaskWindowSurfaceInfo {
                 mTask.getBounds().width(), mTask.getBounds().height(),
                 1f, 0f, mWindowSurfaceScale, mTask, this);
         PinnedWindowOverlayController.getInstance().updateOverlayPosition(
-                dock.left, dock.top, dock.width(), dock.height(), 1f);
+                mTask, dock.left, dock.top, dock.width(), dock.height(), 1f);
         PinnedWindowOverlayController.getInstance().setDockedState(true);
     }
 
@@ -944,7 +983,7 @@ class TaskWindowSurfaceInfo {
                 0f, 1f, scale, mOriginalCornerRadiusBeforeDock, mTask, this);
         PinnedWindowOverlayController.getInstance().setDockedState(false);
         PinnedWindowOverlayController.getInstance().updateOverlayPosition(
-                left, top, mTask.getBounds().width(), mTask.getBounds().height(), scale);
+                mTask, left, top, mTask.getBounds().width(), mTask.getBounds().height(), scale);
         updateDockedForegroundState();
     }
 
@@ -1037,7 +1076,7 @@ class TaskWindowSurfaceInfo {
             }
             setPinnedWindowVerticalPosRatio(mWindowCenterPosition, displayBounds, true);
             PinnedWindowOverlayController.getInstance().updateOverlayPosition(
-                    mDragStartLeft, mDragStartTop, mTask.getBounds().width(),
+                    mTask, mDragStartLeft, mDragStartTop, mTask.getBounds().width(),
                     mTask.getBounds().height(), getWindowSurfaceRealScale());
         }
         if (DEBUG_POP_UP) {

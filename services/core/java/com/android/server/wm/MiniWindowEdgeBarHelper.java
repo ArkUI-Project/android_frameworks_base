@@ -12,6 +12,7 @@ import static com.android.internal.arkui.DebugConstants.DEBUG_POP_UP;
 import android.content.Context;
 import android.graphics.Canvas;
 import android.graphics.Color;
+import android.graphics.Insets;
 import android.graphics.Paint;
 import android.graphics.Paint.Style;
 import android.graphics.Rect;
@@ -23,6 +24,7 @@ import android.view.Surface;
 import android.view.SurfaceControl;
 import android.view.View;
 import android.view.ViewConfiguration;
+import android.view.WindowInsets;
 
 import com.android.internal.R;
 
@@ -41,6 +43,7 @@ class MiniWindowEdgeBarHelper {
 
     private Paint mPaint;
     private Task mTask;
+    private int mTaskGeneration;
     private TaskWindowSurfaceInfo mTaskWindowSurfaceInfo;
     private View mView;
 
@@ -57,7 +60,9 @@ class MiniWindowEdgeBarHelper {
 
     void setSurfaceAnimating(boolean animating) {
         if (mView == null) return;
+        final int generation = mTaskGeneration;
         mView.post(() -> {
+            if (generation != mTaskGeneration) return;
             mSurfaceAnimating = animating;
             if (animating) mBarTouchBounds.setEmpty();
             else updateBounds();
@@ -71,7 +76,10 @@ class MiniWindowEdgeBarHelper {
 
     void onDragResizeChanged(float scale, Rect displayBound, boolean isLandscape) {
         if (mListening && mView != null) {
+            final int generation = mTaskGeneration;
             mView.postOnAnimation(() -> {
+                if (generation != mTaskGeneration || !mListening || mTask == null
+                        || !mTask.getWindowConfiguration().isMiniExtWindowMode()) return;
                 updateBoundsOnDrag(scale, displayBound, isLandscape);
                 mView.invalidate();
             });
@@ -109,7 +117,8 @@ class MiniWindowEdgeBarHelper {
     }
 
     void onDraw(Canvas canvas) {
-        if (!mSurfaceAnimating && !mBarBounds.isEmpty()) {
+        if (mTask != null && mTask.getWindowConfiguration().isMiniExtWindowMode()
+                && !mSurfaceAnimating && !mBarBounds.isEmpty()) {
             canvas.drawRoundRect(mBarBounds, mBarRadius, mBarRadius, mPaint);
         }
     }
@@ -120,6 +129,8 @@ class MiniWindowEdgeBarHelper {
     private boolean mTouchStarted;
     private boolean mMoving;
     private boolean mResizeHorizontally;
+    private float mResizeDisplaySize;
+    private float mFullscreenDragDistance;
     private static final float MIN_SCALE = 0.35f;
     private static final float MAX_SCALE = 1.3f;
 
@@ -148,13 +159,41 @@ class MiniWindowEdgeBarHelper {
         mScrolling = false;
         mMoving = false;
         mDragScaleType = DRAG_SCALE_TYPE_NONE;
-        final int rotation = mTask.getWindowConfiguration().getDisplayRotation();
+        final int rotation = mTask.mDisplayContent != null
+                ? mTask.mDisplayContent.getRotation()
+                : mTask.getWindowConfiguration().getDisplayRotation();
         mResizeHorizontally = rotation == Surface.ROTATION_90 || rotation == Surface.ROTATION_270;
         if (mTaskWindowSurfaceInfo != null) {
             mStartScale = mTaskWindowSurfaceInfo.getWindowSurfaceScale();
             mCurrentScale = mStartScale;
             mStartCenterPos = mTaskWindowSurfaceInfo.getWindowCenterPosition();
         }
+        final Rect displayBounds = new Rect();
+        if (mTask.mDisplayContent != null) {
+            mTask.mDisplayContent.getBounds(displayBounds);
+        }
+        if (displayBounds.isEmpty()) {
+            final android.util.DisplayMetrics metrics =
+                    mView.getContext().getResources().getDisplayMetrics();
+            displayBounds.set(0, 0, metrics.widthPixels, metrics.heightPixels);
+        }
+        mResizeDisplaySize = Math.max(1f,
+                mResizeHorizontally ? displayBounds.width() : displayBounds.height());
+        final WindowInsets windowInsets = mView.getRootWindowInsets();
+        final Insets insets = windowInsets != null
+                ? windowInsets.getInsets(WindowInsets.Type.navigationBars()
+                        | WindowInsets.Type.mandatorySystemGestures()
+                        | WindowInsets.Type.displayCutout()) : Insets.NONE;
+        final float availableDistance = mResizeHorizontally
+                ? displayBounds.right - insets.right - mStartX
+                : displayBounds.bottom - insets.bottom - mStartY;
+        final float scaleDistance = (Math.min(1.15f, mStartScale * 1.2f) - mStartScale)
+                * mResizeDisplaySize / 1.2f;
+        // Fix the threshold at DOWN, before the handle moves. A restored or resized
+        // window may leave too little room to reach another 20% scale increase.
+        // Commit before the finger reaches the system navigation gesture area.
+        mFullscreenDragDistance = Math.max(mDragSlop,
+                Math.min(scaleDistance, Math.max(0f, availableDistance) * 0.65f));
         mView.postDelayed(mStartMoving, ViewConfiguration.getLongPressTimeout());
     }
 
@@ -179,20 +218,16 @@ class MiniWindowEdgeBarHelper {
 
         float dragDistance = mResizeHorizontally
                 ? event.getRawX() - mStartX : event.getRawY() - mStartY;
-        float displaySize = mResizeHorizontally
-                ? mView.getContext().getResources().getDisplayMetrics().widthPixels
-                : mView.getContext().getResources().getDisplayMetrics().heightPixels;
-
-        float scaleDelta = (dragDistance / displaySize) * 1.2f;
+        float scaleDelta = (dragDistance / mResizeDisplaySize) * 1.2f;
         float newScale = mStartScale + scaleDelta;
         newScale = Math.max(MIN_SCALE, Math.min(MAX_SCALE, newScale));
         mCurrentScale = newScale;
 
         int newDragScaleType = DRAG_SCALE_TYPE_NONE;
-        // Relative thresholds keep all size presets usable in either orientation.
+        // Minimize by relative size; expand using the reachable distance fixed at DOWN.
         if (newScale <= mStartScale * 0.8f) {
             newDragScaleType = DRAG_SCALE_TYPE_TO_PINNED;
-        } else if (newScale >= Math.min(1.15f, mStartScale * 1.2f)) {
+        } else if (dragDistance >= mFullscreenDragDistance) {
             newDragScaleType = DRAG_SCALE_TYPE_TO_FULL;
         }
 
@@ -392,6 +427,7 @@ class MiniWindowEdgeBarHelper {
         if (mTask == task) {
             return;
         }
+        mTaskGeneration++;
         mSurfaceAnimating = false;
         if (mView != null) {
             mView.removeCallbacks(mStartMoving);
@@ -401,6 +437,8 @@ class MiniWindowEdgeBarHelper {
         }
         mMoving = false;
         mTouchStarted = false;
+        mBarBounds.setEmpty();
+        mBarTouchBounds.setEmpty();
         mTask = task;
         if (DEBUG_POP_UP) {
             Slog.d(TAG, "setTask: " + (task != null));
@@ -446,6 +484,8 @@ class MiniWindowEdgeBarHelper {
     }
 
     private void updateBounds() {
+        mBarBounds.setEmpty();
+        mBarTouchBounds.setEmpty();
         final Task rootTask = mTask != null ? mTask.getRootTask() : null;
         if (rootTask == null || mTaskWindowSurfaceInfo == null || mView == null) {
             return;

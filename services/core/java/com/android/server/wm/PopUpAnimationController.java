@@ -384,7 +384,8 @@ class PopUpAnimationController {
                 mCurrentAnimScale = currentScale;
                 mHasAnimPosition = true;
                 PinnedWindowOverlayController.getInstance().updateOverlayPosition(
-                        mCurrentAnimX, mCurrentAnimY, mBounds.width(), mBounds.height(), currentScale);
+                        mTask, mCurrentAnimX, mCurrentAnimY,
+                        mBounds.width(), mBounds.height(), currentScale);
                 synchronized (mCancelLock) {
                     if (!mIsCancelling && mTask != null && mFrameTransaction != null) {
                         final SurfaceControl leash = mTask.mSurfaceControl;
@@ -554,7 +555,7 @@ class PopUpAnimationController {
                         scheduleApplyTransaction();
                     }
                     PinnedWindowOverlayController.getInstance().updateOverlayPosition(
-                            x, y, boundWidth, boundHeight, windowScale);
+                            mTask, x, y, boundWidth, boundHeight, windowScale);
                 })
                 .addEndListener((anim, canceled, val, vel) -> {
                     final boolean finished;
@@ -587,7 +588,7 @@ class PopUpAnimationController {
                     }
                     if (!mIsCancelling && !canceled) {
                         PinnedWindowOverlayController.getInstance().updateOverlayPosition(
-                                mEndPos.x, mEndPos.y, mBoundWidth, mBoundHeight, mWindowScale);
+                                mTask, mEndPos.x, mEndPos.y, mBoundWidth, mBoundHeight, mWindowScale);
                     }
                 });
         springAnimation.start();
