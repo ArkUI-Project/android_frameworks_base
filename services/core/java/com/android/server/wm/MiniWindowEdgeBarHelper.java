@@ -137,7 +137,8 @@ class MiniWindowEdgeBarHelper {
 
     private void handleActionDown(MotionEvent event) {
         mTouchStarted = mBarTouchBounds.contains(event.getRawX(), event.getRawY())
-                && mTask != null && mTaskWindowSurfaceInfo != null;
+                && mTask != null && mTaskWindowSurfaceInfo != null
+                && mTask.getWindowConfiguration().isMiniExtWindowMode() && !mSurfaceAnimating;
         if (!mTouchStarted) {
             return;
         }
@@ -263,6 +264,8 @@ class MiniWindowEdgeBarHelper {
             case MotionEvent.ACTION_UP:
                 mView.removeCallbacks(mStartMoving);
                 if (mTouchStarted) {
+                    // UP may contain the last movement beyond the fullscreen/minimize threshold.
+                    handleActionMove(event);
                     mTouchStarted = false;
                     if (mMoving) {
                         mMoving = false;
@@ -306,7 +309,8 @@ class MiniWindowEdgeBarHelper {
                 break;
 
             case DRAG_SCALE_TYPE_TO_FULL:
-                PopUpWindowController.getInstance().exitMiniWindowingMode();
+                // Use the task that owns this drag, not a potentially rebound dimmer task.
+                PopUpWindowController.getInstance().exitMiniWindowingMode(mTask);
                 break;
 
             case DRAG_SCALE_TYPE_NONE:
@@ -384,6 +388,10 @@ class MiniWindowEdgeBarHelper {
     }
 
     void setTask(Task task) {
+        task = task != null ? task.getRootTask() : null;
+        if (mTask == task) {
+            return;
+        }
         mSurfaceAnimating = false;
         if (mView != null) {
             mView.removeCallbacks(mStartMoving);

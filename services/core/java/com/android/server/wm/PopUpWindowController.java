@@ -1357,12 +1357,18 @@ public class PopUpWindowController {
 
     public void exitMiniWindowingMode() {
         synchronized (mAtmService.mGlobalLock) {
-            final Task task = DimmerWindow.getInstance().getTask();
-            if (task != null) {
+            exitMiniWindowingMode(DimmerWindow.getInstance().getTask());
+        }
+    }
+
+    void exitMiniWindowingMode(Task task) {
+        synchronized (mAtmService.mGlobalLock) {
+            final Task rootTask = task != null ? task.getRootTask() : null;
+            if (rootTask != null && rootTask.getWindowConfiguration().isMiniExtWindowMode()) {
                 TopActivityRecorder.getInstance().moveTopMiniToFull();
                 setTryExitWindowingMode(true);
                 try {
-                    tryExitPopUpView(task, false, true, true);
+                    tryExitPopUpView(rootTask, false, true, true);
                 } finally {
                     setTryExitWindowingMode(false);
                 }
@@ -1442,6 +1448,7 @@ public class PopUpWindowController {
             rootTask.setWindowingMode(WINDOWING_MODE_MINI_WINDOW_EXT);
             mAtmService.setFocusedTask(rootTask.mTaskId);
             rootTask.mWindowContainerExt.scheduleTransition();
+            DimmerWindow.getInstance().setTask(rootTask);
         }
     }
 

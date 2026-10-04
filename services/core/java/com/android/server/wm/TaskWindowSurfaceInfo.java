@@ -536,6 +536,11 @@ class TaskWindowSurfaceInfo {
 
     void onPrepareSurfaces(SurfaceControl.Transaction t) {
         final WindowConfiguration winConfig = mTask.getConfiguration().windowConfiguration;
+        // Descendants inherit the mode, but their positions remain relative to the root task.
+        // Applying another popup transform here scales and crops the app a second time.
+        if (winConfig.isPopUpWindowMode() && !mTask.isRootTask()) {
+            return;
+        }
         final boolean isPinned = winConfig.isPinnedExtWindowMode();
         final boolean animating = mPopUpAnimationController.isAnimating();
         if (isPinned && !mIsDragging && !mIsDockedToEdge) {

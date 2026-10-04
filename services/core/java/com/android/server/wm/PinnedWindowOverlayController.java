@@ -196,6 +196,8 @@ class PinnedWindowOverlayController {
     }
 
     void setTask(Task task) {
+        // The mini preview must use the same surface owner as the restored window's handle.
+        task = task != null ? task.getRootTask() : null;
         // Delayed animation callbacks must not resurrect an obsolete overlay.
         if (task != null && (mWmService == null
                 || !PopUpSettingsConfig.getInstance().isEnabled()

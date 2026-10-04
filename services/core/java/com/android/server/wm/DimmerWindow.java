@@ -235,6 +235,9 @@ class DimmerWindow {
     }
 
     void setTask(Task task) {
+        // Focus callbacks provide the activity's leaf task, while mode changes use the root.
+        // Keep the handle, its input layer and surface geometry bound to the same root task.
+        task = task != null ? task.getRootTask() : null;
         if (DEBUG_POP_UP) {
             Slog.d(TAG, "setTask: " + (task != null ? task : "null"));
         }

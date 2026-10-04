@@ -1,4 +1,5 @@
 /*
+ * Modified by the ArkUI Project in 2026 for notification small-window gestures.
  * Copyright (C) 2020 The Android Open Source Project
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
@@ -123,6 +124,10 @@ public class NotificationShadeWindowView extends WindowRootView {
 
     @Override
     public boolean onInterceptTouchEvent(MotionEvent ev) {
+        // External shade touches also call this method directly, bypassing ViewGroup dispatch.
+        if (isTouchInterceptDisallowed()) {
+            return false;
+        }
         boolean intercept = mInteractionEventHandler.shouldInterceptTouchEvent(ev);
         if (!intercept) {
             intercept = super.onInterceptTouchEvent(ev);
@@ -132,6 +137,10 @@ public class NotificationShadeWindowView extends WindowRootView {
         }
 
         return intercept;
+    }
+
+    boolean isTouchInterceptDisallowed() {
+        return (mGroupFlags & FLAG_DISALLOW_INTERCEPT) != 0;
     }
 
     @Override

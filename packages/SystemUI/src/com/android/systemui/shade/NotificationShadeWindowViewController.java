@@ -1,4 +1,5 @@
 /*
+ * Modified by the ArkUI Project in 2026 for notification small-window gestures.
  * Copyright (C) 2019 The Android Open Source Project
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
@@ -378,7 +379,14 @@ public class NotificationShadeWindowViewController implements Dumpable {
                 mExternalTouchIntercepted = false;
             }
 
+            // A notification handle may own this event before dispatch, or claim it on DOWN.
+            // Remember the former too: dispatching UP/CANCEL clears ViewGroup's intercept flag.
+            final boolean childOwnedTouch = event.getActionMasked() != MotionEvent.ACTION_DOWN
+                    && mView.isTouchInterceptDisallowed();
             if (!mView.dispatchTouchEvent(event)) {
+                return;
+            }
+            if (childOwnedTouch || mView.isTouchInterceptDisallowed()) {
                 return;
             }
             if (hubBlurredByShadeFix()) {

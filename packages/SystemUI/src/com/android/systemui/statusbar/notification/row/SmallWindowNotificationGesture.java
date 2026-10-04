@@ -47,6 +47,7 @@ final class SmallWindowNotificationGesture {
     private boolean mRegistered;
     private boolean mTracking;
     private boolean mOwnsTouchSequence;
+    private boolean mParentInterceptDisallowed;
     private boolean mCapturing;
     private boolean mHapticsEnabled;
     private boolean mThresholdReached;
@@ -106,8 +107,8 @@ final class SmallWindowNotificationGesture {
     }
 
     private void detach() {
-        cancel();
         mOwnsTouchSequence = false;
+        cancel();
         if (mRegistered) mContext.getContentResolver().unregisterContentObserver(mObserver);
         mRegistered = false;
         mLaunchBounds = null;
@@ -149,6 +150,7 @@ final class SmallWindowNotificationGesture {
         switch (event.getActionMasked()) {
             case MotionEvent.ACTION_DOWN:
                 mOwnsTouchSequence = false;
+                disallowParentIntercept(false);
                 if (mAnimator != null
                         || Math.abs(event.getX() - mRow.getWidth() / 2f) > 48 * mDensity
                         || event.getY() < mRow.getActualHeight() - 24 * mDensity
@@ -177,6 +179,7 @@ final class SmallWindowNotificationGesture {
                     if (dy < -mTouchSlop || Math.abs(dx) > Math.max(mTouchSlop, dy)) {
                         // Give scrolling/swiping back to the parent, but swallow a stray UP.
                         cancel();
+                        disallowParentIntercept(false);
                         return true;
                     }
                     if (dy <= mTouchSlop || Math.abs(dx) > dy) return true;
@@ -192,10 +195,10 @@ final class SmallWindowNotificationGesture {
             case MotionEvent.ACTION_UP:
                 if (!mOwnsTouchSequence) return false;
                 mOwnsTouchSequence = false;
+                disallowParentIntercept(false);
                 if (!mTracking) return true;
                 mTracking = false;
                 mRow.setLastActionUpTime(event.getEventTime());
-                disallowParentIntercept(false);
                 refresh();
                 if (mPreview == null) {
                     // A tap on the handle keeps the notification's normal click behavior.
@@ -303,12 +306,17 @@ final class SmallWindowNotificationGesture {
 
     void cancel() {
         mTracking = false;
-        disallowParentIntercept(false);
+        // Keep an accepted drag's remaining events out of the shade, even if its notification
+        // is rebound or its policy changes before UP. Detaching and terminal events release it.
+        if (!mOwnsTouchSequence) disallowParentIntercept(false);
         if (mAnimator != null) mAnimator.cancel();
         clearPreview();
     }
 
     private void disallowParentIntercept(boolean disallow) {
+        // Rebinding another row must not release the current row's interception request.
+        if (mParentInterceptDisallowed == disallow) return;
+        mParentInterceptDisallowed = disallow;
         if (mRow.getParent() != null) {
             mRow.getParent().requestDisallowInterceptTouchEvent(disallow);
         }
