@@ -275,6 +275,7 @@ constructor(
         velocityTracker!!.addMovement(event)
         when (event.actionMasked) {
             MotionEvent.ACTION_DOWN -> {
+                mView.sidebarHint = false
                 cancelAllPendingAnimations()
                 startX = event.x
                 startY = event.y
@@ -370,6 +371,29 @@ constructor(
         mainHandler.removeCallbacks(onEndSetCommittedStateListener.runnable)
         mainHandler.removeCallbacks(onEndSetGoneStateListener.runnable)
         mainHandler.removeCallbacks(onAlphaEndSetGoneStateListener.runnable)
+    }
+
+    /** Retain the rendered Back bubble and change only its glyph while Sidebar is armed. */
+    fun showSidebarHint(haptic: Boolean): Boolean {
+        if (!mView.isVisible || mView.backgroundAlpha.pos <= 0f ||
+            (currentState != GestureState.ENTRY && currentState != GestureState.ACTIVE &&
+                currentState != GestureState.INACTIVE)) return false
+        cancelAllPendingAnimations()
+        mView.backgroundHeight.cancel()
+        mView.verticalTranslation.cancel()
+        mView.sidebarHint = true
+        velocityTracker = null
+        backCallback.setTriggerBack(false)
+        interactionJankMonitor.cancel(Cuj.CUJ_BACK_PANEL_ARROW)
+        if (haptic) performActivatedHapticFeedback()
+        return true
+    }
+
+    fun hideSidebarHint() {
+        if (!mView.sidebarHint) return
+        cancelAllPendingAnimations()
+        mView.sidebarHint = false
+        updateArrowState(GestureState.GONE, force = true)
     }
 
     /**

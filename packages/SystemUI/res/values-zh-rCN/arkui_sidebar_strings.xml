@@ -1,0 +1,6 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Copyright (C) 2026 The ArkUI Project; SPDX-License-Identifier: Apache-2.0 -->
+<resources>
+    <string name="arkui_sidebar_fullscreen_fallback">此应用的小窗功能已关闭，已改为全屏打开。</string>
+    <string name="arkui_sidebar_app_unavailable">此应用暂时不可用。</string>
+</resources>

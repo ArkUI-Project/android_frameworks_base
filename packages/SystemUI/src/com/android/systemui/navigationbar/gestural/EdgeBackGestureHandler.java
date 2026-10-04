@@ -86,6 +86,7 @@ import androidx.annotation.DimenRes;
 import com.android.internal.config.sysui.SystemUiDeviceConfigFlags;
 import com.android.internal.policy.GestureNavigationSettingsObserver;
 import com.android.systemui.LauncherProxyService;
+import com.android.systemui.arkui.SidebarManager;
 import com.android.systemui.contextualeducation.GestureType;
 import com.android.systemui.dagger.qualifiers.Background;
 import com.android.systemui.model.SysUiState;
@@ -298,6 +299,7 @@ public class EdgeBackGestureHandler {
 
     private NavigationEdgeBackPlugin mEdgeBackPlugin;
     private BackAnimation mBackAnimation;
+    private final SidebarGestureController mSidebarGesture;
     private int mLeftInset;
     private int mRightInset;
     @SystemUiStateFlags
@@ -403,6 +405,7 @@ public class EdgeBackGestureHandler {
             new UserTracker.Callback() {
                 @Override
                 public void onUserChanged(int newUser, @NonNull Context userContext) {
+                    mSidebarGesture.reset();
                     updateIsEnabled();
                     updateCurrentUserResources();
                 }
@@ -495,10 +498,14 @@ public class EdgeBackGestureHandler {
             JavaAdapter javaAdapter,
             DisplayManager displayManager,
             DisplayBackGestureHandlerImpl.Factory displayBackGestureHandlerFactory,
-            DesktopState desktopState) {
+            DesktopState desktopState,
+            SidebarManager sidebarManager) {
         mContext = context;
         mMainDisplayId = context.getDisplayId();
         mUiThreadContext = uiThreadContext;
+        mSidebarGesture = new SidebarGestureController(context, uiThreadContext.getHandler(),
+                sidebarManager, () -> mAllowGesture && mThresholdCrossed,
+                ev -> cancelGesture(ev, true), this::showSidebarHint, this::hideSidebarHint);
         mBackgroundExecutor = backgroundExecutor;
         mBgHandler = bgHandler;
         mUserTracker = userTracker;
@@ -807,6 +814,7 @@ public class EdgeBackGestureHandler {
                 return;
             }
             mIsEnabled = isEnabled;
+            mSidebarGesture.reset();
 
             if (DesktopExperienceFlags.ENABLE_MULTIDISPLAY_TRACKPAD_BACK_GESTURE.isTrue()) {
                 for (DisplayBackGestureHandler displayBackGestureHandler :
@@ -1167,16 +1175,41 @@ public class EdgeBackGestureHandler {
     }
 
     private void cancelGesture(MotionEvent ev) {
+        cancelGesture(ev, false);
+    }
+
+    private boolean showSidebarHint(boolean haptic) {
+        if (DesktopExperienceFlags.ENABLE_MULTIDISPLAY_TRACKPAD_BACK_GESTURE.isTrue()) {
+            DisplayBackGestureHandler display = mDisplayBackGestureHandlers.get(Display.DEFAULT_DISPLAY);
+            return display != null && display.showSidebarHint(haptic);
+        }
+        return mEdgeBackPlugin instanceof BackPanelController
+                && ((BackPanelController) mEdgeBackPlugin).showSidebarHint(haptic);
+    }
+
+    private void hideSidebarHint() {
+        if (DesktopExperienceFlags.ENABLE_MULTIDISPLAY_TRACKPAD_BACK_GESTURE.isTrue()) {
+            DisplayBackGestureHandler display = mDisplayBackGestureHandlers.get(Display.DEFAULT_DISPLAY);
+            if (display != null) display.hideSidebarHint();
+        } else if (mEdgeBackPlugin instanceof BackPanelController) {
+            ((BackPanelController) mEdgeBackPlugin).hideSidebarHint();
+        }
+    }
+
+    private void cancelGesture(MotionEvent ev, boolean keepSidebarHint) {
+        mSidebarGesture.onBackCancelled();
         // Send action cancel to reset all the touch events
         mAllowGesture = false;
         mLogGesture = false;
         mInRejectedExclusion = false;
         MotionEvent cancelEv = MotionEvent.obtain(ev);
         cancelEv.setAction(MotionEvent.ACTION_CANCEL);
-        if (DesktopExperienceFlags.ENABLE_MULTIDISPLAY_TRACKPAD_BACK_GESTURE.isTrue()) {
-            mDisplayBackGestureHandlers.get(ev.getDisplayId()).onMotionEvent(cancelEv);
-        } else {
-            mEdgeBackPlugin.onMotionEvent(cancelEv);
+        if (!keepSidebarHint) {
+            if (DesktopExperienceFlags.ENABLE_MULTIDISPLAY_TRACKPAD_BACK_GESTURE.isTrue()) {
+                mDisplayBackGestureHandlers.get(ev.getDisplayId()).onMotionEvent(cancelEv);
+            } else {
+                mEdgeBackPlugin.onMotionEvent(cancelEv);
+            }
         }
         dispatchToBackAnimation(cancelEv);
         cancelEv.recycle();
@@ -1209,6 +1242,7 @@ public class EdgeBackGestureHandler {
 
     private void onMotionEvent(MotionEvent ev) {
         int action = ev.getActionMasked();
+        if (mSidebarGesture.onMotionEvent(ev)) return;
         DisplayBackGestureHandler displayBackGestureHandler = mDisplayBackGestureHandlers.get(
                 ev.getDisplayId());
         if (DesktopExperienceFlags.ENABLE_MULTIDISPLAY_TRACKPAD_BACK_GESTURE.isTrue()
@@ -1266,6 +1300,13 @@ public class EdgeBackGestureHandler {
                 if (blockMouseEdgeBackGesture()) {
                     mAllowGesture = mAllowGesture && !isButtonPressFromMouse(ev);
                 }
+            }
+            mSidebarGesture.onDown(ev, mAllowGesture && !mIsTrackpadThreeFingerSwipe, mIsOnLeftEdge);
+            boolean longSwipeAllowed = mIsLongSwipeEnabled && !mSidebarGesture.isTracking();
+            if (DesktopExperienceFlags.ENABLE_MULTIDISPLAY_TRACKPAD_BACK_GESTURE.isTrue()) {
+                if (displayBackGestureHandler != null) displayBackGestureHandler.setLongSwipeEnabled(longSwipeAllowed);
+            } else if (mEdgeBackPlugin != null) {
+                mEdgeBackPlugin.setLongSwipeEnabled(longSwipeAllowed);
             }
             if (mAllowGesture) {
                 if (DesktopExperienceFlags.ENABLE_MULTIDISPLAY_TRACKPAD_BACK_GESTURE.isTrue()) {
@@ -1375,6 +1416,7 @@ public class EdgeBackGestureHandler {
 
             if (mAllowGesture) {
                 // forward touch
+                mSidebarGesture.onBackProgress(ev);
                 if (DesktopExperienceFlags.ENABLE_MULTIDISPLAY_TRACKPAD_BACK_GESTURE.isTrue()) {
                     displayBackGestureHandler.onMotionEvent(ev);
                 } else {

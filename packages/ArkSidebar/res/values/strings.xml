@@ -1,0 +1,56 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Copyright (C) 2026 The ArkUI Project; SPDX-License-Identifier: Apache-2.0 -->
+<resources>
+    <string name="app_name">Sidebar</string>
+    <string name="sidebar_options">Sidebar settings</string>
+    <string name="reorder_hint">Touch and hold a pinned app to move it up or down.</string>
+    <string name="invocation">Open sidebar</string>
+    <string name="mode_handle">Swipe the handle</string>
+    <string name="mode_hold">Hold the back gesture</string>
+    <string name="mode_both">Enable both methods</string>
+    <string name="enabled">App sidebar</string>
+    <string name="enabled_summary">Open apps in small windows from any app. Touch and hold the handle, then drag to reposition it.</string>
+    <string name="handle_description">Sidebar handle. Swipe inward to open. Touch and hold, then drag up or down to reposition.</string>
+    <string name="handle_reposition_help">Touch and hold the handle until it expands, then drag up or down. Release to save its position and shrink it back to the edge.</string>
+    <string name="handle_move_up">Move handle up</string>
+    <string name="handle_move_down">Move handle down</string>
+    <string name="recommend">Show recommended apps</string>
+    <string name="apps">Sidebar apps</string>
+    <string name="apps_summary">Choose and reorder pinned apps. Long-press an app in the sidebar for more options.</string>
+    <string name="appearance">Handle and appearance</string>
+    <string name="gestures">Gestures and animation</string>
+    <string name="advanced">App rules</string>
+    <string name="side">Handle side</string>
+    <string name="left">Left</string>
+    <string name="right">Right</string>
+    <string name="both_edges">Both edges</string>
+    <string name="position">Handle vertical position</string>
+    <string name="height">Handle height</string>
+    <string name="handle_opacity">Handle opacity</string>
+    <string name="hold_delay">Pause duration</string>
+    <string name="hold_distance">Minimum inward distance</string>
+    <string name="hold_help">Swipe inward, pause until three dots appear, then release. Move back to the edge to cancel. Works on either edge with gesture navigation.</string>
+    <string name="haptics">Haptic feedback</string>
+    <string name="icon_size">App icon size</string>
+    <string name="animation">Animation duration</string>
+    <string name="landscape">Allow in landscape</string>
+    <string name="launch_mode">Tap an app to open</string>
+    <string name="small_window">Small window</string>
+    <string name="fullscreen">Full screen</string>
+    <string name="excluded">Hide sidebar in selected apps</string>
+    <string name="all_apps">All small-window apps</string>
+    <string name="search">Search apps</string>
+    <string name="edit">Edit sidebar apps</string>
+    <string name="done">Done</string>
+    <string name="close">Close sidebar</string>
+    <string name="collapse">Collapse app drawer</string>
+    <string name="no_apps">No matching apps</string>
+    <string name="loading">Loading apps…</string>
+    <string name="pin">Pin to sidebar</string>
+    <string name="unpin">Remove from sidebar</string>
+    <string name="move_up">Move up</string>
+    <string name="move_down">Move down</string>
+    <string name="unavailable">This app is unavailable. Refresh the app list and try again.</string>
+    <string name="gesture_navigation_required">Back-and-hold requires gesture navigation. The handle can also be used with three-button navigation.</string>
+    <string name="configure_navigation">Navigation settings</string>
+</resources>

@@ -1,0 +1,28 @@
+// Copyright (C) 2026 The ArkUI Project; SPDX-License-Identifier: Apache-2.0
+package {
+    default_applicable_licenses: ["ArkSidebar_license"],
+}
+license {
+    name: "ArkSidebar_license",
+    visibility: [":__subpackages__"],
+    license_kinds: ["SPDX-license-identifier-Apache-2.0"],
+    license_text: ["NOTICE"],
+}
+android_app {
+    name: "ArkSidebar",
+    defaults: ["platform_app_defaults"],
+    srcs: ["src/**/*.java"],
+    platform_apis: true,
+    certificate: "platform",
+    system_ext_specific: true,
+    static_libs: [
+        "SettingsLibCollapsingToolbarBaseActivity",
+        "SettingsLibSettingsTheme",
+        "SettingsLibMainSwitchPreference",
+        "SettingsLibAppPreference",
+        "SettingsLibSliderPreference",
+        "SettingsLibTopIntroPreference",
+        "androidx.preference_preference",
+        "androidx.recyclerview_recyclerview",
+    ],
+}

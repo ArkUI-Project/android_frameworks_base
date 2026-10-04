@@ -1,0 +1,6 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Copyright (C) 2026 The ArkUI Project; SPDX-License-Identifier: Apache-2.0 -->
+<resources>
+    <string name="arkui_sidebar_fullscreen_fallback">Small windows are disabled for this app. Opening full screen.</string>
+    <string name="arkui_sidebar_app_unavailable">This app is currently unavailable.</string>
+</resources>

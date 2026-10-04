@@ -50,6 +50,10 @@ interface DisplayBackGestureHandler {
 
     fun setLongSwipeEnabled(enabled: Boolean)
 
+    fun showSidebarHint(haptic: Boolean): Boolean = false
+
+    fun hideSidebarHint() {}
+
     fun setBatchingEnabled(enabled: Boolean)
 
     fun pilferPointers()
@@ -137,6 +141,10 @@ constructor(
     override fun setIsLeftPanel(isLeft: Boolean) = edgeBackPlugin.setIsLeftPanel(isLeft)
 
     override fun setLongSwipeEnabled(enabled: Boolean) = edgeBackPlugin.setLongSwipeEnabled(enabled)
+
+    override fun showSidebarHint(haptic: Boolean) = edgeBackPlugin.showSidebarHint(haptic)
+
+    override fun hideSidebarHint() = edgeBackPlugin.hideSidebarHint()
 
     override fun setBatchingEnabled(enabled: Boolean) =
         inputEventReceiver.setBatchingEnabled(enabled)

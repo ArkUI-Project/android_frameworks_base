@@ -334,6 +334,10 @@ import javax.inject.Named;
                 BundleRowComponent.class,
         })
 public abstract class SystemUIModule {
+    @Binds
+    @IntoMap
+    @ClassKey(com.android.systemui.arkui.SidebarManager.class)
+    abstract CoreStartable bindArkSidebar(com.android.systemui.arkui.SidebarManager manager);
 
     @Multibinds
     @Dependencies

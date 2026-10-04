@@ -123,6 +123,14 @@ class BackPanel(context: Context, private val latencyTracker: LatencyTracker) : 
 
     var triggerLongSwipe = false
 
+    var sidebarHint = false
+        set(value) {
+            if (field == value) return
+            field = value
+            invalidate()
+        }
+    private val sidebarDotPaint = Paint(Paint.ANTI_ALIAS_FLAG)
+
     private val allAnimatedFloat =
         setOf(
             arrowLength,
@@ -491,6 +499,24 @@ class BackPanel(context: Context, private val latencyTracker: LatencyTracker) : 
             arrowBackground,
             arrowBackgroundPaint.apply { alpha = (255 * backgroundAlpha.pos).toInt() },
         )
+
+        if (sidebarHint) {
+            // Stay in the same transformed canvas as the Back background on either edge.
+            // Only the glyph changes: no second window, offset, size or color approximation.
+            val density = resources.displayMetrics.density
+            sidebarDotPaint.color = arrowPaint.color
+            sidebarDotPaint.alpha = (255 * backgroundAlpha.pos).toInt()
+            for (dot in -1..1) {
+                canvas.drawCircle(backgroundWidth / 2f, dot * 7f * density,
+                    2f * density, sidebarDotPaint)
+            }
+            canvas.restore()
+            if (trackingBackArrowLatency) {
+                latencyTracker.onActionEnd(LatencyTracker.ACTION_SHOW_BACK_ARROW)
+                trackingBackArrowLatency = false
+            }
+            return
+        }
 
         val dx = arrowLength.pos
         val dy = arrowHeight.pos
