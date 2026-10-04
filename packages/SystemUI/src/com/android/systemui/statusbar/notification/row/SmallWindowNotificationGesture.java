@@ -11,7 +11,6 @@ import android.app.KeyguardManager;
 import android.app.PendingIntent;
 import android.content.Context;
 import android.database.ContentObserver;
-import android.graphics.Bitmap;
 import android.graphics.Canvas;
 import android.graphics.ColorFilter;
 import android.graphics.Matrix;
@@ -19,6 +18,8 @@ import android.graphics.Paint;
 import android.graphics.PixelFormat;
 import android.graphics.Rect;
 import android.graphics.RectF;
+import android.graphics.RecordingCanvas;
+import android.graphics.RenderNode;
 import android.graphics.drawable.Drawable;
 import android.os.Handler;
 import android.os.Looper;
@@ -58,7 +59,7 @@ final class SmallWindowNotificationGesture {
     private float mOriginalAlpha;
     private Rect mLaunchBounds;
     private ValueAnimator mAnimator;
-    private Bitmap mSnapshot;
+    private RenderNode mSnapshot;
     private Preview mPreview;
     private View mRoot;
     private final RectF mStart = new RectF();
@@ -254,13 +255,19 @@ final class SmallWindowNotificationGesture {
                 location[1] - mRootLocation[1] + mRow.getActualHeight());
         mEnd.set(SmallWindowBounds.getDestination(mContext, false, false));
         mEnd.offset(-mRootLocation[0], -mRootLocation[1]);
-        mSnapshot = Bitmap.createBitmap(Math.max(1, mRow.getWidth()),
-                Math.max(1, mRow.getActualHeight()), Bitmap.Config.ARGB_8888);
+        // Notification icons can be hardware bitmaps. Drawing the row into a software bitmap
+        // makes NotificationContentView report a rendering error and remove the notification.
+        // Record the preview on a hardware canvas without a synchronous bitmap readback.
+        mSnapshot = new RenderNode("SmallWindowNotificationPreview");
+        mSnapshot.setPosition(0, 0, Math.max(1, mRow.getWidth()),
+                Math.max(1, mRow.getActualHeight()));
+        final RecordingCanvas canvas = mSnapshot.beginRecording();
         mCapturing = true;
         try {
-            mRow.draw(new Canvas(mSnapshot));
+            mRow.draw(canvas);
         } finally {
             mCapturing = false;
+            mSnapshot.endRecording();
         }
         mOriginalAlpha = mRow.getAlpha();
         mRow.setAlpha(0f);
@@ -344,7 +351,7 @@ final class SmallWindowNotificationGesture {
         if (mPreview != null && mRoot != null) mRoot.getOverlay().remove(mPreview);
         if (mSnapshot != null) {
             mRow.setAlpha(mOriginalAlpha);
-            // RenderThread may still reference the bitmap from the previous frame.
+            // RenderThread may still reference the recorded content from the previous frame.
             mSnapshot = null;
         }
         mPreview = null;
@@ -355,9 +362,8 @@ final class SmallWindowNotificationGesture {
 
     private final class Preview extends Drawable {
         private final android.graphics.Path mClip = new android.graphics.Path();
-        private final RectF mImageBounds = new RectF();
         @Override public void draw(Canvas canvas) {
-            if (mSnapshot == null) return;
+            if (mSnapshot == null || !canvas.isHardwareAccelerated()) return;
             mClip.reset();
             mClip.addRoundRect(mCurrent, 20 * mDensity, 20 * mDensity,
                     android.graphics.Path.Direction.CW);
@@ -365,9 +371,10 @@ final class SmallWindowNotificationGesture {
             canvas.clipPath(mClip);
             mPaint.setColor(0xFF252A2E);
             canvas.drawRect(mCurrent, mPaint);
-            final float height = mSnapshot.getHeight() * mCurrent.width() / mSnapshot.getWidth();
-            mImageBounds.set(mCurrent.left, mCurrent.top, mCurrent.right, mCurrent.top + height);
-            canvas.drawBitmap(mSnapshot, null, mImageBounds, mPaint);
+            final float scale = mCurrent.width() / mSnapshot.getWidth();
+            canvas.translate(mCurrent.left, mCurrent.top);
+            canvas.scale(scale, scale);
+            canvas.drawRenderNode(mSnapshot);
             canvas.restore();
         }
         @Override public void setAlpha(int alpha) { }
