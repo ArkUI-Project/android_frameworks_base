@@ -57,7 +57,7 @@ final class WheelCatalog {
     static List<Item> actions(Context c) {
         int[] labels = {R.string.action_back, R.string.action_home, R.string.action_recents,
                 R.string.action_notifications, R.string.action_quick_settings, R.string.action_screenshot,
-                R.string.action_lock, R.string.action_flashlight};
+                R.string.action_lock, R.string.action_flashlight, R.string.recognize};
         List<Item> result = new ArrayList<>();
         for (int i = 0; i < labels.length; i++) {
             result.add(new Item("action:" + (i + 1), c.getString(labels[i]),

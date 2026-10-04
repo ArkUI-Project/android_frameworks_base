@@ -68,6 +68,7 @@ public final class WheelSettingsFragment extends SettingsBasePreferenceFragment 
             case "appearance": return R.string.appearance;
             case "invocation": return R.string.invocation_title;
             case "behavior": return R.string.behavior;
+            case "recognition": return R.string.recognize;
             default: return R.string.app_name;
         }
     }
@@ -111,6 +112,13 @@ public final class WheelSettingsFragment extends SettingsBasePreferenceFragment 
         PreferenceScreen root = getPreferenceManager().createPreferenceScreen(c()); setPreferenceScreen(root);
         if (appPage()) { buildApps(root); return; }
         switch (page) {
+            case "recognition":
+                help(root, R.string.recognition_intro);
+                link(root, R.string.open_picture, 0, () -> startActivity(new Intent(c(), RecognitionActivity.class)));
+                choice(root, "ocr_language", R.string.ocr_language, 0, R.string.ocr_simplified, R.string.ocr_traditional, R.string.ocr_english);
+                toggle(root, "recognition_wave", R.string.recognition_wave, 0, true);
+                slider(root, "recognition_dim", R.string.recognition_dim, 40, 10, 70, "%");
+                break;
             case "appearance":
                 slider(root, RADIUS, R.string.radius, 280, 180, 360, " dp");
                 slider(root, ICON_SIZE, R.string.icon_size, 44, 32, 64, " dp");
@@ -145,6 +153,7 @@ public final class WheelSettingsFragment extends SettingsBasePreferenceFragment 
                 link(root, R.string.preview, R.string.preview_summary, () -> requireContext().sendBroadcast(
                         new Intent(WheelService.PREVIEW).setPackage(requireContext().getPackageName()))).setEnabled(prefs.enabled());
                 link(root, R.string.items, R.string.items_summary, () -> navigate(ITEMS));
+                link(root, R.string.recognize, R.string.recognition_summary, () -> navigate("recognition"));
                 link(root, R.string.invocation_title, R.string.invocation_summary, () -> navigate("invocation"));
                 link(root, R.string.appearance, R.string.appearance_summary, () -> navigate("appearance"));
                 link(root, R.string.behavior, R.string.behavior_summary, () -> navigate("behavior"));

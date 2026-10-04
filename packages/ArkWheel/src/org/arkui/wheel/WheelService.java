@@ -14,6 +14,7 @@ import android.content.SharedPreferences;
 import android.content.pm.PackageManager;
 import android.content.res.Configuration;
 import android.graphics.Canvas;
+import android.graphics.Bitmap;
 import android.graphics.Insets;
 import android.graphics.Paint;
 import android.graphics.PixelFormat;
@@ -59,6 +60,10 @@ public final class WheelService extends Service implements SharedPreferences.OnS
     private WindowManager windows;
     private Context themed;
     private WheelPanel panel;
+    private RecognitionPanel recognition;
+    private boolean capturing;
+    private int captureId;
+    private final Runnable captureTimeout = () -> { capturing = false; refresh(); };
     private List<WheelCatalog.Item> apps = List.of();
     private Set<String> excluded = Set.of();
     private String foreground = "";
@@ -107,6 +112,20 @@ public final class WheelService extends Service implements SharedPreferences.OnS
                 try { host.getBinder().linkToDeath(death, 0); configuration(); }
                 catch (RemoteException e) { detach(); }
             }
+        } else if (message.what == WheelProtocol.CAPTURE_RESULT && host != null) {
+            Bundle data = message.getData();
+            Bitmap bitmap = data.getParcelable(WheelProtocol.BITMAP, Bitmap.class);
+            if (!capturing || data.getInt(WheelProtocol.CAPTURE_ID) != captureId || !canShow()) {
+                if (bitmap != null) bitmap.recycle(); return true;
+            }
+            capturing = false; main.removeCallbacks(captureTimeout);
+            if (bitmap == null) android.widget.Toast.makeText(this, R.string.recognition_capture_failed, android.widget.Toast.LENGTH_SHORT).show();
+            else {
+                recognition = new RecognitionPanel(themed, bitmap, () -> { recognition = null; refresh(); });
+                try { recognition.show(windows); }
+                catch (RuntimeException e) { recognition.dispose(); recognition = null; }
+            }
+            refresh();
         } else if (message.what == WheelProtocol.ENVIRONMENT && host != null) {
             Bundle state = message.getData();
             boolean next = state.getBoolean(WheelProtocol.ALLOWED);
@@ -177,6 +196,7 @@ public final class WheelService extends Service implements SharedPreferences.OnS
     }
     private void refresh() {
         if (!canShow()) { hide(); return; }
+        if (capturing) return;
         if (!triggers.isEmpty()) return;
         int side = prefs.get(SIDE, 0, 0, 2);
         if (side != 1) addTrigger(false);
@@ -205,6 +225,12 @@ public final class WheelService extends Service implements SharedPreferences.OnS
         WheelPanel created = new WheelPanel(themed, prefs, apps, recent, left, new WheelPanel.Callback() {
             @Override public void launch(WheelCatalog.Item item, boolean alternate) {
                 if (!canShow()) return;
+                if (item.action == WheelProtocol.RECOGNIZE) {
+                    hide(); capturing = true;
+                    Bundle data = new Bundle(); data.putInt("action", WheelProtocol.RECOGNIZE);
+                    data.putInt(WheelProtocol.CAPTURE_ID, ++captureId); send(WheelProtocol.ACTION, data);
+                    main.postDelayed(captureTimeout, 6000); return;
+                }
                 Bundle data = new Bundle();
                 if (item.component == null) { data.putInt("action", item.action); send(WheelProtocol.ACTION, data); }
                 else {
@@ -267,6 +293,8 @@ public final class WheelService extends Service implements SharedPreferences.OnS
         @Override protected void onDetachedFromWindow() { removeCallbacks(hold); tracking = false; super.onDetachedFromWindow(); }
     }
     private void hide() {
+        capturing = false; ++captureId; main.removeCallbacks(captureTimeout);
+        if (recognition != null) { RecognitionPanel old = recognition; recognition = null; old.dispose(); }
         if (panel != null) { WheelPanel old = panel; panel = null; old.dismissImmediately(); }
         for (Trigger trigger : triggers) windows.removeViewImmediate(trigger);
         triggers.clear();

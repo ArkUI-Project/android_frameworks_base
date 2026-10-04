@@ -7,6 +7,8 @@ import android.app.ActivityManager;
 import android.app.ActivityOptions;
 import android.app.ActivityTaskManager;
 import android.app.KeyguardManager;
+import android.app.admin.DevicePolicyManager;
+import android.graphics.Bitmap;
 import android.app.WindowConfiguration;
 import android.content.BroadcastReceiver;
 import android.content.ComponentName;
@@ -37,6 +39,8 @@ import android.view.KeyCharacterMap;
 import android.view.KeyEvent;
 import android.view.WindowManager;
 import android.view.WindowManagerGlobal;
+import android.window.ScreenCapture;
+import android.window.ScreenCaptureInternal;
 import android.widget.Toast;
 import androidx.annotation.NonNull;
 import com.android.internal.arkui.SmallWindowSettings;
@@ -170,7 +174,10 @@ public final class WheelManager implements CoreStartable {
         lastAction = SystemClock.uptimeMillis();
         try {
             if (message.what == LAUNCH) launch(ComponentName.unflattenFromString(data.getString(COMPONENT, "")), data.getBoolean(SMALL));
-            else if (message.what == ACTION) action(data.getInt("action"));
+            else if (message.what == ACTION) {
+                if (data.getInt("action") == RECOGNIZE) capture(data.getInt(CAPTURE_ID));
+                else action(data.getInt("action"));
+            }
             else if (message.what == MANAGE) context.startActivityAsUser(new Intent().setComponent(SETTINGS)
                     .putExtra("edit_items", true).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK), users.getUserHandle());
         } catch (RuntimeException e) {
@@ -262,6 +269,49 @@ public final class WheelManager implements CoreStartable {
                 else Toast.makeText(context, R.string.arkui_sidebar_app_unavailable, Toast.LENGTH_SHORT).show(); break;
             default: break;
         }
+    }
+    private void capture(int request) {
+        int user = users.getUserId(), token = generation;
+        String source = foreground;
+        main.postDelayed(() -> {
+            if (token != generation || !enabled || !allowed()) return;
+            background.execute(() -> {
+                Bitmap captured = null;
+                try {
+                    if (!users.getUserContext().getSystemService(DevicePolicyManager.class).getScreenCaptureDisabled(null)) {
+                        var args = new ScreenCaptureInternal.CaptureArgs.Builder<>()
+                                .setSecureContentPolicy(ScreenCapture.ScreenCaptureParams.SECURE_CONTENT_POLICY_THROW_EXCEPTION)
+                                .setProtectedContentPolicy(ScreenCapture.ScreenCaptureParams.PROTECTED_CONTENT_POLICY_REDACT).build();
+                        var listener = ScreenCaptureInternal.createSyncCaptureListener();
+                        WindowManagerGlobal.getWindowManagerService().captureDisplay(Display.DEFAULT_DISPLAY, args, listener);
+                        var buffer = listener.getBuffer();
+                        if (buffer != null) {
+                            try {
+                                if (!buffer.containsSecureLayers()) {
+                                    Bitmap hardware = buffer.asBitmap();
+                                    if (hardware != null) {
+                                        Bitmap copy = hardware.copy(Bitmap.Config.ARGB_8888, false);
+                                        hardware.recycle();
+                                        if (copy != null) { captured = copy.asShared(); if (captured != copy) copy.recycle(); }
+                                    }
+                                }
+                            } finally { if (buffer.getHardwareBuffer() != null) buffer.getHardwareBuffer().close(); }
+                        }
+                    }
+                } catch (RuntimeException | RemoteException e) { Log.w("ArkWheel", "Cannot capture recognition screen", e); }
+                Bitmap result = captured;
+                main.post(() -> {
+                    try {
+                        if (token != generation || user != users.getUserId() || !enabled || !allowed()
+                                || !source.equals(foreground) || service == null) return;
+                        Message reply = Message.obtain(null, CAPTURE_RESULT);
+                        Bundle data = new Bundle(); data.putInt(CAPTURE_ID, request); data.putParcelable(BITMAP, result); reply.setData(data);
+                        service.send(reply);
+                    } catch (RemoteException e) { Log.w("ArkWheel", "Recognition receiver disconnected", e); }
+                    finally { if (result != null) result.recycle(); }
+                });
+            });
+        }, 100);
     }
     private void key(int code) {
         long now = SystemClock.uptimeMillis();

@@ -1,0 +1,8 @@
+name: "Tesseract4Android"
+description: "Unmodified Java and JNI components of upstream AAR SHA256 bce5d6413a1a5ae3d7240033fbbc851ba3217d0a08d9769400e17a077f42cb2a, with bundled Chinese and English tessdata_fast models."
+third_party {
+  url { type: HOMEPAGE value: "https://github.com/adaptech-cz/Tesseract4Android" }
+  url { type: ARCHIVE value: "https://jitpack.io/cz/adaptech/tesseract4android/tesseract4android/4.9.0/tesseract4android-4.9.0.aar" }
+  version: "4.9.0"
+  license_type: NOTICE
+}

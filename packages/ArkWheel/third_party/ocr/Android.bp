@@ -1,0 +1,69 @@
+// Copyright (C) 2026 The ArkUI Project; SPDX-License-Identifier: Apache-2.0
+package {
+    default_applicable_licenses: ["ArkWheelOfflineOcr_license"],
+}
+license {
+    name: "ArkWheelOfflineOcr_license",
+    visibility: ["//frameworks/base/packages/ArkWheel:__subpackages__"],
+    license_kinds: ["SPDX-license-identifier-Apache-2.0", "SPDX-license-identifier-BSD-2-Clause", "legacy_notice"],
+    license_text: ["LICENSE.apache2", "LICENSE.leptonica", "LICENSE.libpng", "LICENSE.jpeg", "NOTICE"],
+}
+java_import {
+    name: "ArkWheelOfflineOcr",
+    visibility: ["//frameworks/base/packages/ArkWheel:__subpackages__"],
+    jars: ["classes.jar"],
+    sdk_version: "current",
+    libs: ["androidx.annotation_annotation"],
+}
+// System packages derive their ABI from app/lib/<isa>. Let Soong install JNI
+// symlinks there, with the actual libraries isolated from global JPEG/PNG names.
+cc_defaults {
+    name: "ArkWheelOcrNativeDefaults",
+    system_ext_specific: true,
+    relative_install_path: "arkwheel",
+    stl: "none",
+    strip: { none: true },
+    // The module names are private; unmodified upstream SONAMEs intentionally differ.
+    check_elf_files: false,
+    visibility: ["//frameworks/base/packages/ArkWheel:__subpackages__"],
+}
+cc_prebuilt_library_shared {
+    name: "libarkwheel_ocr_jpeg", stem: "libjpeg",
+    defaults: ["ArkWheelOcrNativeDefaults"],
+    arch: {
+        arm: { srcs: ["jni/armeabi-v7a/libjpeg.so"] },
+        arm64: { srcs: ["jni/arm64-v8a/libjpeg.so"] },
+        x86: { srcs: ["jni/x86/libjpeg.so"] },
+        x86_64: { srcs: ["jni/x86_64/libjpeg.so"] },
+    },
+}
+cc_prebuilt_library_shared {
+    name: "libarkwheel_ocr_png", stem: "libpngx",
+    defaults: ["ArkWheelOcrNativeDefaults"],
+    arch: {
+        arm: { srcs: ["jni/armeabi-v7a/libpngx.so"] },
+        arm64: { srcs: ["jni/arm64-v8a/libpngx.so"] },
+        x86: { srcs: ["jni/x86/libpngx.so"] },
+        x86_64: { srcs: ["jni/x86_64/libpngx.so"] },
+    },
+}
+cc_prebuilt_library_shared {
+    name: "libarkwheel_ocr_leptonica", stem: "libleptonica",
+    defaults: ["ArkWheelOcrNativeDefaults"],
+    arch: {
+        arm: { srcs: ["jni/armeabi-v7a/libleptonica.so"] },
+        arm64: { srcs: ["jni/arm64-v8a/libleptonica.so"] },
+        x86: { srcs: ["jni/x86/libleptonica.so"] },
+        x86_64: { srcs: ["jni/x86_64/libleptonica.so"] },
+    },
+}
+cc_prebuilt_library_shared {
+    name: "libarkwheel_ocr_tesseract", stem: "libtesseract",
+    defaults: ["ArkWheelOcrNativeDefaults"],
+    arch: {
+        arm: { srcs: ["jni/armeabi-v7a/libtesseract.so"] },
+        arm64: { srcs: ["jni/arm64-v8a/libtesseract.so"] },
+        x86: { srcs: ["jni/x86/libtesseract.so"] },
+        x86_64: { srcs: ["jni/x86_64/libtesseract.so"] },
+    },
+}

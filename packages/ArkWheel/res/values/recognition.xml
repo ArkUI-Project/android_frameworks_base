@@ -1,0 +1,33 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Copyright (C) 2026 The ArkUI Project; SPDX-License-Identifier: Apache-2.0 -->
+<resources>
+    <string name="recognize">Recognize screen</string>
+    <string name="recognition_summary">Select text in place and extract pictures, entirely offline</string>
+    <string name="recognition_intro">Choose Recognize screen in the wheel’s Actions tab, or add it to your shortcuts. Long press recognized text and drag the handles to copy any selection. You can also share a picture here from another app.</string>
+    <string name="recognition_running">Recognizing on device…</string>
+    <string name="recognition_ready">Long press text to select</string>
+    <string name="recognition_empty">No text found. You can still extract an image.</string>
+    <string name="recognition_failed">Could not recognize this image. Try a clearer picture.</string>
+    <string name="recognition_capture_failed">This screen cannot be captured</string>
+    <string name="extract_images">Extract images</string>
+    <string name="select_text">Select text</string>
+    <string name="crop_image">Adjust crop</string>
+    <string name="crop_hint">Drag the corners to adjust the image</string>
+    <string name="images_hint">Tap a picture, or adjust the crop</string>
+    <string name="save_image">Save image</string>
+    <string name="copy_image">Copy image</string>
+    <string name="share_image">Share image</string>
+    <string name="image_saved">Saved to Pictures/ArkUI</string>
+    <string name="image_copied">Image copied</string>
+    <string name="image_failed">Could not export this image</string>
+    <string name="text_copied">Text copied</string>
+    <string name="all_text">All text</string>
+    <string name="ocr_language">Recognition language</string>
+    <string name="ocr_simplified">Simplified Chinese and English</string>
+    <string name="ocr_traditional">Traditional Chinese and English</string>
+    <string name="ocr_english">English</string>
+    <string name="recognition_wave">Recognition animation</string>
+    <string name="recognition_dim">Recognition background dimming</string>
+    <string name="open_picture">Open a picture</string>
+    <string name="recognition_close">Close recognition</string>
+</resources>

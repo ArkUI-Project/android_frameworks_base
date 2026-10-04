@@ -99,6 +99,12 @@ final class WheelStyle {
             p.setStrokeJoin(Paint.Join.ROUND); p.setStrokeCap(Paint.Cap.ROUND);
             path.rewind();
             switch (kind) {
+                case 9:
+                    for (int turn = 0; turn < 4; turn++) {
+                        c.save(); c.rotate(turn * 90, 12, 12);
+                        path.rewind(); path.moveTo(3, 8); path.lineTo(3, 3); path.lineTo(8, 3); c.drawPath(path, p); c.restore();
+                    }
+                    c.drawLine(7, 9, 17, 9, p); c.drawLine(12, 9, 12, 17, p); break;
                 case 1: path.moveTo(15, 4); path.lineTo(7, 12); path.lineTo(15, 20); c.drawPath(path, p); break;
                 case 2:
                     path.moveTo(3, 11); path.lineTo(12, 3); path.lineTo(21, 11);
