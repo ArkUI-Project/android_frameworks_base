@@ -41,13 +41,16 @@ import android.graphics.Insets;
 import android.graphics.Rect;
 import android.graphics.Region;
 import android.os.Handler;
+import android.os.Looper;
 import android.os.UserHandle;
+import android.provider.Settings;
 import android.util.IndentingPrintWriter;
 import android.util.Log;
 import android.util.MathUtils;
 import android.view.Display;
 import android.view.MotionEvent;
 import android.view.VelocityTracker;
+import android.view.View;
 import android.view.ViewConfiguration;
 import android.view.ViewGroup;
 import android.view.WindowInsets;
@@ -139,6 +142,10 @@ public class QuickSettingsControllerImpl implements QuickSettingsController, Dum
     private final Lazy<LargeScreenHeaderHelper> mLargeScreenHeaderHelperLazy;
     private final KeyguardStatusBarView mKeyguardStatusBar;
     private final FrameLayout mQsFrame;
+    private final SelectedUserInteractor mSelectedUserInteractor;
+    private final ContentObserver mDualShadeObserver;
+    private boolean mDualShadeEnabled;
+    private boolean mDualShadeShowingQs;
 
     private final QsFrameTranslateController mQsFrameTranslateController;
     private final PulseExpansionHandler mPulseExpansionHandler;
@@ -410,6 +417,13 @@ public class QuickSettingsControllerImpl implements QuickSettingsController, Dum
         mActiveNotificationsInteractor = activeNotificationsInteractor;
         mCommunalTransitionViewModelLazy = communalTransitionViewModelLazy;
         mJavaAdapter = javaAdapter;
+        mSelectedUserInteractor = selectedUserInteractor;
+        mDualShadeObserver = new ContentObserver(new Handler(Looper.getMainLooper())) {
+            @Override
+            public void onChange(boolean selfChange) {
+                updateDualShadeSetting();
+            }
+        };
 
         mLockscreenShadeTransitionController.addCallback(new LockscreenShadeTransitionCallback());
 
@@ -466,7 +480,11 @@ public class QuickSettingsControllerImpl implements QuickSettingsController, Dum
     }
 
     void updateResources() {
+        boolean wasSplitShade = mSplitShadeEnabled;
         mSplitShadeEnabled = mSplitShadeStateController.shouldUseSplitNotificationShade(mResources);
+        if (wasSplitShade != mSplitShadeEnabled) {
+            mDualShadeShowingQs = false;
+        }
         if (mQs != null) {
             mQs.setInSplitShade(mSplitShadeEnabled);
         }
@@ -492,11 +510,59 @@ public class QuickSettingsControllerImpl implements QuickSettingsController, Dum
     // TODO (b/265054088): move this and others to a CoreStartable
     void init() {
         initNotificationStackScrollLayoutController();
+        mJavaAdapter.alwaysCollectFlow(mSelectedUserInteractor.getSelectedUser(),
+                userId -> updateDualShadeSetting());
         mJavaAdapter.alwaysCollectFlow(
                 mShadeInteractor.isExpandToQsEnabled(), this::setExpansionEnabledPolicy);
         mJavaAdapter.alwaysCollectFlow(
                 mCommunalTransitionViewModelLazy.get().isUmoOnCommunal(),
                 this::setShouldUpdateSquishinessOnMedia);
+    }
+
+    private void updateDualShadeSetting() {
+        boolean enabled = Settings.Secure.getIntForUser(
+                mPanelView.getContext().getContentResolver(), Settings.Secure.DUAL_SHADE, 0,
+                mSelectedUserInteractor.getSelectedUserId()) != 0;
+        setDualShadeEnabled(enabled);
+    }
+
+    @VisibleForTesting
+    void setDualShadeEnabled(boolean enabled) {
+        if (mDualShadeEnabled == enabled) return;
+        // Finish the old panel before changing its layout and touch ownership.
+        if (mQs != null) {
+            if (mBarState == KEYGUARD) {
+                closeQs();
+            } else {
+                mPanelViewControllerLazy.get().collapse(false, false, 1f);
+            }
+        }
+        mDualShadeEnabled = enabled;
+        mDualShadeShowingQs = false;
+        if (mQs != null) {
+            mPanelViewControllerLazy.get().onShadePanelsStyleChanged();
+            updateMinHeight();
+            updateExpansion();
+            mPanelView.requestLayout();
+        }
+    }
+
+    boolean isDualShadeEnabled() {
+        // Retain the side-by-side layout on large screens.
+        return mDualShadeEnabled && !mSplitShadeEnabled;
+    }
+
+    private boolean isControlCenterSide(float x) {
+        float halfWidth = mPanelView.getWidth() / 2f;
+        return mPanelView.isLayoutRtl() ? x < halfWidth : x >= halfWidth;
+    }
+
+    private void setDualShadeShowingQs(boolean showingQs) {
+        if (mDualShadeShowingQs == showingQs) return;
+        mDualShadeShowingQs = showingQs;
+        if (mQs != null) {
+            updateExpansion();
+        }
     }
 
     private void initNotificationStackScrollLayoutController() {
@@ -628,15 +694,21 @@ public class QuickSettingsControllerImpl implements QuickSettingsController, Dum
         float region = w * 1.f / 4.f; // TODO overlay region fraction?
         boolean showQsOverride = false;
 
-        switch (mOneFingerQuickSettingsIntercept) {
-            case 1: // Right side pulldown
-                showQsOverride = mQs.getView().isLayoutRtl() ? x < region : w - region < x;
-                break;
-            case 2: // Left side pulldown
-                showQsOverride = mQs.getView().isLayoutRtl() ? w - region < x : x < region;
-                break;
+        if (isDualShadeEnabled()) {
+            // Match the start/end regions used by the separate-panels preview (including RTL).
+            showQsOverride = action == MotionEvent.ACTION_DOWN
+                    && isControlCenterSide(x);
+        } else {
+            switch (mOneFingerQuickSettingsIntercept) {
+                case 1: // Right side pulldown
+                    showQsOverride = mQs.getView().isLayoutRtl() ? x < region : w - region < x;
+                    break;
+                case 2: // Left side pulldown
+                    showQsOverride = mQs.getView().isLayoutRtl() ? w - region < x : x < region;
+                    break;
+            }
         }
-        showQsOverride &= mBarState == StatusBarState.SHADE;
+        showQsOverride &= isDualShadeEnabled() || mBarState == StatusBarState.SHADE;
 
         return twoFingerDrag || showQsOverride || stylusButtonClickDrag || mouseButtonClickDrag;
     }
@@ -721,6 +793,10 @@ public class QuickSettingsControllerImpl implements QuickSettingsController, Dum
      */
     @Override
     public boolean shouldQuickSettingsIntercept(float x, float y, float yDiff) {
+        if (isDualShadeEnabled() && (mBarState != KEYGUARD
+                || (!mDualShadeShowingQs && !isControlCenterSide(x)))) {
+            return false;
+        }
         boolean keyguardShowing = mBarState == KEYGUARD;
         if (!isExpansionEnabled() || mCollapsedOnDown || (keyguardShowing
                 && mKeyguardBypassController.getBypassEnabled()) || mSplitShadeEnabled) {
@@ -850,10 +926,16 @@ public class QuickSettingsControllerImpl implements QuickSettingsController, Dum
         // middle of animation - we need to make sure that value is always false when shade if
         // fully collapsed or expanded
         setExpandImmediate(false);
+        setDualShadeShowingQs(false);
     }
 
     @VisibleForTesting
     void setExpanded(boolean expanded) {
+        if (expanded && isDualShadeEnabled()) {
+            setDualShadeShowingQs(true);
+        } else if (!expanded && mBarState == KEYGUARD) {
+            setDualShadeShowingQs(false);
+        }
         boolean changed = getExpanded() != expanded;
         if (changed) {
             mShadeRepository.setLegacyIsQsExpanded(expanded);
@@ -975,6 +1057,12 @@ public class QuickSettingsControllerImpl implements QuickSettingsController, Dum
     }
 
     void setBarState(int barState) {
+        if (barState == KEYGUARD && mBarState != KEYGUARD) {
+            setDualShadeShowingQs(false);
+            // The keyguard is an expanded surface. The window asks whether QS should intercept
+            // before the panel receives DOWN, so it must not see the previous unlocked gesture.
+            mCollapsedOnDown = false;
+        }
         mBarState = barState;
     }
 
@@ -1019,8 +1107,12 @@ public class QuickSettingsControllerImpl implements QuickSettingsController, Dum
     }
 
     void setShadeExpansion(float expandedHeight, float expandedFraction) {
+        boolean justClosed = mShadeExpandedFraction > 0f && expandedFraction == 0f;
         mShadeExpandedHeight = expandedHeight;
         mShadeExpandedFraction = expandedFraction;
+        if (justClosed) {
+            setDualShadeShowingQs(false);
+        }
         mMediaHierarchyManager.setShadeExpandedFraction(expandedFraction);
     }
 
@@ -1030,6 +1122,9 @@ public class QuickSettingsControllerImpl implements QuickSettingsController, Dum
     }
 
     void setExpandImmediate(boolean expandImmediate) {
+        if (expandImmediate && isDualShadeEnabled()) {
+            setDualShadeShowingQs(true);
+        }
         if (expandImmediate != isExpandImmediate()) {
             mShadeLog.logQsExpandImmediateChanged(expandImmediate);
             mShadeRepository.setLegacyExpandImmediate(expandImmediate);
@@ -1084,6 +1179,11 @@ public class QuickSettingsControllerImpl implements QuickSettingsController, Dum
     /** update expanded state of QS */
     void updateExpansion() {
         if (mQs == null) return;
+        boolean dualShade = isDualShadeEnabled();
+        mQsFrame.setVisibility(dualShade && !mDualShadeShowingQs
+                ? View.INVISIBLE : View.VISIBLE);
+        mNotificationStackScrollLayoutController.setHiddenForDualShade(
+                dualShade && mDualShadeShowingQs);
         final float squishiness;
         if ((isExpandImmediate() || getExpanded()) && !mSplitShadeEnabled) {
             squishiness = 1;
@@ -1136,7 +1236,8 @@ public class QuickSettingsControllerImpl implements QuickSettingsController, Dum
                 : mShadeExpandedFraction;
         mShadeHeaderController.setShadeExpandedFraction(shadeExpandedFraction);
         mShadeHeaderController.setQsExpandedFraction(qsExpansionFraction);
-        mShadeHeaderController.setQsVisible(mVisible);
+        mShadeHeaderController.setQsVisible(mVisible
+                || (dualShade && mBarState != KEYGUARD && mShadeExpandedFraction > 0f));
 
         // Update the light bar
         mLightBarController.setQsExpanded(mFullyExpanded);
@@ -1190,7 +1291,7 @@ public class QuickSettingsControllerImpl implements QuickSettingsController, Dum
 
     void updateMinHeight() {
         float previousMin = mMinExpansionHeight;
-        if (mBarState == KEYGUARD || mSplitShadeEnabled) {
+        if (mBarState == KEYGUARD || mSplitShadeEnabled || isDualShadeEnabled()) {
             mMinExpansionHeight = 0;
         } else {
             mMinExpansionHeight = mQs.getQsMinExpansionHeight();
@@ -1240,6 +1341,10 @@ public class QuickSettingsControllerImpl implements QuickSettingsController, Dum
         float qsExpansionFraction = computeExpansionFraction();
         final int qsPanelBottomY = calculateBottomPosition(qsExpansionFraction);
         int top = calculateTopClippingBound(qsPanelBottomY);
+        if (isDualShadeEnabled() && mDualShadeShowingQs) {
+            // The control center owns the whole surface, including the former shelf area.
+            top = mPanelView.getBottom();
+        }
         // Split shade has no QQS
         final boolean qqsVisible;
         if (shadeQsvisibleLogic()) {
@@ -1249,7 +1354,8 @@ public class QuickSettingsControllerImpl implements QuickSettingsController, Dum
         }
 
         final boolean qsVisible = qsExpansionFraction > 0;
-        final boolean qsOrQqsVisible = qqsVisible || qsVisible;
+        final boolean qsOrQqsVisible = (qqsVisible || qsVisible)
+                && (!isDualShadeEnabled() || mDualShadeShowingQs);
 
         int bottom = calculateBottomClippingBound(top);
         int left = calculateLeftClippingBound();
@@ -1458,6 +1564,9 @@ public class QuickSettingsControllerImpl implements QuickSettingsController, Dum
         SceneContainerFlag.assertInLegacyMode();
         float topPadding;
         boolean keyguardShowing = mBarState == KEYGUARD;
+        if (isDualShadeEnabled() && !keyguardShowing) {
+            return mQuickQsHeaderHeight;
+        }
         if (mSplitShadeEnabled) {
             return keyguardShowing
                     ? keyguardNotificationStaticPadding : 0;
@@ -1496,6 +1605,9 @@ public class QuickSettingsControllerImpl implements QuickSettingsController, Dum
 
     @Override
     public int calculatePanelHeightExpanded(int stackScrollerPadding) {
+        if (isDualShadeEnabled()) {
+            return mNotificationStackScrollLayoutController.getHeight();
+        }
         float
                 notificationHeight =
                 mNotificationStackScrollLayoutController.getHeight()
@@ -1645,6 +1757,10 @@ public class QuickSettingsControllerImpl implements QuickSettingsController, Dum
     }
 
     private void collapseOrExpandQs() {
+        if (isDualShadeEnabled()) {
+            mPanelViewControllerLazy.get().collapse(false, 1f);
+            return;
+        }
         if (mSplitShadeEnabled) {
             return; // QS is always expanded in split shade
         }
@@ -1682,6 +1798,32 @@ public class QuickSettingsControllerImpl implements QuickSettingsController, Dum
     /** handles touches in Qs panel area */
     boolean handleTouch(MotionEvent event, boolean isFullyCollapsed,
             boolean isShadeOrQsHeightAnimationRunning) {
+        if (isDualShadeEnabled() && mBarState != KEYGUARD) {
+            if (event.getActionMasked() == MotionEvent.ACTION_DOWN) {
+                mTwoFingerExpandPossible = isFullyCollapsed;
+                if (mTwoFingerExpandPossible) setDualShadeShowingQs(false);
+            }
+            if (mTwoFingerExpandPossible && isExpansionEnabled() && isOpenQsEvent(event)
+                    && event.getY(event.getActionIndex()) < mStatusBarMinHeight) {
+                mMetricsLogger.count(COUNTER_PANEL_OPEN_QS, 1);
+                setExpandImmediate(true);
+                if (mExpansionHeightSetToMaxListener != null) {
+                    mExpansionHeightSetToMaxListener.onExpansionHeightSetToMax(false);
+                }
+                setListening(true);
+            }
+            if (isFullyCollapsed && (event.getActionMasked() == MotionEvent.ACTION_UP
+                    || event.getActionMasked() == MotionEvent.ACTION_CANCEL)) {
+                // A tap or cancelled drag must not keep notifications hidden (including HUNs)
+                // or keep tile listeners active after the status bar gesture finishes.
+                setExpandImmediate(false);
+                setDualShadeShowingQs(false);
+                mTwoFingerExpandPossible = false;
+                setListening(false);
+            }
+            // Panel tracking owns both open and close. There is no intermediate QQS state.
+            return false;
+        }
         if (isSplitShadeAndTouchXOutsideQs(event.getX())) {
             mShadeLog.logMotionEvent(event, "handleQsTouch: touch outside QS");
             return false;
@@ -1848,6 +1990,8 @@ public class QuickSettingsControllerImpl implements QuickSettingsController, Dum
 
     /** intercepts touches on Qs panel area. */
     boolean onIntercept(MotionEvent event) {
+        // Keep the keyguard touch dispatcher and its authentication/falsing checks in charge.
+        if (isDualShadeEnabled() && mBarState != KEYGUARD) return false;
         int pointerIndex = event.findPointerIndex(mTrackingPointer);
         if (pointerIndex < 0) {
             pointerIndex = 0;
@@ -1947,6 +2091,10 @@ public class QuickSettingsControllerImpl implements QuickSettingsController, Dum
      * @param animateAway Do not stop when QS becomes QQS. Fling until QS isn't visible anymore.
      */
     void animateCloseQs(boolean animateAway) {
+        if (isDualShadeEnabled() && mBarState != KEYGUARD) {
+            mPanelViewControllerLazy.get().collapse(false, 1f);
+            return;
+        }
         if (mExpansionAnimator != null) {
             if (!mAnimatorExpand) {
                 return;
@@ -2153,6 +2301,10 @@ public class QuickSettingsControllerImpl implements QuickSettingsController, Dum
         ipw.println(mDisplayRightInset);
         ipw.print("mDozing=");
         ipw.println(mDozing);
+        ipw.print("mDualShadeEnabled=");
+        ipw.println(mDualShadeEnabled);
+        ipw.print("mDualShadeShowingQs=");
+        ipw.println(mDualShadeShowingQs);
         ipw.print("mEnableClipping=");
         ipw.println(mEnableClipping);
         ipw.print("mExpandedWhenExpandingStarted=");
@@ -2322,6 +2474,10 @@ public class QuickSettingsControllerImpl implements QuickSettingsController, Dum
                     false, mOneFingerQuickSettingsInterceptObserver,
                     UserHandle.USER_ALL);
             mOneFingerQuickSettingsInterceptObserver.onChange(true);
+            mPanelView.getContext().getContentResolver().registerContentObserver(
+                    Settings.Secure.getUriFor(Settings.Secure.DUAL_SHADE), false,
+                    mDualShadeObserver, UserHandle.USER_ALL);
+            updateDualShadeSetting();
             updateExpansion();
         }
 
@@ -2332,6 +2488,8 @@ public class QuickSettingsControllerImpl implements QuickSettingsController, Dum
         /** */
         @Override
         public void onFragmentViewDestroyed(String tag, Fragment fragment) {
+            mPanelView.getContext().getContentResolver().unregisterContentObserver(
+                    mDualShadeObserver);
             mPanelView.getContext().getContentResolver().unregisterContentObserver(
                     mOneFingerQuickSettingsInterceptObserver);
             // Manual handling of fragment lifecycle is only required because this bridges
@@ -2419,7 +2577,7 @@ public class QuickSettingsControllerImpl implements QuickSettingsController, Dum
         @Override
         public void onOverscrollTopChanged(float amount, boolean isRubberbanded) {
             // When in split shade, overscroll shouldn't carry through to QS
-            if (mSplitShadeEnabled) {
+            if (mSplitShadeEnabled || isDualShadeEnabled()) {
                 return;
             }
             cancelExpansionAnimation();
@@ -2436,6 +2594,7 @@ public class QuickSettingsControllerImpl implements QuickSettingsController, Dum
 
         @Override
         public void flingTopOverscroll(float velocity, boolean open) {
+            if (isDualShadeEnabled()) return;
             // in split shade mode we want to expand/collapse QS only when touch happens within QS
             if (isSplitShadeAndTouchXOutsideQs(mInitialTouchX)) {
                 return;

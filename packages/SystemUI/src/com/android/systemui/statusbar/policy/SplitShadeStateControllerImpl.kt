@@ -16,10 +16,13 @@
 package com.android.systemui.statusbar.policy
 
 import android.content.res.Resources
+import android.os.UserHandle
+import android.provider.Settings
 import com.android.systemui.dagger.SysUISingleton
 import com.android.systemui.flags.FeatureFlags
 import com.android.systemui.flags.Flags
 import com.android.systemui.res.R
+import com.android.systemui.util.settings.SecureSettings
 import javax.inject.Inject
 
 /**
@@ -27,7 +30,10 @@ import javax.inject.Inject
  * screen width, and flags.
  */
 @SysUISingleton
-class SplitShadeStateControllerImpl @Inject constructor(private val featureFlags: FeatureFlags) :
+class SplitShadeStateControllerImpl @Inject constructor(
+    private val featureFlags: FeatureFlags,
+    private val secureSettings: SecureSettings,
+) :
     SplitShadeStateController {
 
     @Deprecated(
@@ -39,6 +45,13 @@ class SplitShadeStateControllerImpl @Inject constructor(private val featureFlags
             ),
     )
     override fun shouldUseSplitNotificationShade(resources: Resources): Boolean {
+        // On phones the chosen panel style also applies in landscape. Keep the existing
+        // side-by-side layout on tablets and the inner display of a foldable.
+        if (resources.configuration.smallestScreenWidthDp < 600 &&
+            secureSettings.getIntForUser(Settings.Secure.DUAL_SHADE, 0,
+                UserHandle.USER_CURRENT) != 0) {
+            return false
+        }
         return (resources.getBoolean(R.bool.config_use_split_notification_shade) ||
             (featureFlags.isEnabled(Flags.LOCKSCREEN_ENABLE_LANDSCAPE) &&
                 resources.getBoolean(R.bool.force_config_use_split_notification_shade)))

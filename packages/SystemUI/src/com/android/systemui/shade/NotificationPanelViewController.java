@@ -1116,6 +1116,14 @@ public final class NotificationPanelViewController implements
                 mStatusBarStateController.getInterpolatedDozeAmount());
     }
 
+    /** Refresh cached shade layout policy after changing the user-selected panel style. */
+    void onShadePanelsStyleChanged() {
+        Configuration configuration = mResources.getConfiguration();
+        mConfigurationController.onConfigurationChanged(configuration);
+        mView.getRootView().dispatchConfigurationChanged(configuration);
+        reInflateViews();
+    }
+
     /** Sets a listener to be notified when the shade starts opening or finishes closing. */
     public void setOpenCloseListener(OpenCloseListener openCloseListener) {
         SceneContainerFlag.assertInLegacyMode();
@@ -1399,6 +1407,11 @@ public final class NotificationPanelViewController implements
 
     @Override
     public void expandToNotifications() {
+        if (mQsController.isDualShadeEnabled()) {
+            mQsController.closeQs();
+            expand(true /* animate */);
+            return;
+        }
         if (mSplitShadeEnabled && (isShadeFullyExpanded() || isExpandingOrCollapsing())) {
             return;
         }

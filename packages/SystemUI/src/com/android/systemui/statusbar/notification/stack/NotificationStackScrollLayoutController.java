@@ -319,6 +319,8 @@ public class NotificationStackScrollLayoutController implements Dumpable {
     private float mMaxAlphaForUnhide = 1.0f;
     private float mMaxAlphaForRebind = 1.0f;
     private float mMaxAlphaFromView = 1.0f;
+    private boolean mHiddenForDualShade;
+    private boolean mRequestedVisible = true;
 
     /**
      * Maximum alpha when to and from or sitting idle on the glanceable hub. Will be 1.0f when the
@@ -1604,7 +1606,15 @@ public class NotificationStackScrollLayoutController implements Dumpable {
      * @param visible either the view is visible or not.
      */
     public void updateVisibility(boolean visible) {
-        mView.setVisibility(visible ? View.VISIBLE : View.INVISIBLE);
+        mRequestedVisible = visible;
+        mView.setVisibility(visible && !mHiddenForDualShade ? View.VISIBLE : View.INVISIBLE);
+    }
+
+    /** Hide the notification surface, including touch and accessibility, in the control center. */
+    public void setHiddenForDualShade(boolean hidden) {
+        if (mHiddenForDualShade == hidden) return;
+        mHiddenForDualShade = hidden;
+        updateVisibility(mRequestedVisible);
     }
 
     public boolean isShowingEmptyShadeView() {
