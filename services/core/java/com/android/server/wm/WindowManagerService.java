@@ -1,4 +1,5 @@
 /*
+ * Modified by the ArkUI Project in 2026 for native small-window support.
  * Copyright (C) 2007 The Android Open Source Project
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
@@ -160,6 +161,8 @@ import static com.android.systemui.shared.Flags.enableLppAssistInvocationEffect;
 import static com.android.window.flags.Flags.enableDeviceStateAutoRotateSettingRefactor;
 import static com.android.window.flags.Flags.multiCrop;
 import static com.android.window.flags.Flags.setScPropertiesInClient;
+
+import static com.android.internal.arkui.DebugConstants.DEBUG_POP_UP;
 
 import android.Manifest;
 import android.Manifest.permission;
@@ -1483,6 +1486,8 @@ public class WindowManagerService extends IWindowManager.Stub
         mContext.registerReceiverAsUser(mBroadcastReceiver, UserHandle.ALL, filter, null, null);
 
         mLatencyTracker = LatencyTracker.getInstance(context);
+
+        WindowManagerServiceExt.getInstance().init(this);
 
         mSettingsObserver = new SettingsObserver();
 
@@ -3510,6 +3515,7 @@ public class WindowManagerService extends IWindowManager.Stub
         synchronized (mGlobalLock) {
             // force a re-application of focused window sysui visibility on each display.
             mRoot.forAllDisplayPolicies(DisplayPolicy::resetSystemBarAttributes);
+            PopUpWindowController.getInstance().onUserSwitched();
         }
     }
 
@@ -5960,6 +5966,8 @@ public class WindowManagerService extends IWindowManager.Stub
                 // Ignore, we cannot do anything if we failed to register VR mode listener
             }
         }
+
+        WindowManagerServiceExt.getInstance().systemReady();
     }
 
 

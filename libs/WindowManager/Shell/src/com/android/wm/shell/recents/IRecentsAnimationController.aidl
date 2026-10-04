@@ -1,4 +1,5 @@
 /*
+ * Modified by the ArkUI Project in 2026 for gesture-to-window handoff.
  * Copyright (C) 2018 The Android Open Source Project
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
@@ -98,4 +99,10 @@ interface IRecentsAnimationController {
      */
     oneway void handOffAnimation(in RemoteAnimationTarget[] targets,
                     in WindowAnimationState[] states);
+
+    /**
+     * Finish the gesture by moving its running task into an ArkUI small window in the same
+     * synchronized transition. The callback returns 1 after a successful handoff, or 0 otherwise.
+     */
+    void finishToSmallWindow(int taskId, in IResultReceiver finishCb);
 }

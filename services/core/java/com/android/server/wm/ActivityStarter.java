@@ -1,4 +1,5 @@
 /*
+ * Modified by the ArkUI Project in 2026 for native small-window support.
  * Copyright (C) 2016 The Android Open Source Project
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
@@ -31,6 +32,7 @@ import static android.app.ActivityManager.isStartResultSuccessful;
 import static android.app.ActivityTaskManager.INVALID_TASK_ID;
 import static android.app.PendingIntent.FLAG_CANCEL_CURRENT;
 import static android.app.PendingIntent.FLAG_ONE_SHOT;
+import static android.app.WindowConfiguration.WINDOWING_MODE_FULLSCREEN;
 import static android.app.WindowConfiguration.WINDOWING_MODE_PINNED;
 import static android.app.WindowConfiguration.WINDOWING_MODE_UNDEFINED;
 import static android.content.Intent.FLAG_ACTIVITY_CLEAR_TASK;
@@ -790,6 +792,8 @@ class ActivityStarter {
         String callerActivityName = null;
         ActivityRecord launchingRecord = null;
         try {
+            PopUpWindowController.getInstance().computeBeforeExecuteRequest(mRequest);
+
             onExecutionStarted();
 
             if (mRequest.intent != null) {
@@ -2136,11 +2140,12 @@ class ActivityStarter {
         mStartActivity.getTaskFragment().clearLastPausedActivity();
 
         final boolean isTaskSwitch = startedTask != prevTopTask;
+        PopUpWindowController.getInstance().setGestureStartBounds(startedTask, mOptions);
         mTargetRootTask.startActivityLocked(mStartActivity, topRootTask, newTask, isTaskSwitch,
                 mOptions, sourceRecord);
         if (mDoResume) {
             final ActivityRecord topTaskActivity = startedTask.topRunningActivityLocked();
-            if (!mTargetRootTask.isTopActivityFocusable()
+            if (!mTargetRootTask.isTopActivityFocusableOrPinWindow()
                     || (topTaskActivity != null && topTaskActivity.isTaskOverlay()
                     && mStartActivity != topTaskActivity)) {
                 // If the activity is not focusable, we can't resume it, but still would like to
@@ -2261,6 +2266,7 @@ class ActivityStarter {
             Task targetTask) {
         mSupervisor.getLaunchParamsController().calculate(targetTask, r.info.windowLayout, r,
                 sourceRecord, mOptions, mRequest, PHASE_BOUNDS, mLaunchParams);
+        PopUpWindowController.getInstance().computeLaunchParams(mLaunchParams, mOptions, targetTask);
         mPreferredTaskDisplayArea = mLaunchParams.hasPreferredTaskDisplayArea()
                 ? mLaunchParams.mPreferredTaskDisplayArea
                 : mRootWindowContainer.getDefaultTaskDisplayArea();

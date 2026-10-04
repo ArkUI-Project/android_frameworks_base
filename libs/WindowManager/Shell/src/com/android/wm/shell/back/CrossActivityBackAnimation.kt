@@ -1,4 +1,5 @@
 /*
+ * Modified by the ArkUI Project in 2026 for native small-window support.
  * Copyright (C) 2024 The Android Open Source Project
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
@@ -199,6 +200,11 @@ abstract class CrossActivityBackAnimation(
         }
         // Offset start rectangle to align task bounds.
         backAnimRect.offsetTo(0, 0)
+
+        if (enteringTarget!!.windowConfiguration.isPopUpWindowMode() ||
+                enteringTarget!!.windowConfiguration.isPopUpWindowMode()) {
+            return
+        }
 
         preparePreCommitClosingRectMovement(backMotionEvent.swipeEdge)
         preparePreCommitEnteringRectMovement()

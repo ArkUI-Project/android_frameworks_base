@@ -1,4 +1,5 @@
 /*
+ * Modified by the ArkUI Project in 2026 for native small-window support.
  * Copyright (C) 2017 The Android Open Source Project
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
@@ -120,4 +121,7 @@ public interface TaskStackChangeListener {
      * task is being replaced with a new one.
      */
     default void onRecentTaskRemovedForAddTask(int taskId) { }
+
+    /** @see ITaskStackListener#onTaskFocusChanged(int, boolean) */
+    default void onTaskFocusChanged(int taskId, boolean focused) { }
 }

@@ -6347,4 +6347,45 @@
 
   <!-- Action for opening trusted location settings page -->
   <java-symbol type="string" name="trusted_location_settings_action" />
+
+  <!-- Blur radius used by SystemUI -->
+  <java-symbol type="dimen" name="min_window_blur_radius" />
+  <java-symbol type="dimen" name="max_window_blur_radius" />
+
+  <!-- Pop-Up View -->
+    <java-symbol type="integer" name="config_popUpView_defaultSingleTapAction" />
+    <java-symbol type="integer" name="config_popUpView_defaultDoubleTapAction" />
+    <java-symbol type="bool" name="config_popUpView_defaultNotificationPortJump" />
+    <java-symbol type="bool" name="config_popUpView_defaultNotificationLandJump" />
+    <java-symbol type="array" name="config_popUpView_forceUpdateDpiPackages" />
+    <java-symbol type="dimen" name="mini_window_bar_width" />
+    <java-symbol type="dimen" name="mini_window_bar_height" />
+    <java-symbol type="dimen" name="mini_window_bar_radius" />
+    <java-symbol type="dimen" name="mini_window_bar_margin" />
+    <java-symbol type="dimen" name="mini_window_corner_radius" />
+    <java-symbol type="dimen" name="pinned_window_corner_radius" />
+    <java-symbol type="dimen" name="pinned_window_dismiss_gradient_bg_height" />
+    <java-symbol type="drawable" name="ic_pop_up_view" />
+    <java-symbol type="bool" name="config_supportsArkuiSmallWindows" />
+    <java-symbol type="drawable" name="pinned_window_close_button" />
+    <java-symbol type="drawable" name="pinned_window_dismiss_button_bg" />
+    <java-symbol type="drawable" name="pinned_window_dismiss_button_bg_normal" />
+    <java-symbol type="drawable" name="pinned_window_dismiss_button_bg_select" />
+    <java-symbol type="drawable" name="pinned_window_dismiss_gradient_bg" />
+    <java-symbol type="id" name="pinned_window_menu_scale_button" />
+    <java-symbol type="id" name="pinned_window_menu_container" />
+    <java-symbol type="id" name="pinned_window_dismiss_button" />
+    <java-symbol type="id" name="pinned_window_dismiss_root" />
+    <java-symbol type="layout" name="pinned_window_overlay" />
+    <java-symbol type="layout" name="pinned_window_dismiss" />
+    <java-symbol type="string" name="recent_task_option_pop_up" />
+    <java-symbol type="id" name="pinned_window_menu_mute_button" />
+    <java-symbol type="drawable" name="pinned_window_mute" />
+    <java-symbol type="drawable" name="pinned_window_unmute" />
+    <java-symbol type="drawable" name="pinned_window_scale_large" />
+    <java-symbol type="drawable" name="pinned_window_scale_small" />
+    <java-symbol type="string" name="arkui_small_window_mute" />
+    <java-symbol type="string" name="arkui_small_window_unmute" />
+    <java-symbol type="string" name="arkui_small_window_restore_preview" />
+    <java-symbol type="string" name="arkui_small_window_resize_preview" />
 </resources>

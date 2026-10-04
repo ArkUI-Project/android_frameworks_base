@@ -1,0 +1,6 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Copyright (C) 2026 The ArkUI Project; SPDX-License-Identifier: Apache-2.0 -->
+<resources>
+    <string name="notification_open_small_window">Open in a small window</string>
+    <item type="id" name="action_open_small_window" />
+</resources>

@@ -1,4 +1,5 @@
 /*
+ * Modified by the ArkUI Project in 2026 for native small-window support.
  * Copyright (C) 2013 The Android Open Source Project
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
@@ -105,6 +106,7 @@ import android.app.ProfilerInfo;
 import android.app.ResultInfo;
 import android.app.TaskInfo;
 import android.app.WaitResult;
+import android.app.WindowConfiguration;
 import android.app.servertransaction.ActivityLifecycleItem;
 import android.app.servertransaction.LaunchActivityItem;
 import android.app.servertransaction.PauseActivityItem;
@@ -1753,8 +1755,12 @@ public class ActivityTaskSupervisor implements RecentTasks.Callbacks {
         if (options == null || options.getLaunchBounds() == null) {
             return false;
         }
+        final int windowingMode = options.getLaunchWindowingMode();
+        if (WindowConfiguration.isPopUpWindowMode(windowingMode)) {
+            return true;
+        }
         return (mService.mSupportsPictureInPicture
-                && options.getLaunchWindowingMode() == WINDOWING_MODE_PINNED)
+                && windowingMode == WINDOWING_MODE_PINNED)
                 || mService.mSupportsFreeformWindowManagement;
     }
 
@@ -1865,7 +1871,7 @@ public class ActivityTaskSupervisor implements RecentTasks.Callbacks {
         final ActionChain chain = mService.mChainTracker.startTransit("removeTask");
         final boolean wasCollecting = chain.isCollecting();
         if (!wasCollecting) {
-            chain.attachTransition(task.mTransitionController.requestCloseTransitionIfNeeded(task));
+            chain.attachTransition(task.mTransitionController.requestCloseTransitionIfNeeded(task, true));
         }
         chain.collectClose(task);
         final Transition transition = chain.getTransition();
@@ -2973,8 +2979,10 @@ public class ActivityTaskSupervisor implements RecentTasks.Callbacks {
                                 callingPid, callingUid) == PERMISSION_GRANTED)) {
                     mRecentTasks.setFreezeTaskListReordering();
                 }
-                if (activityOptions.getLaunchRootTask() != null) {
-                    // Don't move home activity forward if there is a launch root set.
+                if (activityOptions.getLaunchRootTask() != null ||
+                        WindowConfiguration.isPopUpWindowMode(activityOptions.getLaunchWindowingMode())) {
+                    // Don't move home activity forward if there is a launch root set
+                    // or we are launching into Pop-Up View.
                     moveHomeTaskForward = false;
                 }
             }
@@ -2999,6 +3007,10 @@ public class ActivityTaskSupervisor implements RecentTasks.Callbacks {
                         && task.getRootTask().getWindowingMode() == WINDOWING_MODE_MULTI_WINDOW) {
                     // Don't move home forward if task is in multi window mode
                     moveHomeTaskForward = false;
+                }
+
+                if (PopUpWindowController.getInstance().startActivityFromRecents(task, activityOptions)) {
+                    return ActivityManager.START_TASK_TO_FRONT;
                 }
 
                 if (moveHomeTaskForward) {

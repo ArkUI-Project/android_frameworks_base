@@ -1,4 +1,5 @@
 /*
+ * Modified by the ArkUI Project in 2026 for native small-window support.
  * Copyright (C) 2016 The Android Open Source Project
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
@@ -243,6 +244,10 @@ class KeyguardController {
         state.mKeyguardShowing = keyguardShowing;
         state.mAodShowing = aodShowing;
         state.writeEventLog("setKeyguardShown");
+
+        if (displayId == DEFAULT_DISPLAY && (keyguardShowing || aodShowing)) {
+            PopUpWindowController.getInstance().findAndExitAllPopUp();
+        }
 
         if (keyguardChanged || (mWindowManager.mFlags.mAodTransition && aodChanged)) {
             if (keyguardChanged) {
@@ -853,7 +858,8 @@ class KeyguardController {
         @Nullable
         private Task getRootTaskForControllingOccluding(DisplayContent display) {
             return display.getRootTask(task ->
-                    task != null && task.isFocusableAndVisible() && !task.inPinnedWindowingMode());
+                    task != null && task.isFocusableAndVisible() && !task.inPinnedWindowingMode()
+                    && !task.getWindowConfiguration().isPopUpWindowMode());
         }
 
         void dumpStatus(PrintWriter pw, String prefix) {

@@ -1,4 +1,5 @@
 /*
+ * Modified by the ArkUI Project in 2026 for native small-window support.
  * Copyright (C) 2017 The Android Open Source Project
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
@@ -682,11 +683,17 @@ public abstract class ConfigurationContainer<E extends ConfigurationContainer> {
     public boolean inMultiWindowMode() {
         @WindowConfiguration.WindowingMode int windowingMode =
                 mFullConfiguration.windowConfiguration.getWindowingMode();
-        return WindowConfiguration.inMultiWindowMode(windowingMode);
+        return WindowConfiguration.inMultiWindowMode(windowingMode)
+                || WindowConfiguration.isPopUpWindowMode(windowingMode);
     }
 
     public boolean inPinnedWindowingMode() {
         return mFullConfiguration.windowConfiguration.getWindowingMode() == WINDOWING_MODE_PINNED;
+    }
+
+    public boolean inPopUpWindowingMode() {
+        return WindowConfiguration.isPopUpWindowMode(
+                mFullConfiguration.windowConfiguration.getWindowingMode());
     }
 
     public boolean inFreeformWindowingMode() {

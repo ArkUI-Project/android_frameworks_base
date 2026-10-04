@@ -1,4 +1,5 @@
 /*
+ * Modified by the ArkUI Project in 2026 for native small-window support.
  * Copyright (C) 2024 The Android Open Source Project
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
@@ -210,6 +211,7 @@ public class ActionChain {
     void collectClose(@NonNull WindowContainer<?> wc) {
         if (!wc.mTransitionController.isShellTransitionsEnabled()) return;
         final Transition transition = expectCollecting();
+        if (transition == null) return;
         if (wc.isVisibleRequested()) {
             transition.collectExistenceChange(wc);
         } else {

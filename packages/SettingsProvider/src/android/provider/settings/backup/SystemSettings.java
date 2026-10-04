@@ -1,4 +1,5 @@
 /*
+ * Modified by the ArkUI Project in 2026 for native small-window support.
  * Copyright (C) 2019 The Android Open Source Project
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
@@ -129,7 +130,22 @@ public class SystemSettings {
                 Settings.System.PREFERRED_REGION,
                 Settings.System.CV_ENABLED,
                 Settings.System.CV_DYNAMIC_ENABLED,
-                Settings.System.CV_PREFERRED_INTENSITY
+                Settings.System.CV_PREFERRED_INTENSITY,
+                Settings.System.POP_UP_NOTIFICATION_JUMP_PORTRAIT,
+                Settings.System.POP_UP_NOTIFICATION_JUMP_LANDSCAPE,
+                Settings.System.POP_UP_NOTIFICATION_BLACKLIST,
+                Settings.System.POP_UP_SINGLE_TAP_ACTION,
+                Settings.System.POP_UP_DOUBLE_TAP_ACTION,
+                Settings.System.ARKUI_SMALL_WINDOW_ENABLED,
+                Settings.System.ARKUI_SMALL_WINDOW_RECENTS,
+                Settings.System.ARKUI_SMALL_WINDOW_SWIPE_UP,
+                Settings.System.ARKUI_SMALL_WINDOW_NOTIFICATION_DRAG,
+                Settings.System.ARKUI_SMALL_WINDOW_BLACKLIST,
+                Settings.System.ARKUI_SMALL_WINDOW_EDGE_DOCK,
+                Settings.System.ARKUI_SMALL_WINDOW_EDGE_DOCK_FOREGROUND,
+                Settings.System.ARKUI_SMALL_WINDOW_HAPTICS,
+                Settings.System.ARKUI_SMALL_WINDOW_SIZE,
+                Settings.System.ARKUI_SMALL_WINDOW_PINNED_SIZE
         ));
         if (Flags.backUpSmoothDisplayAndForcePeakRefreshRate()) {
             settings.add(Settings.System.PEAK_REFRESH_RATE);

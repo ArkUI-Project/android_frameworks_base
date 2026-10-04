@@ -13975,6 +13975,12 @@ public class AudioService extends IAudioService.Stub
      */
     final class AudioServiceInternal extends AudioManagerInternal {
         @Override
+        public void setSmallWindowUidMuted(int uid, boolean muted) {
+            // Never call player Binder interfaces while holding the WM global lock.
+            mAudioHandler.post(() -> mPlaybackMonitor.setSmallWindowUidMuted(uid, muted));
+        }
+
+        @Override
         public void setRingerModeDelegate(RingerModeDelegate delegate) {
             mRingerModeDelegate = delegate;
             if (mRingerModeDelegate != null) {

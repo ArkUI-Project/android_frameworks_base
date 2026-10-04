@@ -121,6 +121,7 @@ public final class NotificationClicker implements View.OnClickListener {
                 ? row.getEntryAdapter().isBubble()
                 : row.getEntryLegacy().isBubble();
         Notification notification = sbn.getNotification();
+        row.bindSmallWindowGesture(sbn, isBubble);
         if (notification.contentIntent != null || notification.fullScreenIntent != null
                 || isBubble) {
             if (NotificationBundleUi.isEnabled()) {

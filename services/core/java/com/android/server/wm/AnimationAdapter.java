@@ -1,4 +1,5 @@
 /*
+ * Modified by the ArkUI Project in 2026 for native small-window support.
  * Copyright (C) 2017 The Android Open Source Project
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
@@ -119,4 +120,6 @@ public interface AnimationAdapter {
     default boolean shouldDeferAnimationFinish(@NonNull Runnable endDeferFinishCallback) {
         return false;
     }
+
+    default void setCornerRadius(float radius) {}
 }

@@ -1,4 +1,5 @@
 /*
+ * Modified by the ArkUI Project in 2026 for native small-window support.
  * Copyright (C) 2018 The Android Open Source Project
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
@@ -137,6 +138,8 @@ import static com.android.server.wm.RootWindowContainer.MATCH_ATTACHED_TASK_OR_R
 import static com.android.server.wm.Task.REPARENT_KEEP_ROOT_TASK_AT_FRONT;
 import static com.android.server.wm.WindowManagerService.MY_PID;
 import static com.android.server.wm.WindowManagerService.UPDATE_FOCUS_NORMAL;
+
+import static com.android.internal.arkui.DebugConstants.DEBUG_POP_UP;
 
 import android.Manifest;
 import android.annotation.EnforcePermission;
@@ -2782,6 +2785,8 @@ public class ActivityTaskManagerService extends IActivityTaskManager.Stub {
             return;
         }
 
+        PopUpWindowController.getInstance().startLockTaskMode(task);
+
         final Task rootTask = mRootWindowContainer.getTopDisplayFocusedRootTask();
         if (rootTask == null || task != rootTask.getTopMostTask()) {
             throw new IllegalArgumentException("Invalid task, not in foreground");
@@ -4205,6 +4210,13 @@ public class ActivityTaskManagerService extends IActivityTaskManager.Stub {
         // If the activity is already in picture in picture mode, then just return early
         if (r.inPinnedWindowingMode()) {
             return true;
+        }
+
+        if (r.isPopUpView()) {
+            if (DEBUG_POP_UP) {
+                Slog.d(TAG, "task is during moving to back, skip enterPictureInPictureMode.");
+            }
+            return false;
         }
 
         // Activity supports picture-in-picture, now check that we can enter PiP at this
@@ -7330,6 +7342,7 @@ public class ActivityTaskManagerService extends IActivityTaskManager.Stub {
         public boolean onForceStopPackage(String packageName, boolean doit, boolean evenPersistent,
                 int userId) {
             synchronized (mGlobalLock) {
+                TopActivityRecorder.getInstance().onForceStopPackage(packageName);
                 // In case if setWindowManager hasn't been called yet when booting.
                 if (mRootWindowContainer == null) return false;
                 return mRootWindowContainer.finishDisabledPackageActivities(packageName,

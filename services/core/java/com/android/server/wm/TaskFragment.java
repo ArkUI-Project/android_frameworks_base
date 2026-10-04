@@ -1,4 +1,5 @@
 /*
+ * Modified by the ArkUI Project in 2026 for native small-window support.
  * Copyright (C) 2021 The Android Open Source Project
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
@@ -69,6 +70,8 @@ import static com.android.server.wm.ActivityTaskManagerDebugConfig.TAG_ATM;
 import static com.android.server.wm.ActivityTaskManagerDebugConfig.TAG_WITH_CLASS_NAME;
 import static com.android.server.wm.ActivityTaskManagerService.checkPermission;
 import static com.android.server.wm.ActivityTaskSupervisor.printThisActivity;
+
+import static com.android.internal.arkui.DebugConstants.DEBUG_POP_UP;
 
 import android.annotation.IntDef;
 import android.annotation.NonNull;
@@ -1282,7 +1285,7 @@ class TaskFragment extends WindowContainer<WindowContainer> {
     ActivityRecord topRunningActivity(boolean focusableOnly) {
         // Split into 2 to avoid object creation due to variable capture.
         if (focusableOnly) {
-            return getActivity((r) -> r.canBeTopRunning() && r.isFocusable());
+            return getActivity((r) -> r.canBeTopRunning() && r.isFocusableOrPopUpView());
         }
         return getActivity(ActivityRecord::canBeTopRunning);
     }
@@ -1348,6 +1351,12 @@ class TaskFragment extends WindowContainer<WindowContainer> {
         return abort;
     }
 
+    boolean isTopActivityFocusableOrPinWindow() {
+        final ActivityRecord r = topRunningActivity();
+        return r != null ? r.isFocusableOrPopUpView()
+                : (isFocusable() && getWindowConfiguration().canReceiveKeys());
+    }
+
     /**
      * Returns the visibility state of this TaskFragment.
      *
@@ -1356,6 +1365,12 @@ class TaskFragment extends WindowContainer<WindowContainer> {
     @TaskFragmentVisibility
     int getVisibility(ActivityRecord starting) {
         if (!isAttached() || isForceHidden()) {
+            return TASK_FRAGMENT_VISIBILITY_INVISIBLE;
+        }
+        final TaskWindowSurfaceInfo surfaceInfo = mWindowContainerExt.getTaskWindowSurfaceInfo();
+        if (surfaceInfo != null && surfaceInfo.isDockedInBackground()) {
+            // An edge tab is a system overlay; it must not keep its hidden app resumed/visible
+            // when the user has chosen background behavior for docked small windows.
             return TASK_FRAGMENT_VISIBILITY_INVISIBLE;
         }
 
@@ -1433,14 +1448,20 @@ class TaskFragment extends WindowContainer<WindowContainer> {
             // Must fill the parent to affect visibility.
             boolean affectsSiblingVisibility = other.fillsParentBounds();
             if (mEnableSeeThroughTaskFragments) {
-                // It also must have filling content itself, to prevent empty or only partially
-                // occluding containers from affecting visibility.
                 affectsSiblingVisibility &= other.hasFillingContent();
             }
+
+            // Popup windows should NOT hide tasks below UNLESS it's the same popup mode
+            final int otherWindowingMode = other.getWindowingMode();
+            final int thisWindowingMode = getWindowingMode();
+            if (WindowConfiguration.isPopUpWindowMode(otherWindowingMode)) {
+                // Only hide tasks of the SAME popup mode
+                affectsSiblingVisibility = (thisWindowingMode == otherWindowingMode);
+            }
+
             if (affectsSiblingVisibility) {
                 // This task fragment is fully covered by |other|.
                 if (isTranslucent(other, starting)) {
-                    // Can be visible behind a translucent TaskFragment.
                     gotTranslucentFullscreen = true;
                     continue;
                 }
@@ -1912,12 +1933,16 @@ class TaskFragment extends WindowContainer<WindowContainer> {
      */
     boolean canBeResumed(@Nullable ActivityRecord starting) {
         // No need to resume activity in TaskFragment that is not visible.
-        return isTopActivityFocusable()
+        return isTopActivityFocusableOrPinWindow()
                 && getVisibility(starting) == TASK_FRAGMENT_VISIBILITY_VISIBLE;
     }
 
     boolean isFocusableAndVisible() {
         return isTopActivityFocusable() && shouldBeVisible(null /* starting */);
+    }
+
+    boolean isFocusableAndVisibleOrPinWindow() {
+        return isTopActivityFocusableOrPinWindow() && shouldBeVisible(null /* starting */);
     }
 
     final boolean startPausing(boolean uiSleeping, ActivityRecord resuming, String reason) {
@@ -2012,7 +2037,8 @@ class TaskFragment extends WindowContainer<WindowContainer> {
             // since we want to give Pip activities a chance to enter Pip before resuming the
             // next activity.
             final boolean lastResumedCanPip = prev.checkEnterPictureInPictureState(
-                    "shouldAutoPipWhilePausing", userLeaving);
+                    "shouldAutoPipWhilePausing", userLeaving) &&
+                    !"PopUpWindowController.moveActivityTaskToBackInner".equals(reason);
             if (prev.supportsEnterPipOnTaskSwitch && userLeaving
                     && resumingOccludesParent && lastResumedCanPip
                     && prev.pictureInPictureArgs.isAutoEnterEnabled()) {
@@ -2436,6 +2462,13 @@ class TaskFragment extends WindowContainer<WindowContainer> {
         }
         if (!task.isResizeable() && !tda.supportsNonResizableMultiWindow()) {
             // Not support non-resizable in multi window.
+            return false;
+        }
+        if (getTask().getWindowConfiguration().isPopUpWindowMode() &&
+                !ActivityInfo.isResizeableMode(getTask().mResizeMode)) {
+            if (DEBUG_POP_UP) {
+                Slog.d(TAG, "Not support pop-up view in multi window.");
+            }
             return false;
         }
 

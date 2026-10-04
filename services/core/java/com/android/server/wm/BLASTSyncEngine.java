@@ -1,4 +1,5 @@
 /*
+ * Modified by the ArkUI Project in 2026 for native small-window support.
  * Copyright (C) 2020 The Android Open Source Project
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
@@ -204,6 +205,44 @@ class BLASTSyncEngine {
                         mSyncId, mDependencies);
                 return false;
             }
+
+            boolean shouldSkipHome = false;
+            if (!mRootMembers.isEmpty()) {
+                final WindowContainer<?> firstMember = mRootMembers.valueAt(0);
+                final DisplayContent dc = firstMember.getDisplayContent();
+
+                // Check if mini window exists on display
+                final Task miniWindowTask = dc != null ? dc.getTask(t ->
+                    t.getWindowConfiguration().isMiniExtWindowMode()) : null;
+
+                if (miniWindowTask != null) {
+                    // Only skip if mini window is NOT part of the transition
+                    // (if it's part of transition, it means mini window is closing/changing)
+                    boolean miniWindowInTransition = false;
+                    for (int i = mRootMembers.size() - 1; i >= 0; --i) {
+                        final WindowContainer wc = mRootMembers.valueAt(i);
+                        if (wc == miniWindowTask || (wc.getParent() != null && wc.getParent().asTask() == miniWindowTask)) {
+                            miniWindowInTransition = true;
+                            break;
+                        }
+                    }
+
+                    if (!miniWindowInTransition) {
+                        // Mini window exists but not changing - safe to skip home
+                        shouldSkipHome = true;
+                        Slog.e(TAG, "SyncGroup " + mSyncId + ": Mini window stable, will skip home sync");
+                    } else {
+                        Slog.e(TAG, "SyncGroup " + mSyncId + ": Mini window in transition, waiting for all");
+                    }
+                }
+            }
+
+            if (shouldSkipHome) {
+                finishNow();
+                return true;
+            }
+
+
             for (int i = mRootMembers.size() - 1; i >= 0; --i) {
                 final WindowContainer wc = mRootMembers.valueAt(i);
                 if (!wc.isSyncFinished(this)) {

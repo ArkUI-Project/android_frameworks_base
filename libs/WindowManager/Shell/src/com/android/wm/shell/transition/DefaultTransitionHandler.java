@@ -1,4 +1,5 @@
 /*
+ * Modified by the ArkUI Project in 2026 for native small-window support.
  * Copyright (C) 2021 The Android Open Source Project
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
@@ -346,7 +347,6 @@ public class DefaultTransitionHandler implements Transitions.TransitionHandler {
             finishCallback.onTransitionFinished(null /* wct */);
             return true;
         }
-
         // Early check if the transition doesn't warrant an animation.
         if (isAnimationsDisabledForAnyDisplay(info) || TransitionUtil.isAllNoAnimation(info)
                 || TransitionUtil.isAllOrderOnly(info)
@@ -408,6 +408,40 @@ public class DefaultTransitionHandler implements Transitions.TransitionHandler {
                 continue;
             }
             final boolean isTask = change.getTaskInfo() != null;
+            if (isTask && android.app.WindowConfiguration.isPopUpWindowMode(
+                    change.getTaskInfo().getWindowingMode())) {
+                if (android.app.WindowConfiguration.isMiniExtWindowMode(
+                        change.getTaskInfo().getWindowingMode())
+                        && change.mPopUpView.mEndScale > 0f
+                        && !change.mPopUpView.mWindowCrop.isEmpty()) {
+                    // A notification OPEN may use this handler instead of the CHANGE
+                    // handler. Keep the task at the drag preview's final geometry
+                    // while Shell owns its leash, including the first visible frame.
+                    final SurfaceControl leash = change.getLeash();
+                    final Point rootOffset = TransitionUtil.getRootFor(change, info).getOffset();
+                    final int parentX = change.getEndRelOffset().x
+                            - change.getEndAbsBounds().left;
+                    final int parentY = change.getEndRelOffset().y
+                            - change.getEndAbsBounds().top;
+                    startTransaction.setScale(leash, change.mPopUpView.mEndScale,
+                                    change.mPopUpView.mEndScale)
+                            .setPosition(leash,
+                                    change.mPopUpView.mEndPos.x
+                                            + (change.getParent() == null ? -rootOffset.x : parentX),
+                                    change.mPopUpView.mEndPos.y
+                                            + (change.getParent() == null ? -rootOffset.y : parentY))
+                            .setWindowCrop(leash, change.mPopUpView.mWindowCrop)
+                            .setCornerRadius(leash, change.mPopUpView.mEndCornerRadius);
+                    finishTransaction.setScale(leash, change.mPopUpView.mEndScale,
+                                    change.mPopUpView.mEndScale)
+                            .setPosition(leash, change.mPopUpView.mEndPos.x + parentX,
+                                    change.mPopUpView.mEndPos.y + parentY)
+                            .setWindowCrop(leash, change.mPopUpView.mWindowCrop)
+                            .setCornerRadius(leash, change.mPopUpView.mEndCornerRadius);
+                }
+                // Keep animations for the other participants in the transition.
+                continue;
+            }
             final boolean isFreeform = isTask && change.getTaskInfo().isFreeform();
             final int mode = change.getMode();
             boolean isSeamlessDisplayChange = false;

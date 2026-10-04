@@ -1,4 +1,5 @@
 /*
+ * Modified by the ArkUI Project in 2026 for native small-window support.
  * Copyright (C) 2006 The Android Open Source Project
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
@@ -5365,6 +5366,65 @@ public final class Settings {
          */
         @Readable
         public static final String PEAK_REFRESH_RATE = "peak_refresh_rate";
+
+        /**
+         * Whether to use Pop-Up Window for notification app jump in portrait mode
+         * @hide
+         */
+        public static final String POP_UP_NOTIFICATION_JUMP_PORTRAIT = "arkui_small_window_notification_portrait";
+
+        /**
+         * Whether to use Pop-Up Window for notification app jump in landscape mode
+         * @hide
+         */
+        public static final String POP_UP_NOTIFICATION_JUMP_LANDSCAPE = "arkui_small_window_notification_landscape";
+
+        /**
+         * Blacklist apps that disallow from opening notification in Pop-Up View
+         * @hide
+         */
+        public static final String POP_UP_NOTIFICATION_BLACKLIST = "arkui_small_window_notification_exceptions";
+
+        /**
+         * Pop-Up Window dimmer view single tap action
+         * 0: Enter pinned-window mode   1: Exit Pop-Up View   2: No action
+         * @hide
+         */
+        public static final String POP_UP_SINGLE_TAP_ACTION = "arkui_small_window_single_tap";
+
+        /**
+         * Pop-Up Window dimmer view double tap action
+         * 0: Enter pinned-window mode   1: Exit Pop-Up View   2: No action
+         * @hide
+         */
+        public static final String POP_UP_DOUBLE_TAP_ACTION = "arkui_small_window_double_tap";
+
+        /** Whether native small windows are enabled for this user. @hide */
+        @Readable
+        public static final String ARKUI_SMALL_WINDOW_ENABLED = "arkui_small_window_enabled";
+        /** Show the small-window action in recent tasks. @hide */
+        @Readable
+        public static final String ARKUI_SMALL_WINDOW_RECENTS = "arkui_small_window_recents";
+
+        /** Continue swiping above overview to enter a floating preview. @hide */
+        public static final String ARKUI_SMALL_WINDOW_SWIPE_UP = "arkui_small_window_swipe_up";
+        /** Drag a notification's bottom handle to open an interactive small window. @hide */
+        public static final String ARKUI_SMALL_WINDOW_NOTIFICATION_DRAG =
+                "arkui_small_window_notification_drag";
+        /** Semicolon-separated packages that must open fullscreen. @hide */
+        @Readable
+        public static final String ARKUI_SMALL_WINDOW_BLACKLIST = "arkui_small_window_exceptions";
+        /** Allow minimized windows to be stashed at a screen edge. @hide */
+        public static final String ARKUI_SMALL_WINDOW_EDGE_DOCK = "arkui_small_window_edge_dock";
+        /** Keep edge-docked small-window activities in the foreground. Default enabled. @hide */
+        public static final String ARKUI_SMALL_WINDOW_EDGE_DOCK_FOREGROUND =
+                "arkui_small_window_edge_dock_foreground";
+        /** Haptic feedback at small-window gesture thresholds. @hide */
+        public static final String ARKUI_SMALL_WINDOW_HAPTICS = "arkui_small_window_haptics";
+        /** Initial size: 0 compact, 1 standard, 2 large. @hide */
+        public static final String ARKUI_SMALL_WINDOW_SIZE = "arkui_small_window_size";
+        /** Initial minimized size: 0 compact, 1 large. @hide */
+        public static final String ARKUI_SMALL_WINDOW_PINNED_SIZE = "arkui_small_window_pinned_size";
 
         /**
          * Control lock behavior on fold
@@ -14235,6 +14295,13 @@ public final class Settings {
          */
         @Readable
         public static final String UNLOCK_SOUND = "unlock_sound";
+
+        /**
+         * Display width set by custom display resolution controller
+         *
+         * @hide
+         */
+        public static final String DISPLAY_WIDTH_CUSTOM = "display_width_custom";
 
         /**
          * URI for the "device is trusted" sound, which is played when the device enters the trusted

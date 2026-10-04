@@ -485,6 +485,40 @@ public class ExpandableNotificationRow extends ActivatableNotificationView
             };
 
     private OnClickListener mOnClickListener;
+    private SmallWindowNotificationGesture mSmallWindowGesture;
+
+    public void bindSmallWindowGesture(android.service.notification.StatusBarNotification sbn,
+            boolean isBubble) {
+        if (mSmallWindowGesture == null) {
+            mSmallWindowGesture = new SmallWindowNotificationGesture(this);
+        }
+        mSmallWindowGesture.bind(sbn, isBubble);
+    }
+
+    boolean canShowSmallWindowHandle() {
+        return !mOnKeyguard && !mShowingPublic && !areGutsExposed()
+                && !isSummaryWithChildren() && (!isChildInGroup() || isGroupExpanded())
+                && !mExpandAnimationRunning && getVisibility() == VISIBLE;
+    }
+
+    boolean isSmallWindowDragValid() {
+        return mFalsingManager != null && !mFalsingManager.isFalseTouch(
+                com.android.systemui.classifier.Classifier.NOTIFICATION_DRAG_DOWN);
+    }
+
+    boolean isSmallWindowHandleTapValid() {
+        return mFalsingManager != null && !mFalsingManager.isFalseTap(FalsingManager.LOW_PENALTY);
+    }
+
+    public android.graphics.Rect consumeSmallWindowLaunchBounds() {
+        return mSmallWindowGesture == null ? null : mSmallWindowGesture.consumeLaunchBounds();
+    }
+
+    @Override
+    public boolean dispatchTouchEvent(MotionEvent event) {
+        if (mSmallWindowGesture != null && mSmallWindowGesture.onTouchEvent(event)) return true;
+        return super.dispatchTouchEvent(event);
+    }
     @Nullable
     private OnClickListener mBubbleClickListener;
     private OnDragSuccessListener mOnDragSuccessListener;
@@ -3269,6 +3303,7 @@ public class ExpandableNotificationRow extends ActivatableNotificationView
 
     @Override
     public void setOnKeyguard(boolean onKeyguard) {
+        if (onKeyguard && mSmallWindowGesture != null) mSmallWindowGesture.cancel();
         if (onKeyguard == mOnKeyguard) {
             return;
         }
@@ -4336,6 +4371,10 @@ public class ExpandableNotificationRow extends ActivatableNotificationView
     @Override
     public void onInitializeAccessibilityNodeInfoInternal(AccessibilityNodeInfo info) {
         super.onInitializeAccessibilityNodeInfoInternal(info);
+        if (mSmallWindowGesture != null && mSmallWindowGesture.isAvailable()) {
+            info.addAction(new AccessibilityAction(R.id.action_open_small_window,
+                    getContext().getString(R.string.notification_open_small_window)));
+        }
         final boolean isLongClickable = isNotificationRowLongClickable();
         if (isLongClickable) {
             if (isPromotedOngoing()) {
@@ -4394,6 +4433,9 @@ public class ExpandableNotificationRow extends ActivatableNotificationView
 
     @Override
     public boolean performAccessibilityActionInternal(int action, Bundle arguments) {
+        if (action == R.id.action_open_small_window && mSmallWindowGesture != null) {
+            return mSmallWindowGesture.launchFromAccessibility();
+        }
         if (super.performAccessibilityActionInternal(action, arguments)) {
             return true;
         }
@@ -4482,6 +4524,7 @@ public class ExpandableNotificationRow extends ActivatableNotificationView
             canvas.clipPath(mExpandingClipPath);
         }
         super.dispatchDraw(canvas);
+        if (mSmallWindowGesture != null) mSmallWindowGesture.drawHandle(canvas);
         canvas.restore();
     }
 

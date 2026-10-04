@@ -1,4 +1,5 @@
 /*
+ * Modified by the ArkUI Project in 2026 for native small-window support.
  * Copyright (C) 2020 The Android Open Source Project
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
@@ -194,6 +195,12 @@ final class TaskDisplayArea extends DisplayArea<WindowContainer> {
     @VisibleForTesting
     Task getTopRootTask() {
         return getRootTask(alwaysTruePredicate());
+    }
+
+    Task getNonPopUpViewTopRootTask() {
+        return getRootTask(rootTask -> {
+            return !rootTask.getWindowConfiguration().isPopUpWindowMode();
+        });
     }
 
     @Nullable
@@ -516,6 +523,10 @@ final class TaskDisplayArea extends DisplayArea<WindowContainer> {
         if (mWmService.mAssistantOnTopOfDream && rootTask.isActivityTypeAssistant()) return 4;
         if (rootTask.isActivityTypeDream()) return 3;
         if (rootTask.inPinnedWindowingMode()) return 2;
+        if (rootTask.getWindowConfiguration().isPinnedExtWindowMode()
+                && rootTask.isAlwaysOnTop()) {
+            return 2;
+        }
         if (rootTask.isAlwaysOnTop()) return 1;
         return 0;
     }
@@ -827,7 +838,9 @@ final class TaskDisplayArea extends DisplayArea<WindowContainer> {
             }
             // Update windowing mode if necessary, e.g. launch into a different windowing mode.
             if (windowingMode != WINDOWING_MODE_UNDEFINED
-                    && candidateTask.getWindowingMode() != windowingMode) {
+                    && candidateTask.getWindowingMode() != windowingMode
+                    && !PopUpWindowController.getInstance().getOrCreateRootTask(
+                            candidateTask, mDisplayContent, windowingMode)) {
                 candidateTask.mTransitionController.collect(candidateTask);
                 // We only explicitly change the windowing mode if it's a root task.
                 // If it's not a root task, we don't do anything. But, if the desired windowing
@@ -841,7 +854,7 @@ final class TaskDisplayArea extends DisplayArea<WindowContainer> {
             }
             return candidateTask.getRootTask();
         }
-        return new Task.Builder(mAtmService)
+        final Task origTask = new Task.Builder(mAtmService)
                 .setWindowingMode(windowingMode)
                 .setActivityType(activityType)
                 .setOnTop(onTop)
@@ -850,6 +863,9 @@ final class TaskDisplayArea extends DisplayArea<WindowContainer> {
                 .setActivityOptions(options)
                 .setLaunchFlags(launchFlags)
                 .build();
+        PopUpWindowController.getInstance().setUpRootTask(
+                origTask, mDisplayContent, windowingMode);
+        return origTask;
     }
 
     /**
@@ -1252,6 +1268,11 @@ final class TaskDisplayArea extends DisplayArea<WindowContainer> {
      */
     boolean isWindowingModeSupported(int windowingMode, boolean supportsMultiWindow,
             boolean supportsFreeform, boolean supportsPip) {
+        if (WindowConfiguration.isPopUpWindowMode(windowingMode)) {
+            return PopUpSettingsConfig.getInstance().isEnabled()
+                    && mAtmService.mSupportsMultiWindow
+                    && mDisplayContent.getDisplayId() == android.view.Display.DEFAULT_DISPLAY;
+        }
         if (windowingMode == WINDOWING_MODE_UNDEFINED
                 || windowingMode == WINDOWING_MODE_FULLSCREEN) {
             return true;
@@ -1324,6 +1345,15 @@ final class TaskDisplayArea extends DisplayArea<WindowContainer> {
      */
     boolean isValidWindowingMode(int windowingMode, @Nullable ActivityRecord r, @Nullable Task task
     ) {
+        if (WindowConfiguration.isPopUpWindowMode(windowingMode)
+                && ((task != null && !task.isActivityTypeStandard())
+                        || (r != null && (!r.isActivityTypeStandard()
+                                || !PopUpSettingsConfig.getInstance().isPackageAllowed(r.packageName)))
+                        || (task != null && task.getTopNonFinishingActivity() != null
+                                && !PopUpSettingsConfig.getInstance().isPackageAllowed(
+                                        task.getTopNonFinishingActivity().packageName)))) {
+            return false;
+        }
         // Make sure the windowing mode we are trying to use makes sense for what is supported.
         boolean supportsMultiWindow = mAtmService.mSupportsMultiWindow;
         boolean supportsFreeform = mAtmService.mSupportsFreeformWindowManagement;

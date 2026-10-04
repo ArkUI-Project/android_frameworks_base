@@ -1,4 +1,5 @@
 /*
+ * Modified by the ArkUI Project in 2026 for native small-window support.
  * Copyright (C) 2006 The Android Open Source Project
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
@@ -56,6 +57,9 @@ public class Transformation {
 
     private Insets mInsets = Insets.NONE;
 
+    private float mCornerRadius = 0.0f;
+    private boolean mHasCornerRadius;
+
     /**
      * Creates a new transformation with alpha = 1 and the identity matrix.
      */
@@ -79,6 +83,8 @@ public class Transformation {
         mAlpha = 1.0f;
         mTransformationType = TYPE_BOTH;
         mInsets = Insets.NONE;
+        mCornerRadius = 0.0f;
+        mHasCornerRadius = false;
     }
 
     /**
@@ -117,6 +123,8 @@ public class Transformation {
             mClipRect.setEmpty();
         }
         mTransformationType = t.getTransformationType();
+        mCornerRadius = t.mCornerRadius;
+        mHasCornerRadius = t.mHasCornerRadius;
     }
 
     /**
@@ -125,6 +133,9 @@ public class Transformation {
      * @param t
      */
     public void compose(Transformation t) {
+        if (t.mHasCornerRadius) {
+            setCornerRadius(t.mCornerRadius);
+        }
         mAlpha *= t.getAlpha();
         mMatrix.preConcat(t.getMatrix());
         if (t.mHasClipRect) {
@@ -145,6 +156,9 @@ public class Transformation {
      * @hide
      */
     public void postCompose(Transformation t) {
+        if (t.mHasCornerRadius) {
+            setCornerRadius(t.mCornerRadius);
+        }
         mAlpha *= t.getAlpha();
         mMatrix.postConcat(t.getMatrix());
         if (t.mHasClipRect) {
@@ -236,6 +250,23 @@ public class Transformation {
      */
     public Insets getInsets() {
         return mInsets;
+    }
+
+    /**
+     * Sets the corner radius for the transformation
+     * @hide
+     */
+    public void setCornerRadius(float cornerRadius) {
+        mCornerRadius = cornerRadius;
+        mHasCornerRadius = true;
+    }
+
+    /**
+     * Returns the corner radius for the transformation
+     * @hide
+     */
+    public float getCornerRadius() {
+        return mCornerRadius;
     }
 
     @Override

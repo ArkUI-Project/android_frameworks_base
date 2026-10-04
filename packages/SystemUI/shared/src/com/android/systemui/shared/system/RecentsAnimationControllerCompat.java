@@ -1,4 +1,5 @@
 /*
+ * Modified by the ArkUI Project in 2026 for gesture-to-window handoff.
  * Copyright (C) 2018 The Android Open Source Project
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
@@ -80,6 +81,16 @@ public class RecentsAnimationControllerCompat {
             } catch (Exception ex) {
                 // Local call, can ignore
             }
+        }
+    }
+
+    /** Finish recents and change the running task's mode without hiding its surface in between. */
+    public void finishToSmallWindow(int taskId, IResultReceiver finishCb) {
+        try {
+            mAnimationController.finishToSmallWindow(taskId, finishCb);
+        } catch (RemoteException e) {
+            Log.e(TAG, "Failed to hand off recents to small window", e);
+            finish(true /* toHome */, false /* sendUserLeaveHint */, finishCb);
         }
     }
 

@@ -1,4 +1,5 @@
 /*
+ * Modified by the ArkUI Project in 2026 for native small-window support.
  * Copyright (C) 2018 The Android Open Source Project
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
@@ -21,6 +22,7 @@ import static android.Manifest.permission.CONTROL_REMOTE_APP_TRANSITION_ANIMATIO
 import static android.Manifest.permission.MANAGE_ACTIVITY_TASKS;
 import static android.Manifest.permission.START_TASKS_FROM_RECENTS;
 import static android.Manifest.permission.STATUS_BAR_SERVICE;
+import static android.app.ActivityOptions.SourceInfo.TYPE_NOTIFICATION;
 import static android.app.ActivityTaskManager.INVALID_TASK_ID;
 import static android.app.WindowConfiguration.ACTIVITY_TYPE_ASSISTANT;
 import static android.app.WindowConfiguration.ACTIVITY_TYPE_UNDEFINED;
@@ -39,6 +41,7 @@ import android.annotation.Nullable;
 import android.app.ActivityOptions;
 import android.app.AppGlobals;
 import android.app.PendingIntent;
+import android.app.WindowConfiguration;
 import android.content.Intent;
 import android.content.pm.ActivityInfo;
 import android.content.pm.PackageManager;
@@ -205,6 +208,38 @@ public class SafeActivityOptions {
         return mOriginalOptions;
     }
 
+    void setLaunchWindowingMode(int mode) {
+        if (mOriginalOptions != null) {
+            mOriginalOptions.setLaunchWindowingMode(mode);
+        }
+    }
+
+    boolean isMiniWindowingMode() {
+        if (mOriginalOptions != null) {
+            return WindowConfiguration.isMiniExtWindowMode(mOriginalOptions.getLaunchWindowingMode());
+        }
+        return false;
+    }
+
+    boolean isPopUpWindowMode() {
+        if (mOriginalOptions != null) {
+            return WindowConfiguration.isPopUpWindowMode(mOriginalOptions.getLaunchWindowingMode());
+        }
+        return false;
+    }
+
+    boolean isFromNotification() {
+        if (mOriginalOptions != null && mOriginalOptions.getSourceInfo() != null) {
+            return mOriginalOptions.getSourceInfo().type == TYPE_NOTIFICATION;
+        }
+        return false;
+    }
+
+    boolean isSmallWindowGesture() {
+        return isPopUpWindowMode() && mOriginalOptions != null
+                && mOriginalOptions.getAnimationType() == ActivityOptions.ANIM_SCALE_UP;
+    }
+
     /**
      * @see ActivityOptions#popAppVerificationBundle
      */
@@ -249,6 +284,31 @@ public class SafeActivityOptions {
     private void checkPermissions(@Nullable Intent intent, @Nullable ActivityInfo aInfo,
             @Nullable WindowProcessController callerApp, ActivityTaskSupervisor supervisor,
             ActivityOptions options, int callingPid, int callingUid) {
+        // ArkUI: custom window modes are reserved for trusted system entry points.
+        if (WindowConfiguration.isPopUpWindowMode(options.getLaunchWindowingMode())) {
+            final boolean trusted = supervisor.mRecentTasks.isCallerRecents(callingUid)
+                    || ActivityTaskManagerService.checkPermission(START_TASKS_FROM_RECENTS,
+                            callingPid, callingUid) == PERMISSION_GRANTED
+                    || ActivityTaskManagerService.checkPermission(MANAGE_ACTIVITY_TASKS,
+                            callingPid, callingUid) == PERMISSION_GRANTED
+                    || ActivityTaskManagerService.checkPermission(STATUS_BAR_SERVICE,
+                            callingPid, callingUid) == PERMISSION_GRANTED;
+            if (!trusted) {
+                throw new SecurityException("Small windows require a trusted system caller");
+            }
+            if (!PopUpSettingsConfig.getInstance().isEnabled()
+                    || (aInfo != null && !PopUpSettingsConfig.getInstance()
+                            .isPackageAllowed(aInfo.packageName))
+                    || (aInfo != null && options.getSourceInfo() != null
+                            && options.getSourceInfo().type == TYPE_NOTIFICATION
+                            && PopUpSettingsConfig.getInstance()
+                                    .inNotificationBlacklist(aInfo.packageName))
+                    || supervisor.mService.getLockTaskController().getLockTaskModeState()
+                            != android.app.ActivityManager.LOCK_TASK_MODE_NONE
+                    || supervisor.mService.mWindowManager.isKeyguardLocked()) {
+                options.setLaunchWindowingMode(WindowConfiguration.WINDOWING_MODE_FULLSCREEN);
+            }
+        }
         // If a launch task id is specified, then ensure that the caller is the recents
         // component or has the START_TASKS_FROM_RECENTS permission
         if ((options.getLaunchTaskId() != INVALID_TASK_ID || options.getDisableStartingWindow())

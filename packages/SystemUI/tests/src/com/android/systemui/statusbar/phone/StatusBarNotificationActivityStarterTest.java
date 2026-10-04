@@ -1,4 +1,5 @@
 /*
+ * Modified by the ArkUI Project in 2026 for native small-window support.
  * Copyright (C) 2019 The Android Open Source Project
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
@@ -238,6 +239,7 @@ public class StatusBarNotificationActivityStarterTest extends SysuiTestCase {
                         mKosmos.getTestScope(),
                         mVisibilityProvider,
                         mHeadsUpManager,
+                        mock(PopUpViewController.class),
                         mActivityStarter,
                         mCommandQueue,
                         mClickNotifier,

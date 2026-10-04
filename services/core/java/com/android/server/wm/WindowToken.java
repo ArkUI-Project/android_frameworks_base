@@ -1,4 +1,5 @@
 /*
+ * Modified by the ArkUI Project in 2026 for native small-window support.
  * Copyright (C) 2011 The Android Open Source Project
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
@@ -363,6 +364,9 @@ class WindowToken extends WindowContainer<WindowState> {
 
     @Override
     void assignLayer(SurfaceControl.Transaction t, int layer) {
+        if (PopUpWindowController.getInstance().onWindowTokenAssignLayer(this, t, layer)) {
+            return;
+        }
         if (mRoundedCornerOverlay) {
             super.assignLayer(t, WindowManagerPolicy.COLOR_FADE_LAYER + 1);
         } else {

@@ -1,0 +1,9 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Copyright (C) 2026 The ArkUI Project
+     SPDX-License-Identifier: Apache-2.0 -->
+<resources>
+    <string name="arkui_small_window_resize_preview">切換浮動預覽大小</string>
+    <string name="arkui_small_window_mute">將此應用程式靜音</string>
+    <string name="arkui_small_window_unmute">取消應用程式靜音</string>
+    <string name="arkui_small_window_restore_preview">還原懸浮預覽</string>
+</resources>

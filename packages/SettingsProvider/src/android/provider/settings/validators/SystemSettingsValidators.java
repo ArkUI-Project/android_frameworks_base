@@ -1,4 +1,5 @@
 /*
+ * Modified by the ArkUI Project in 2026 for native small-window support.
  * Copyright (C) 2019 The Android Open Source Project
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
@@ -162,6 +163,25 @@ public class SystemSettingsValidators {
         VALIDATORS.put(System.AUTO_TIME, BOOLEAN_VALIDATOR);
         VALIDATORS.put(System.AUTO_TIME_ZONE, BOOLEAN_VALIDATOR);
         VALIDATORS.put(System.SHOW_GTALK_SERVICE_STATUS, BOOLEAN_VALIDATOR);
+        VALIDATORS.put(System.POP_UP_NOTIFICATION_JUMP_PORTRAIT, BOOLEAN_VALIDATOR);
+        VALIDATORS.put(System.POP_UP_NOTIFICATION_JUMP_LANDSCAPE, BOOLEAN_VALIDATOR);
+        VALIDATORS.put(System.POP_UP_NOTIFICATION_BLACKLIST, ANY_STRING_VALIDATOR);
+        VALIDATORS.put(System.POP_UP_SINGLE_TAP_ACTION,
+                new DiscreteValueValidator(new String[]{"0", "1", "2", "3"}));
+        VALIDATORS.put(System.POP_UP_DOUBLE_TAP_ACTION,
+                new DiscreteValueValidator(new String[]{"0", "1", "2", "3"}));
+        VALIDATORS.put(System.ARKUI_SMALL_WINDOW_ENABLED, BOOLEAN_VALIDATOR);
+        VALIDATORS.put(System.ARKUI_SMALL_WINDOW_RECENTS, BOOLEAN_VALIDATOR);
+        VALIDATORS.put(System.ARKUI_SMALL_WINDOW_SWIPE_UP, BOOLEAN_VALIDATOR);
+        VALIDATORS.put(System.ARKUI_SMALL_WINDOW_NOTIFICATION_DRAG, BOOLEAN_VALIDATOR);
+        VALIDATORS.put(System.ARKUI_SMALL_WINDOW_BLACKLIST, ANY_STRING_VALIDATOR);
+        VALIDATORS.put(System.ARKUI_SMALL_WINDOW_EDGE_DOCK, BOOLEAN_VALIDATOR);
+        VALIDATORS.put(System.ARKUI_SMALL_WINDOW_EDGE_DOCK_FOREGROUND, BOOLEAN_VALIDATOR);
+        VALIDATORS.put(System.ARKUI_SMALL_WINDOW_HAPTICS, BOOLEAN_VALIDATOR);
+        VALIDATORS.put(System.ARKUI_SMALL_WINDOW_SIZE,
+                new DiscreteValueValidator(new String[]{"0", "1", "2"}));
+        VALIDATORS.put(System.ARKUI_SMALL_WINDOW_PINNED_SIZE,
+                new DiscreteValueValidator(new String[]{"0", "1"}));
         VALIDATORS.put(
                 System.WALLPAPER_ACTIVITY,
                 new Validator() {

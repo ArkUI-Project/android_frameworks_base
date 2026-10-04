@@ -1,3 +1,14 @@
+ArkUI native small-window support
+Derived from the Apache-2.0 Pop-Up View implementation in
+https://github.com/AviumUI/android_frameworks_base (avium-16.2).
+Copyright (C) 2023-2024 The Nameless-AOSP Project
+Copyright (C) 2026 The AviumUI Project
+Copyright (C) 2026 The RisingOS Revived Project
+Copyright (C) 2026 The ArkUI Project (integration and modifications)
+AOSP copyrights remain with their original authors.
+Licensed under the Apache License, Version 2.0.
+Based on upstream commit 4cd79270ead0d37bb0c03704cf8d1cdbc5c74f05 and subsequent fixes.
+
    =========================================================================
    ==  NOTICE file corresponding to the section 4 d of                    ==
    ==  the Apache License, Version 2.0,                                   ==

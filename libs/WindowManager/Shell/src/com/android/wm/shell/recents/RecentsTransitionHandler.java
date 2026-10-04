@@ -1,4 +1,5 @@
 /*
+ * Modified by the ArkUI Project in 2026 for native small-window support.
  * Copyright (C) 2023 The Android Open Source Project
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
@@ -20,6 +21,7 @@ import static android.app.ActivityTaskManager.INVALID_TASK_ID;
 import static android.app.WindowConfiguration.ACTIVITY_TYPE_HOME;
 import static android.app.WindowConfiguration.ACTIVITY_TYPE_RECENTS;
 import static android.app.WindowConfiguration.WINDOWING_MODE_FULLSCREEN;
+import static android.app.WindowConfiguration.WINDOWING_MODE_PINNED_WINDOW_EXT;
 import static android.view.Display.DEFAULT_DISPLAY;
 import static android.view.Display.INVALID_DISPLAY;
 import static android.view.WindowManager.KEYGUARD_VISIBILITY_TRANSIT_FLAGS;
@@ -32,6 +34,7 @@ import static android.view.WindowManager.TRANSIT_SLEEP;
 import static android.view.WindowManager.TRANSIT_TO_BACK;
 import static android.window.DesktopModeFlags.ENABLE_DESKTOP_RECENTS_TRANSITIONS_CORNERS_BUGFIX;
 import static android.window.TransitionInfo.FLAG_MOVED_TO_TOP;
+import static android.window.TransitionInfo.FLAG_EXIT_POP_UP_VIEW_DISPLAY_ROTATION;
 import static android.window.TransitionInfo.FLAG_TRANSLUCENT;
 
 import static com.android.wm.shell.recents.RecentsTransitionStateListener.TRANSITION_STATE_ANIMATING;
@@ -78,6 +81,7 @@ import android.window.WindowContainerTransaction;
 import androidx.annotation.NonNull;
 
 import com.android.internal.annotations.VisibleForTesting;
+import com.android.internal.arkui.SmallWindowSettings;
 import com.android.internal.os.IResultReceiver;
 import com.android.internal.protolog.ProtoLog;
 import com.android.wm.shell.ShellTaskOrganizer;
@@ -455,6 +459,9 @@ public class RecentsTransitionHandler implements Transitions.TransitionHandler,
         private boolean mKeyguardLocked = false;
         private boolean mWillFinishToHome = false;
         private Transitions.TransitionHandler mTakeoverHandler = null;
+        private boolean mHasExitPopUpViewDisplayRotate = false;
+        private int mSmallWindowTaskId = INVALID_TASK_ID;
+        private boolean mSmallWindowHandoffSucceeded;
 
         /** The animation is idle, waiting for the user to choose a task to switch to. */
         private static final int STATE_NORMAL = 0;
@@ -1068,6 +1075,7 @@ public class RecentsTransitionHandler implements Transitions.TransitionHandler,
                 ProtoLog.v(ShellProtoLogGroup.WM_SHELL_RECENTS_TRANSITION,
                         "[%d] RecentsController.merge: TRANSIT_END_RECENTS_TRANSITION",
                         mInstanceId);
+                prepareSmallWindowHandoff(info, startT);
                 consumeMerge(info, startT, finishT, finishCallback);
                 return;
             } else if (mPendingFinishTransition != null) {
@@ -1199,6 +1207,9 @@ public class RecentsTransitionHandler implements Transitions.TransitionHandler,
                         closingTasks.add(change);
                     }
                 } else if (change.getMode() == TRANSIT_CHANGE) {
+                    if (change.hasFlags(FLAG_EXIT_POP_UP_VIEW_DISPLAY_ROTATION)) {
+                        mHasExitPopUpViewDisplayRotate = true;
+                    }
                     // Finish recents animation if the display is changed, so the default
                     // transition handler can play the animation such as rotation effect.
                     if (change.hasFlags(TransitionInfo.FLAG_IS_DISPLAY)
@@ -1539,6 +1550,79 @@ public class RecentsTransitionHandler implements Transitions.TransitionHandler,
                     "requested"));
         }
 
+        @Override
+        public void finishToSmallWindow(int taskId, IResultReceiver finishCb) {
+            mExecutor.execute(() -> {
+                // Only the fullscreen app already controlled by this gesture can be handed off.
+                // Recheck settings at commit time, as they may have changed during the drag.
+                if (mFinishCB != null && mPendingFinishTransition == null
+                        && !mKeyguardLocked && mDisplayId == DEFAULT_DISPLAY
+                        && mPausingTasks != null && mRecentTasksController != null
+                        && SmallWindowSettings.isSwipeUpEnabled(
+                                mRecentTasksController.getContext())) {
+                    for (TaskState task : mPausingTasks) {
+                        final ActivityManager.RunningTaskInfo info = task.mTaskInfo;
+                        if (task.isLeaf() && info.taskId == taskId
+                                && info.getWindowingMode() == WINDOWING_MODE_FULLSCREEN
+                                && info.topActivity != null
+                                && SmallWindowSettings.isPackageAllowed(
+                                        mRecentTasksController.getContext(),
+                                        info.topActivity.getPackageName())) {
+                            mSmallWindowTaskId = taskId;
+                            break;
+                        }
+                    }
+                }
+                finishInner(true /* toHome */, false /* sendUserLeaveHint */, finishCb,
+                        "small-window handoff");
+            });
+        }
+
+        /**
+         * The bookend transition is ready only after WM has synchronized the resized app. Move
+         * that same surface out of the gesture leash, directly into its resting small-window
+         * geometry. Applying the new scale while it is still under Launcher's scaled leash would
+         * shrink it twice; hiding it as an ordinary pausing task would produce a blank frame.
+         */
+        private void prepareSmallWindowHandoff(TransitionInfo info,
+                SurfaceControl.Transaction startT) {
+            if (mSmallWindowTaskId == INVALID_TASK_ID || mPendingFinishTransaction == null) return;
+            for (TransitionInfo.Change change : info.getChanges()) {
+                if (change.getTaskInfo() == null
+                        || change.getTaskInfo().taskId != mSmallWindowTaskId
+                        || change.getTaskInfo().getWindowingMode()
+                                != WINDOWING_MODE_PINNED_WINDOW_EXT
+                        || change.mPopUpView.mWindowCrop.isEmpty()
+                        || change.mPopUpView.mEndScale <= 0f) continue;
+                final SurfaceControl surface = change.getLeash();
+                final TransitionInfo.Root root = TransitionUtil.getRootFor(change, info);
+                final float scale = change.mPopUpView.mEndScale;
+                startT.reparent(surface, root.getLeash())
+                        .setMatrix(surface, scale, 0f, 0f, scale)
+                        .setPosition(surface, change.mPopUpView.mEndPos.x - root.getOffset().x,
+                                change.mPopUpView.mEndPos.y - root.getOffset().y)
+                        .setWindowCrop(surface, change.mPopUpView.mWindowCrop)
+                        .setCornerRadius(surface, change.mPopUpView.mEndCornerRadius)
+                        .setAlpha(surface, 1f).show(surface).show(root.getLeash());
+                if (change.getSnapshot() != null) {
+                    startT.hide(change.getSnapshot());
+                }
+                // Core's finish transaction restores the real task parent. Use that parent's
+                // coordinates, and override the ordinary recents cleanup that hides pausing apps.
+                mPendingFinishTransaction.setMatrix(surface, scale, 0f, 0f, scale)
+                        .setPosition(surface,
+                                change.mPopUpView.mEndPos.x + change.getEndRelOffset().x
+                                        - change.getEndAbsBounds().left,
+                                change.mPopUpView.mEndPos.y + change.getEndRelOffset().y
+                                        - change.getEndAbsBounds().top)
+                        .setWindowCrop(surface, change.mPopUpView.mWindowCrop)
+                        .setCornerRadius(surface, change.mPopUpView.mEndCornerRadius)
+                        .setAlpha(surface, 1f).show(surface);
+                mSmallWindowHandoffSucceeded = true;
+                return;
+            }
+        }
+
         /**
          * @param runnerFinishCb The remote finish callback to run after finish is complete, this is
          *                       not the same as mFinishCb which reports the transition is finished
@@ -1570,6 +1654,7 @@ public class RecentsTransitionHandler implements Transitions.TransitionHandler,
             boolean returningToApp = !toHome
                     && !mWillFinishToHome
                     && mPausingTasks != null
+                    && !mHasExitPopUpViewDisplayRotate
                     && mState == STATE_NORMAL;
             ProtoLog.v(ShellProtoLogGroup.WM_SHELL_RECENTS_TRANSITION,
                     "[%d] RecentsController.finishInner: toHome=%b userLeave=%b "
@@ -1740,6 +1825,14 @@ public class RecentsTransitionHandler implements Transitions.TransitionHandler,
                 }
             }
 
+            if (mSmallWindowTaskId != INVALID_TASK_ID) {
+                final ActivityOptions options = ActivityOptions.makeBasic();
+                options.setLaunchWindowingMode(WINDOWING_MODE_PINNED_WINDOW_EXT);
+                options.setLaunchDisplayId(mDisplayId);
+                wct.startTask(mSmallWindowTaskId, options.toBundle());
+                requiresBookendTransition = true;
+            }
+
             // Notify the mixers of the pending finish
             for (int i = 0; i < mMixers.size(); ++i) {
                 mMixers.get(i).handleFinishRecents(returningToApp, wct, t);
@@ -1779,6 +1872,7 @@ public class RecentsTransitionHandler implements Transitions.TransitionHandler,
                     "[%d] RecentsController.finishInner: Completing finish", mInstanceId);
             final Transitions.TransitionFinishCallback finishCb = mFinishCB;
             final IResultReceiver runnerFinishCb = mPendingRunnerFinishCb;
+            final int result = mSmallWindowHandoffSucceeded ? 1 : 0;
 
             // We merge the cleanup transaction (prepared in finishInner()) with the last accepted
             // finish transaction to ensure that it's applied after the default finish transaction
@@ -1792,7 +1886,7 @@ public class RecentsTransitionHandler implements Transitions.TransitionHandler,
                     ProtoLog.v(ShellProtoLogGroup.WM_SHELL_RECENTS_TRANSITION,
                             "[%d] RecentsController.finishInner: calling finish callback",
                             mInstanceId);
-                    runnerFinishCb.send(0, null);
+                    runnerFinishCb.send(result, null);
                 } catch (RemoteException e) {
                     Slog.e(TAG, "Failed to report transition finished", e);
                 }

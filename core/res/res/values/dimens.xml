@@ -1,4 +1,6 @@
 <?xml version="1.0" encoding="utf-8"?>
+<!-- Modified by the ArkUI Project in 2026 for native small-window support.
+     Licensed under the Apache License, Version 2.0. -->
 <!--
 /* //device/apps/common/assets/res/any/dimens.xml
 **
@@ -1306,4 +1308,18 @@
 
     <!-- Default height of taskbar for Launcher.   -->
     <dimen name="taskbar_stashed_size">24dp</dimen>
+
+    <!-- Blur radius used by SystemUI -->
+    <dimen name="min_window_blur_radius">1px</dimen>
+    <dimen name="max_window_blur_radius">17.5dp</dimen>
+    <!-- Pop-Up View -->
+    <dimen name="mini_window_bar_width">114dp</dimen>
+    <dimen name="mini_window_bar_height">4.8dp</dimen>
+    <dimen name="mini_window_bar_radius">2.4dp</dimen>
+    <dimen name="mini_window_bar_margin">16dp</dimen>
+    <dimen name="mini_window_corner_radius">28dp</dimen>
+    <dimen name="pinned_window_corner_radius">28dp</dimen>
+    <dimen name="pinned_window_dismiss_gradient_bg_height">80dp</dimen>
+    <dimen name="pinned_window_menu_corner_radius_large">8dp</dimen>
+    <dimen name="pinned_window_menu_corner_radius_small">8dp</dimen>
 </resources>

@@ -1,4 +1,5 @@
 /*
+ * Modified by the ArkUI Project in 2026 for native small-window support.
  * Copyright (C) 2018 The Android Open Source Project
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
@@ -17,6 +18,7 @@
 package com.android.systemui.statusbar.phone;
 
 import static android.app.ActivityOptions.MODE_BACKGROUND_ACTIVITY_START_ALLOWED;
+import static android.app.WindowConfiguration.WINDOWING_MODE_MINI_WINDOW_EXT;
 import static android.service.notification.NotificationListenerService.REASON_CLICK;
 
 import static com.android.systemui.statusbar.phone.ActivityStarterUtilsKt.addCookieIfNeeded;
@@ -127,6 +129,7 @@ public class StatusBarNotificationActivityStarter implements NotificationActivit
 
     private final NotificationVisibilityProvider mVisibilityProvider;
     private final HeadsUpManager mHeadsUpManager;
+    private final PopUpViewController mPopUpViewController;
     private final ActivityStarter mActivityStarter;
     private final CommandQueue mCommandQueue;
     private final NotificationClickNotifier mClickNotifier;
@@ -167,6 +170,7 @@ public class StatusBarNotificationActivityStarter implements NotificationActivit
             @Application CoroutineScope applicationScope,
             NotificationVisibilityProvider visibilityProvider,
             HeadsUpManager headsUpManager,
+            PopUpViewController popUpViewController,
             ActivityStarter activityStarter,
             CommandQueue commandQueue,
             NotificationClickNotifier clickNotifier,
@@ -201,6 +205,7 @@ public class StatusBarNotificationActivityStarter implements NotificationActivit
         mApplicationScope = applicationScope;
         mVisibilityProvider = visibilityProvider;
         mHeadsUpManager = headsUpManager;
+        mPopUpViewController = popUpViewController;
         mActivityStarter = activityStarter;
         mCommandQueue = commandQueue;
         mClickNotifier = clickNotifier;
@@ -265,13 +270,14 @@ public class StatusBarNotificationActivityStarter implements NotificationActivit
     @Override
     public void onNotificationClicked(@NonNull NotificationEntry entry,
             @NonNull ExpandableNotificationRow row) {
+        final android.graphics.Rect smallWindowStart = row.consumeSmallWindowLaunchBounds();
         mLogger.logStartingActivityFromClick(entry, row.isHeadsUpState(),
                 mKeyguardStateController.isVisible(),
                 mNotificationShadeWindowController.getPanelExpanded());
         OnKeyguardDismissedAction action =
                 (intent, isActivityIntent, animate, showOverTheLockScreen) ->
                         performActionOnKeyguardDismissed(entry, row, intent, isActivityIntent,
-                                animate, showOverTheLockScreen);
+                                animate, showOverTheLockScreen, smallWindowStart);
         performActionAfterKeyguardDismissed(entry, action);
     }
 
@@ -335,11 +341,12 @@ public class StatusBarNotificationActivityStarter implements NotificationActivit
             PendingIntent intent,
             boolean isActivityIntent,
             boolean animate,
-            boolean showOverLockscreen) {
+            boolean showOverLockscreen,
+            android.graphics.Rect smallWindowStart) {
         mLogger.logHandleClickAfterKeyguardDismissed(entry);
 
         final Runnable runnable = () -> handleNotificationClickAfterPanelCollapsed(
-                entry, row, intent, isActivityIntent, animate);
+                entry, row, intent, isActivityIntent, animate, smallWindowStart);
         if (showOverLockscreen) {
             mShadeController.addPostCollapseAction(runnable);
             mShadeController.collapseShade(true /* animate */);
@@ -360,7 +367,8 @@ public class StatusBarNotificationActivityStarter implements NotificationActivit
             ExpandableNotificationRow row,
             PendingIntent intent,
             boolean isActivityIntent,
-            boolean animate) {
+            boolean animate,
+            android.graphics.Rect smallWindowStart) {
         String notificationKey = entry.getKey();
         mLogger.logHandleClickAfterPanelCollapsed(entry);
 
@@ -402,13 +410,14 @@ public class StatusBarNotificationActivityStarter implements NotificationActivit
             fillInIntent = new Intent().putExtra(Notification.EXTRA_REMOTE_INPUT_DRAFT,
                     remoteInputText.toString());
         }
-        final boolean canBubble = entry.canBubble();
+        final boolean canBubble = smallWindowStart == null && entry.canBubble();
         if (canBubble) {
             mLogger.logExpandingBubble(entry);
             removeHunAfterClick(row);
             expandBubbleStackOnMainThread(entry);
         } else {
-            startNotificationIntent(intent, fillInIntent, entry, row, animate, isActivityIntent);
+            startNotificationIntent(intent, fillInIntent, entry, row, animate, isActivityIntent,
+                    smallWindowStart);
         }
         if (isActivityIntent || canBubble) {
             mAssistManagerLazy.get().hideAssist();
@@ -498,9 +507,18 @@ public class StatusBarNotificationActivityStarter implements NotificationActivit
             NotificationEntry entry,
             ExpandableNotificationRow row,
             boolean animate,
-            boolean isActivityIntent) {
+            boolean isActivityIntent,
+            android.graphics.Rect smallWindowStart) {
         mLogger.logStartNotificationIntent(entry);
         final int displayId = mContextInteractor.getContext().getDisplayId();
+        final boolean useMiniWindow = isActivityIntent
+                && displayId == android.view.Display.DEFAULT_DISPLAY
+                && !mKeyguardStateController.isShowing()
+                && ((smallWindowStart != null && mPopUpViewController.canDragNotificationToPopUp(
+                        entry.getSbn().getPackageName()))
+                    || mPopUpViewController.shouldJumpNotificationWithPopUp(
+                        entry.getSbn().getPackageName()));
+        final boolean animateLaunch = animate && !useMiniWindow;
         try {
             ActivityTransitionAnimator.Controller animationController =
                     new StatusBarTransitionAnimatorController(
@@ -522,7 +540,7 @@ public class StatusBarNotificationActivityStarter implements NotificationActivit
                 mActivityTransitionAnimator.startPendingIntentWithAnimation(
                         controllerWithCookie,
                         mApplicationScope,
-                        animate,
+                        animateLaunch,
                         (transition) -> {
                             long eventTime = row.getAndResetLastActionUpTime();
                             Bundle options = eventTime > 0
@@ -533,6 +551,7 @@ public class StatusBarNotificationActivityStarter implements NotificationActivit
                                     mKeyguardStateController.isShowing(),
                                     eventTime)
                                     : createActivityOptions(displayId, transition, cookie);
+                            options = smallWindowOptions(options, useMiniWindow, row, smallWindowStart);
                             int result = intent.sendAndReturnResult(mContext, 0, fillInIntent, null,
                                     null, null, options);
                             mLogger.logSendPendingIntent(entry, intent, result);
@@ -541,7 +560,7 @@ public class StatusBarNotificationActivityStarter implements NotificationActivit
             } else {
                 mActivityTransitionAnimator.startPendingIntentWithAnimation(
                         animationController,
-                        animate,
+                        animateLaunch,
                         intent.getCreatorPackage(),
                         (adapter) -> {
                             long eventTime = row.getAndResetLastActionUpTime();
@@ -552,6 +571,7 @@ public class StatusBarNotificationActivityStarter implements NotificationActivit
                                     mKeyguardStateController.isShowing(),
                                     eventTime)
                                     : getActivityOptions(displayId, adapter);
+                            options = smallWindowOptions(options, useMiniWindow, row, smallWindowStart);
                             int result = intent.sendAndReturnResult(mContext, 0, fillInIntent, null,
                                     null, null, options);
                             mLogger.logSendPendingIntent(entry, intent, result);
@@ -564,6 +584,28 @@ public class StatusBarNotificationActivityStarter implements NotificationActivit
             mLogger.logSendingIntentFailed(e);
             // TODO: Dismiss Keyguard.
         }
+    }
+
+    private Bundle smallWindowOptions(Bundle bundle, boolean useMiniWindow,
+            ExpandableNotificationRow row, android.graphics.Rect startBounds) {
+        if (!useMiniWindow) {
+            return bundle;
+        }
+        final ActivityOptions options = ActivityOptions.fromBundle(bundle);
+        if (startBounds != null) {
+            final int[] location = new int[2];
+            row.getLocationOnScreen(location);
+            options.update(ActivityOptions.makeScaleUpAnimation(row,
+                    startBounds.left - location[0], startBounds.top - location[1],
+                    startBounds.width(), startBounds.height()));
+            options.setLaunchDisplayId(android.view.Display.DEFAULT_DISPLAY);
+        }
+        options.setLaunchWindowingMode(WINDOWING_MODE_MINI_WINDOW_EXT);
+        if (options.getSourceInfo() == null) {
+            options.setSourceInfo(ActivityOptions.SourceInfo.TYPE_NOTIFICATION,
+                    android.os.SystemClock.uptimeMillis());
+        }
+        return options.toBundle();
     }
 
     @Override

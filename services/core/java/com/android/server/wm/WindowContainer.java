@@ -1,4 +1,5 @@
 /*
+ * Modified by the ArkUI Project in 2026 for native small-window support.
  * Copyright (C) 2016 The Android Open Source Project
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
@@ -113,7 +114,7 @@ import java.util.function.Predicate;
  * changes are made to this class.
  */
 class WindowContainer<E extends WindowContainer> extends ConfigurationContainer<E>
-        implements Comparable<WindowContainer>, Animatable {
+        implements Comparable<WindowContainer>, Animatable, SurfaceFreezerExt.Freezable {
 
     private static final String TAG = TAG_WITH_CLASS_NAME ? "WindowContainer" : TAG_WM;
 
@@ -196,6 +197,8 @@ class WindowContainer<E extends WindowContainer> extends ConfigurationContainer<
      * Applied as part of the animation pass in "prepareSurfaces".
      */
     protected final SurfaceAnimator mSurfaceAnimator;
+
+    private SurfaceFreezerExt mSurfaceFreezer;
 
     /** The parent leash added for animation. */
     @Nullable
@@ -294,11 +297,15 @@ class WindowContainer<E extends WindowContainer> extends ConfigurationContainer<
 
     protected TrustedOverlayHost mOverlayHost;
 
+    WindowContainerExt mWindowContainerExt;
+
     WindowContainer(WindowManagerService wms) {
         mWmService = wms;
         mTransitionController = mWmService.mAtmService.getTransitionController();
         mSyncTransaction = wms.mTransactionFactory.get();
         mSurfaceAnimator = new SurfaceAnimator(this, this::onAnimationFinished, wms);
+        mSurfaceFreezer = new SurfaceFreezerExt(this, wms);
+        mWindowContainerExt = new WindowContainerExt(this, mSurfaceFreezer);
     }
 
     /**
@@ -593,6 +600,7 @@ class WindowContainer<E extends WindowContainer> extends ConfigurationContainer<
         if (mOverlayHost != null) {
             mOverlayHost.dispatchConfigurationChanged(getConfiguration());
         }
+        mWindowContainerExt.onConfigurationChanged();
     }
 
     void reparent(WindowContainer newParent, int position) {
@@ -1093,6 +1101,10 @@ class WindowContainer<E extends WindowContainer> extends ConfigurationContainer<
         return mDisplayContent;
     }
 
+    TaskWindowSurfaceInfo getTaskWindowSurfaceInfo() {
+        return mWindowContainerExt.getTaskWindowSurfaceInfo();
+    }
+
     /** Returns the first node of type {@link DisplayArea} above or at this node. */
     @Nullable
     DisplayArea getDisplayArea() {
@@ -1523,7 +1535,8 @@ class WindowContainer<E extends WindowContainer> extends ConfigurationContainer<
                 // the task can be updated to portrait first so the configuration can be
                 // computed in a consistent environment.
                 && (inMultiWindowMode()
-                        || !handlesOrientationChangeFromDescendant(requestedOrientation))) {
+                        || !handlesOrientationChangeFromDescendant(requestedOrientation))
+                && !mWindowContainerExt.setOrientation(parent)) {
             // Resolve the requested orientation.
             onConfigurationChanged(parent.getConfiguration());
         }
@@ -1655,7 +1668,7 @@ class WindowContainer<E extends WindowContainer> extends ConfigurationContainer<
     boolean fillsParentBounds() {
         if (!com.android.window.flags.Flags.refactorMatchParentBounds()) {
             final int windowingMode = getWindowingMode();
-            return windowingMode == WINDOWING_MODE_FULLSCREEN
+            return windowingMode == WINDOWING_MODE_FULLSCREEN || windowingMode == 101 || windowingMode == 102
                     || (windowingMode != WINDOWING_MODE_PINNED && matchParentBounds());
         }
         return matchParentBounds();
@@ -3001,6 +3014,10 @@ class WindowContainer<E extends WindowContainer> extends ConfigurationContainer<
             syncTransaction.setPosition(mSurfaceControl, 0, 0);
         }
         mLastSurfacePosition.set(0, 0);
+    }
+
+    @Override
+    public void onAnimationLeashDestroyed(SurfaceControl.Transaction t) {
     }
 
     @Override

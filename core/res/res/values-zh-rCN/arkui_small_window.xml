@@ -1,0 +1,9 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Copyright (C) 2026 The ArkUI Project
+     SPDX-License-Identifier: Apache-2.0 -->
+<resources>
+    <string name="arkui_small_window_resize_preview">切换悬浮预览大小</string>
+    <string name="arkui_small_window_mute">静音此应用</string>
+    <string name="arkui_small_window_unmute">取消应用静音</string>
+    <string name="arkui_small_window_restore_preview">恢复悬浮预览</string>
+</resources>

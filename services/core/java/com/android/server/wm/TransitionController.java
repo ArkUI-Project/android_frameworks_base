@@ -1,4 +1,5 @@
 /*
+ * Modified by the ArkUI Project in 2026 for native small-window support.
  * Copyright (C) 2020 The Android Open Source Project
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
@@ -944,8 +945,16 @@ class TransitionController {
      * @return the new transition if it was created for this request, `null` otherwise.
      */
     Transition requestCloseTransitionIfNeeded(@NonNull WindowContainer<?> wc) {
+        return requestCloseTransitionIfNeeded(wc, false);
+    }
+
+    Transition requestCloseTransitionIfNeeded(@NonNull WindowContainer<?> wc, boolean endTask) {
         if (!Flags.fallbackTransitionPlayer() && mTransitionPlayers.isEmpty()) return null;
         if (isCollecting()) return null;
+        if (endTask && wc.inPopUpWindowingMode()) {
+            collect(wc);
+            return null;
+        }
         if (!wc.isVisibleRequested()) return null;
         return requestStartTransition(createTransition(TRANSIT_CLOSE, 0 /* flags */), wc.asTask(),
                 null /* remoteTransition */, null /* displayChange */);
@@ -985,7 +994,7 @@ class TransitionController {
         transition.collectVisibleChange(wc);
         // Collect all visible tasks.
         wc.forAllLeafTasks(task -> {
-            if (task.isVisible()) {
+            if (task.isVisible() && !task.getWindowConfiguration().isPopUpWindowMode()) {
                 transition.collect(task);
             }
         }, true /* traverseTopToBottom */);
@@ -1095,6 +1104,7 @@ class TransitionController {
             return;
         }
         ProtoLog.v(WmProtoLogGroups.WM_DEBUG_WINDOW_TRANSITIONS, "Finish Transition: %s", record);
+        PopUpWindowController.getInstance().notifyFinishTransition();
         mPlayingTransitions.remove(record);
         if (!inTransition()) {
             // reset track-count now since shell-side is idle.

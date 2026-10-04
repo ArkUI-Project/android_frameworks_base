@@ -1,4 +1,5 @@
 /*
+ * Modified by the ArkUI Project in 2026 for native small-window support.
  * Copyright (C) 2007 The Android Open Source Project
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
@@ -1845,6 +1846,9 @@ public final class MotionEvent extends InputEvent implements Parcelable {
 
     private MotionEvent mNext;
 
+    /** @hide */
+    final MotionEventExt mEventExt = new MotionEventExt();
+
     private static native long nativeInitialize(long nativePtr,
             int deviceId, int source, int displayId, int action, int flags, int edgeFlags,
             int metaState, int buttonState, @Classification int classification,
@@ -1993,6 +1997,7 @@ public final class MotionEvent extends InputEvent implements Parcelable {
         }
         ev.mNext = null;
         ev.prepareForReuse();
+        ev.mEventExt.reset();
         return ev;
     }
 
@@ -2338,6 +2343,7 @@ public final class MotionEvent extends InputEvent implements Parcelable {
 
         MotionEvent ev = obtain();
         ev.mNativePtr = nativeCopy(ev.mNativePtr, other.mNativePtr, true /*keepHistory*/);
+        ev.mEventExt.obtain(other);
         return ev;
     }
 
@@ -2352,6 +2358,7 @@ public final class MotionEvent extends InputEvent implements Parcelable {
 
         MotionEvent ev = obtain();
         ev.mNativePtr = nativeCopy(ev.mNativePtr, other.mNativePtr, false /*keepHistory*/);
+        ev.mEventExt.obtain(other);
         return ev;
     }
 
@@ -3096,7 +3103,9 @@ public final class MotionEvent extends InputEvent implements Parcelable {
      * @see #AXIS_X
      */
     public final float getRawX() {
-        return nativeGetRawAxisValue(mNativePtr, AXIS_X, 0, HISTORY_CURRENT);
+        return mEventExt.covertRawValue(
+                nativeGetRawAxisValue(mNativePtr, AXIS_X, 0, HISTORY_CURRENT),
+                MotionEventExt.GET_RAW_X);
     }
 
     /**
@@ -3110,7 +3119,9 @@ public final class MotionEvent extends InputEvent implements Parcelable {
      * @see #AXIS_Y
      */
     public final float getRawY() {
-        return nativeGetRawAxisValue(mNativePtr, AXIS_Y, 0, HISTORY_CURRENT);
+        return mEventExt.covertRawValue(
+                nativeGetRawAxisValue(mNativePtr, AXIS_Y, 0, HISTORY_CURRENT),
+                MotionEventExt.GET_RAW_Y);
     }
 
     /**
@@ -3151,7 +3162,9 @@ public final class MotionEvent extends InputEvent implements Parcelable {
      * @see #AXIS_X
      */
     public float getRawX(int pointerIndex) {
-        return nativeGetRawAxisValue(mNativePtr, AXIS_X, pointerIndex, HISTORY_CURRENT);
+        return mEventExt.covertRawValue(
+                nativeGetRawAxisValue(mNativePtr, AXIS_X, pointerIndex, HISTORY_CURRENT),
+                MotionEventExt.GET_RAW_X);
     }
 
     /**
@@ -3192,7 +3205,9 @@ public final class MotionEvent extends InputEvent implements Parcelable {
      * @see #AXIS_Y
      */
     public float getRawY(int pointerIndex) {
-        return nativeGetRawAxisValue(mNativePtr, AXIS_Y, pointerIndex, HISTORY_CURRENT);
+        return mEventExt.covertRawValue(
+                nativeGetRawAxisValue(mNativePtr, AXIS_Y, pointerIndex, HISTORY_CURRENT),
+                MotionEventExt.GET_RAW_Y);
     }
 
     /**

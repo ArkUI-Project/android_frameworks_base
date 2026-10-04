@@ -1,4 +1,5 @@
 /*
+ * Modified by the ArkUI Project in 2026 for native small-window support.
  * Copyright (C) 2019 The Android Open Source Project
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
@@ -537,6 +538,14 @@ public class WindowlessWindowManager implements IWindowSession {
             }
             c.finished(postDrawTransaction);
             mResizeCompletionForWindow.remove(window.asBinder());
+        }
+    }
+
+    @Override
+    public void getPopUpViewTouchOffset(android.view.IWindow window, float[] offsets) {
+        if (offsets != null && offsets.length == 4) {
+            offsets[0] = offsets[1] = 0.0f;
+            offsets[2] = offsets[3] = 1.0f;
         }
     }
 

@@ -1,4 +1,6 @@
 <?xml version="1.0" encoding="utf-8"?>
+<!-- Modified by the ArkUI Project in 2026 for native small-window support.
+     Licensed under the Apache License, Version 2.0. -->
 <!--
 /*
 ** Copyright 2009, The Android Open Source Project
@@ -7757,4 +7759,14 @@
         It can only contain non-AOSP permissions outside of the android.*
         and com.android.* namespace. -->
     <string-array name="config_watchFacePermissions" translatable="false"/>
+
+    <!-- Pop-Up View -->
+    <!-- Product opt-in; user preferences are stored separately in Settings.System. -->
+    <bool name="config_supportsArkuiSmallWindows">false</bool>
+    <bool name="config_popUpView_defaultNotificationPortJump">false</bool>
+    <bool name="config_popUpView_defaultNotificationLandJump">false</bool>
+    <string-array name="config_popUpView_forceUpdateDpiPackages" translatable="false">
+    </string-array>
+    <integer name="config_popUpView_defaultSingleTapAction">0</integer>
+    <integer name="config_popUpView_defaultDoubleTapAction">1</integer>
 </resources>

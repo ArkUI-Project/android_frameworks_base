@@ -1,4 +1,5 @@
 /*
+ * Modified by the ArkUI Project in 2026 for native small-window support.
  * Copyright (C) 2006 The Android Open Source Project
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
@@ -1250,6 +1251,9 @@ public final class ViewRootImpl implements ViewParent,
 
     private final boolean mDisableDrawWakeLock;
 
+    /** @hide */
+    private final ViewRootImplExt mImplExt = new ViewRootImplExt(this);
+
     private String mTag = TAG;
     private String mFpsTraceName;
     private String mLargestViewTraceName;
@@ -1553,8 +1557,12 @@ public final class ViewRootImpl implements ViewParent,
                     attrs.setSurfaceInsets(view, false /*manual*/, true /*preservePrevious*/);
                 }
 
-                CompatibilityInfo compatibilityInfo =
-                        mDisplay.getDisplayAdjustments().getCompatibilityInfo();
+                CompatibilityInfo compatibilityInfo;
+                if (mDisplay != null) {
+                    compatibilityInfo = mDisplay.getDisplayAdjustments().getCompatibilityInfo();
+                } else {
+                    compatibilityInfo = CompatibilityInfo.DEFAULT_COMPATIBILITY_INFO;
+                }
                 mTranslator = compatibilityInfo.getTranslator();
 
                 // If the application owns the surface, don't enable hardware acceleration
@@ -2301,6 +2309,7 @@ public final class ViewRootImpl implements ViewParent,
                 mAppVisibilityChanged = true;
                 scheduleTraversals();
             }
+            mImplExt.handleAppVisibility(visible);
             // Only enable if the window is not already removed (via earlier call to doDie())
             if (!mRemoved || !mAppVisible) {
                 AnimationHandler.requestAnimatorsEnabled(mAppVisible, this);
@@ -6760,7 +6769,9 @@ public final class ViewRootImpl implements ViewParent,
                         + ", globalConfig: " + globalConfig
                         + ", overrideConfig: " + overrideConfig);
 
-        final CompatibilityInfo ci = mDisplay.getDisplayAdjustments().getCompatibilityInfo();
+        final CompatibilityInfo ci = mDisplay != null
+                ? mDisplay.getDisplayAdjustments().getCompatibilityInfo()
+                : CompatibilityInfo.DEFAULT_COMPATIBILITY_INFO;
         if (!ci.equals(CompatibilityInfo.DEFAULT_COMPATIBILITY_INFO)) {
             globalConfig = new Configuration(globalConfig);
             overrideConfig = new Configuration(overrideConfig);
@@ -6812,6 +6823,8 @@ public final class ViewRootImpl implements ViewParent,
         }
 
         mForceNextConfigUpdate = false;
+
+        mImplExt.performConfigurationChange(overrideConfig);
     }
 
     /**
@@ -10822,6 +10835,9 @@ public final class ViewRootImpl implements ViewParent,
 
         @Override
         public void onInputEvent(InputEvent event) {
+            if (event instanceof MotionEvent) {
+                mImplExt.onMotionEvent((MotionEvent) event);
+            }
             processRawInputEvent(event);
         }
 

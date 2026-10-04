@@ -1,4 +1,5 @@
 /*
+ * Modified by the ArkUI Project in 2026 for native small-window support.
  * Copyright (C) 2011 The Android Open Source Project
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
@@ -1250,6 +1251,8 @@ class WindowState extends WindowContainer<WindowState> implements WindowManagerP
         setDrawnStateEvaluated(false /*evaluated*/);
 
         getDisplayContent().reapplyMagnificationSpec();
+
+        PopUpWindowController.getInstance().onWindowAdd(newParent, this);
     }
 
     /** Returns the uid of the app that owns this window. */
@@ -1652,6 +1655,10 @@ class WindowState extends WindowContainer<WindowState> implements WindowManagerP
         return mSession.mUid;
     }
 
+    public IWindow getIWindow() {
+        return mClient;
+    }
+
     Task getTask() {
         return mActivityRecord != null ? mActivityRecord.getTask() : null;
     }
@@ -1930,7 +1937,7 @@ class WindowState extends WindowContainer<WindowState> implements WindowManagerP
      *         case when the surface is on screen but not exiting.
      */
     boolean canAffectSystemUiFlags() {
-        if (isFullyTransparent()) {
+        if (isFullyTransparent() || getWindowConfiguration().isPopUpWindowMode()) {
             return false;
         }
         if (mActivityRecord == null) {
@@ -2297,6 +2304,9 @@ class WindowState extends WindowContainer<WindowState> implements WindowManagerP
         super.removeImmediately();
 
         final DisplayContent dc = getDisplayContent();
+
+        PopUpWindowController.getInstance().onWindowRemove(this);
+
         if (isImeLayeringTarget()) {
             // Remove the attached IME screenshot.
             dc.removeImeScreenshotByTarget(this);
@@ -2972,6 +2982,9 @@ class WindowState extends WindowContainer<WindowState> implements WindowManagerP
     boolean canReceiveTouchInput() {
         if (mActivityRecord == null  || mActivityRecord.getTask() == null) {
             return true;
+        }
+        if (getWindowConfiguration().isPinnedExtWindowMode()) {
+            return false;
         }
         // During transient launch, the transient-hide windows are not visibleRequested
         // or on-top but are kept focusable and thus can receive touch input.

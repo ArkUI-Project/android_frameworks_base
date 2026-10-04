@@ -1,4 +1,6 @@
 <?xml version="1.0" encoding="utf-8"?>
+<!-- Modified by the ArkUI Project in 2026 for native small-window support.
+     Licensed under the Apache License, Version 2.0. -->
 <!-- Copyright (C) 2006 The Android Open Source Project
 
      Licensed under the Apache License, Version 2.0 (the "License");
@@ -7722,6 +7724,11 @@
         <attr name="toTop" format="fraction" />
         <attr name="toRight" format="fraction" />
         <attr name="toBottom" format="fraction" />
+    </declare-styleable>
+
+    <declare-styleable name="RadiusAnimation">
+        <attr name="fromRadius" format="float" />
+        <attr name="toRadius" format="float" />
     </declare-styleable>
 
     <!-- Defines the ExtendAnimation used to extend windows during animations -->

@@ -1,4 +1,5 @@
 /*
+ * Modified by the ArkUI Project in 2026 for native small-window support.
  * Copyright (C) 2023 The Android Open Source Project
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
@@ -72,6 +73,9 @@ class WindowlessSnapshotWindowCreator {
             return;
         }
         final Display display = mDisplayManager.getDisplay(runningTaskInfo.displayId);
+        if (display == null) {
+            return;
+        }
         final StartingSurfaceDrawer.WindowlessStartingWindow wlw =
                 new StartingSurfaceDrawer.WindowlessStartingWindow(
                         mContext.getResources().getConfiguration(), rootSurface);

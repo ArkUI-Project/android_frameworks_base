@@ -1,0 +1,7 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Copyright (C) 2026 The ArkUI Project; SPDX-License-Identifier: Apache-2.0 -->
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="24dp" android:height="24dp"
+    android:viewportWidth="24" android:viewportHeight="24">
+    <path android:fillColor="#202124" android:pathData="M3,9L3,15L7,15L12,20L12,4L7,9ZM15,8L15,16C17,15 18,13 18,12C18,10 17,9 15,8ZM15,3L15,5C19,6 21,9 21,12C21,16 19,18 15,19L15,21C20,20 23,16 23,12C23,8 20,4 15,3Z" />
+</vector>

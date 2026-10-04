@@ -1,4 +1,5 @@
 /*
+ * Modified by the ArkUI Project in 2026 for native small-window support.
  * Copyright (C) 2017 The Android Open Source Project
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
@@ -94,6 +95,7 @@ class WindowSurfacePlacer {
             }
             performSurfacePlacement();
             mDeferredRequests = 0;
+            PopUpWindowController.getInstance().setTryExitWindowingMode(false);
         } else if (DEBUG) {
             Slog.i(TAG, "Cancel continueLayout " + Debug.getCallers(2, 3));
         }

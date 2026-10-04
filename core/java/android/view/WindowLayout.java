@@ -1,4 +1,5 @@
 /*
+ * Modified by the ArkUI Project in 2026 for native small-window support.
  * Copyright (C) 2021 The Android Open Source Project
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
@@ -100,7 +101,7 @@ public class WindowLayout {
         }
 
         // Compute bounds restricted by display cutout
-        final int cutoutMode = attrs.layoutInDisplayCutoutMode;
+        final int cutoutMode = WindowLayoutExt.computeCutoutMode(windowingMode, attrs.layoutInDisplayCutoutMode);
         final DisplayCutout cutout = state.getDisplayCutout();
         final Rect displayCutoutSafeExceptMaybeBars = mTempDisplayCutoutSafeExceptMaybeBarsRect;
         displayCutoutSafeExceptMaybeBars.set(displayCutoutSafe);
@@ -175,6 +176,9 @@ public class WindowLayout {
             outDisplayFrame.right = MAX_X;
             outDisplayFrame.bottom = MAX_Y;
         }
+
+        WindowLayoutExt.computeFrame(windowingMode, attrs,
+                outDisplayFrame, outParentFrame, windowBounds);
 
         final boolean hasCompatScale = compatScale != 1f;
         final int pw = outParentFrame.width();

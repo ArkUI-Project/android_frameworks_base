@@ -1,4 +1,5 @@
 /*
+ * Modified by the ArkUI Project in 2026 for native small-window support.
  * Copyright (C) 2019 The Android Open Source Project
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
@@ -342,7 +343,9 @@ class InsetsPolicy {
         }
         state = adjustVisibilityForIme(target, state, state == originalState);
         state = mPolicy.replaceInsetsSourcesIfNeeded(state, state == originalState);
-        return adjustInsetsForRoundedCorners(target.mToken, state, state == originalState);
+        state = adjustInsetsForRoundedCorners(target.mToken, state, state == originalState);
+        state = PopUpWindowController.getInstance().adjustInsetsForWindow(target, state);
+        return state;
     }
 
     @NonNull
@@ -778,9 +781,10 @@ class InsetsPolicy {
     }
 
     void updateSystemBars(@Nullable WindowState win, @InsetsType int displayForciblyShowingTypes,
-            @InsetsType int displayForciblyHidingTypes, boolean showSystemBarsByLegacyPolicy) {
+            @InsetsType int displayForciblyHidingTypes, boolean showSystemBarsByLegacyPolicy, boolean inPortPopUpView) {
         final boolean hasDisplayOverride = displayForciblyShowingTypes != 0
-                || displayForciblyHidingTypes != 0;
+                || displayForciblyHidingTypes != 0
+                || inPortPopUpView;
         mForciblyShowingTypes =
                 // Force showing navigation bar as long as forceShowingNavigationBars returns true.
                 (forceShowingNavigationBars(win)

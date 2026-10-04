@@ -1,4 +1,5 @@
 /*
+ * Modified by the ArkUI Project in 2026 for native small-window support.
  * Copyright (C) 2008 The Android Open Source Project
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
@@ -2031,6 +2032,10 @@ public final class Configuration implements Parcelable, Comparable<Configuration
         // WindowConfiguration differences aren't considered public...
         if (!publicOnly
                 && windowConfiguration.diff(delta.windowConfiguration, compareUndefined) != 0) {
+            changed |= ActivityInfo.CONFIG_WINDOW_CONFIGURATION;
+        }
+
+        if (ConfigurationExt.diffWindowConfiguration(delta, windowConfiguration, publicOnly)) {
             changed |= ActivityInfo.CONFIG_WINDOW_CONFIGURATION;
         }
 

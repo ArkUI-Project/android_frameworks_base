@@ -1,4 +1,5 @@
 /*
+ * Modified by the ArkUI Project in 2026 for native small-window support.
  * Copyright (C) 2011 The Android Open Source Project
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
@@ -192,6 +193,7 @@ class Session extends IWindowSession.Stub implements IBinder.DeathRecipient {
             mCallback.asBinder().linkToDeath(this, 0);
         } catch (RemoteException e) {
             mClientDead = true;
+            Slog.e(TAG_WM, "Client dead: ", e);
         }
     }
 
@@ -333,6 +335,11 @@ class Session extends IWindowSession.Stub implements IBinder.DeathRecipient {
         }
         mService.finishDrawingWindow(this, window, postDrawTransaction, seqId);
         Trace.traceEnd(TRACE_TAG_WINDOW_MANAGER);
+    }
+
+    @Override
+    public void getPopUpViewTouchOffset(IWindow window, float[] offsets) {
+        PopUpWindowController.getInstance().getPopUpViewTouchOffset(this, window, offsets);
     }
 
     /* Drag/drop */
@@ -538,6 +545,7 @@ class Session extends IWindowSession.Stub implements IBinder.DeathRecipient {
 
     @Override
     public void finishMovingTask(IWindow window) {
+        return;
     }
 
     @Override

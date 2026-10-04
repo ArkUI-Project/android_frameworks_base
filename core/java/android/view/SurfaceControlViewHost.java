@@ -1,4 +1,5 @@
 /*
+ * Modified by the ArkUI Project in 2026 for native small-window support.
  * Copyright (C) 2019 The Android Open Source Project
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
@@ -511,8 +512,10 @@ public class SurfaceControlViewHost {
         attrs.flags |= WindowManager.LayoutParams.FLAG_HARDWARE_ACCELERATED;
         addWindowToken(attrs);
         view.setLayoutParams(attrs);
-        mViewRoot.setView(view, attrs, null);
-        mViewRoot.setBackKeyCallbackForWindowlessWindow(mWm::forwardBackKeyToParent);
+        if (mViewRoot.mDisplay != null) {
+            mViewRoot.setView(view, attrs, null);
+            mViewRoot.setBackKeyCallbackForWindowlessWindow(mWm::forwardBackKeyToParent);
+        }
     }
 
     /**

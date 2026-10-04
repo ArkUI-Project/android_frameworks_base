@@ -1,4 +1,5 @@
 /*
+ * Modified by the ArkUI Project in 2026 for native small-window support.
  * Copyright (C) 2014 The Android Open Source Project
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
@@ -1496,6 +1497,9 @@ class RecentTasks {
                     return false;
                 }
                 break;
+            case 101:
+            case 102:
+                return false;
         }
 
         // If we're in lock task mode, ignore the root task

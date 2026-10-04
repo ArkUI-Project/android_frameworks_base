@@ -180,6 +180,37 @@ public final class PlaybackActivityMonitor
     //=================================================================
     private final ArrayList<Integer> mBannedUids = new ArrayList<Integer>();
 
+    // Independent of stream volume, ducking, and the application's own player volume.
+    // Guarded by mPlayerLock. New players inherit the state until WM releases it.
+    private final android.util.ArraySet<Integer> mSmallWindowMutedUids =
+            new android.util.ArraySet<>();
+
+    void setSmallWindowUidMuted(int uid, boolean muted) {
+        synchronized (mPlayerLock) {
+            if (muted) {
+                mSmallWindowMutedUids.add(uid);
+            } else {
+                mSmallWindowMutedUids.remove(uid);
+            }
+            for (AudioPlaybackConfiguration player : mPlayers.values()) {
+                if (player.getClientUid() == uid) {
+                    applySmallWindowVolume(player);
+                }
+            }
+        }
+    }
+
+    private void applySmallWindowVolume(AudioPlaybackConfiguration player) {
+        try {
+            final boolean muted = mSmallWindowMutedUids.contains(player.getClientUid())
+                    || mMutedPlayers.contains(player.getPlayerInterfaceId());
+            player.getPlayerProxy().setVolume(muted ? 0f : 1f);
+        } catch (Exception e) {
+            Log.w(TAG, "Unable to update small-window player "
+                    + player.getPlayerInterfaceId(), e);
+        }
+    }
+
     // see AudioManagerInternal.disableAudioForUid(boolean disable, int uid)
     public void disableAudioForUid(boolean disable, int uid) {
         synchronized(mPlayerLock) {
@@ -262,6 +293,9 @@ public final class PlaybackActivityMonitor
                 ));
         synchronized(mPlayerLock) {
             mPlayers.put(newPiid, apc);
+            if (mSmallWindowMutedUids.contains(apc.getClientUid())) {
+                applySmallWindowVolume(apc);
+            }
             maybeMutePlayerAwaitingConnection(apc);
         }
         return newPiid;
@@ -385,6 +419,9 @@ public final class PlaybackActivityMonitor
                 mPiidToPortId.put(piid, eventValues[0]);
                 return;
             } else if (event == AudioPlaybackConfiguration.PLAYER_STATE_STARTED) {
+                if (mSmallWindowMutedUids.contains(apc.getClientUid())) {
+                    applySmallWindowVolume(apc);
+                }
                 for (Integer uidInteger: mBannedUids) {
                     if (checkBanPlayer(apc, uidInteger.intValue())) {
                         // player was banned, do not update its state
@@ -934,7 +971,8 @@ public final class PlaybackActivityMonitor
                     try {
                         sEventLogger.enqueue(new EventLogger.StringEvent("call: unmuting piid:"
                                 + piid).printLog(TAG));
-                        apc.getPlayerProxy().setVolume(1.0f);
+                        apc.getPlayerProxy().setVolume(
+                                mSmallWindowMutedUids.contains(apc.getClientUid()) ? 0f : 1f);
                     } catch (Exception e) {
                         Log.e(TAG, "call: error unmuting player " + piid + " uid:"
                                 + apc.getClientUid(), e);

@@ -1,0 +1,44 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Modified by the ArkUI Project in 2026 for native small-window support.
+     Licensed under the Apache License, Version 2.0. -->
+<!--
+     Copyright (C) 2023 The Nameless-AOSP Project
+     SPDX-License-Identifier: Apache-2.0
+-->
+<com.android.server.wm.PinnedWindowOverlayView
+    xmlns:android="http://schemas.android.com/apk/res/android"
+    android:id="@+id/pinned_window_menu_root"
+    android:layout_width="match_parent"
+    android:layout_height="match_parent">
+
+    <LinearLayout
+        android:gravity="center"
+        android:orientation="horizontal"
+        android:id="@+id/pinned_window_menu_container"
+        android:background="@drawable/pinned_window_menu_shape"
+        android:visibility="gone"
+        android:layout_width="match_parent"
+        android:layout_height="match_parent">
+        <ImageButton
+            android:id="@+id/pinned_window_menu_mute_button"
+            android:background="@drawable/pinned_window_button_shape"
+            android:src="@drawable/pinned_window_mute"
+            android:tint="#202124"
+            android:padding="12dp"
+            android:contentDescription="@string/arkui_small_window_mute"
+            android:layout_width="48dp"
+            android:layout_height="48dp"
+            android:layout_marginEnd="12dp" />
+        <ImageButton
+            android:gravity="center"
+            android:layout_gravity="center"
+            android:id="@+id/pinned_window_menu_scale_button"
+            android:background="@drawable/pinned_window_button_shape"
+            android:src="@drawable/pinned_window_scale_large"
+            android:tint="#202124"
+            android:padding="12dp"
+            android:contentDescription="@string/arkui_small_window_resize_preview"
+            android:layout_width="48dp"
+            android:layout_height="48dp" />
+    </LinearLayout>
+</com.android.server.wm.PinnedWindowOverlayView>

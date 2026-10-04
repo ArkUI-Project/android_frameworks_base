@@ -1,0 +1,9 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Copyright (C) 2026 The ArkUI Project
+     SPDX-License-Identifier: Apache-2.0 -->
+<resources>
+    <string name="arkui_small_window_resize_preview">Change preview size</string>
+    <string name="arkui_small_window_mute">Mute app</string>
+    <string name="arkui_small_window_unmute">Unmute app</string>
+    <string name="arkui_small_window_restore_preview">Restore floating preview</string>
+</resources>

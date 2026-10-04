@@ -78,6 +78,9 @@ public abstract class AudioManagerInternal {
     /** Returns whether the given user is currently playing audio. */
     public abstract boolean isUserPlayingAudio(@CannotBeSpecialUser @UserIdInt int userId);
 
+    /** Applies a reversible playback-volume multiplier for an ArkUI small-window app. */
+    public void setSmallWindowUidMuted(int uid, boolean muted) { }
+
     public interface RingerModeDelegate {
         /** Called when external ringer mode is evaluated, returns the new internal ringer mode */
         int onSetRingerModeExternal(int ringerModeOld, int ringerModeNew, String caller,

@@ -1,4 +1,5 @@
 /*
+ * Modified by the ArkUI Project in 2026 for native small-window support.
  * Copyright (C) 2017 The Android Open Source Project
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
@@ -152,7 +153,8 @@ class RunningTasks implements Consumer<Task> {
         if (mFilterOnlyVisibleRecents
                 && task.getActivityType() != ACTIVITY_TYPE_HOME
                 && task.getActivityType() != ACTIVITY_TYPE_RECENTS
-                && !mRecentTasks.isVisibleRecentTask(task)) {
+                && (!mRecentTasks.isVisibleRecentTask(task)
+                || task.getWindowConfiguration().isPopUpWindowMode())) {
             // Skip if this task wouldn't be visibile (ever) from recents, with an exception for the
             // home & recent tasks
             return;
