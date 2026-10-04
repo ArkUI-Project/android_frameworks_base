@@ -14,6 +14,7 @@ import android.database.ContentObserver;
 import android.graphics.Bitmap;
 import android.graphics.Canvas;
 import android.graphics.ColorFilter;
+import android.graphics.Matrix;
 import android.graphics.Paint;
 import android.graphics.PixelFormat;
 import android.graphics.Rect;
@@ -64,6 +65,8 @@ final class SmallWindowNotificationGesture {
     private final RectF mEnd = new RectF();
     private final RectF mCurrent = new RectF();
     private final int[] mRootLocation = new int[2];
+    private final Matrix mTouchMatrix = new Matrix();
+    private final float[] mTouchPoint = new float[2];
 
     SmallWindowNotificationGesture(ExpandableNotificationRow row) {
         mRow = row;
@@ -147,14 +150,29 @@ final class SmallWindowNotificationGesture {
     }
 
     boolean onTouchEvent(MotionEvent event) {
+        return onTouchEvent(event, event.getX(), event.getY());
+    }
+
+    /** Hit-test a shade-window event without changing the raw coordinates used for dragging. */
+    boolean onShadeTouchEvent(MotionEvent event) {
+        if (event.getActionMasked() != MotionEvent.ACTION_DOWN) return onTouchEvent(event);
+        mTouchPoint[0] = event.getRawX();
+        mTouchPoint[1] = event.getRawY();
+        mTouchMatrix.reset();
+        mRow.transformMatrixToLocal(mTouchMatrix);
+        mTouchMatrix.mapPoints(mTouchPoint);
+        return onTouchEvent(event, mTouchPoint[0], mTouchPoint[1]);
+    }
+
+    private boolean onTouchEvent(MotionEvent event, float localX, float localY) {
         switch (event.getActionMasked()) {
             case MotionEvent.ACTION_DOWN:
                 mOwnsTouchSequence = false;
                 disallowParentIntercept(false);
                 if (mAnimator != null
-                        || Math.abs(event.getX() - mRow.getWidth() / 2f) > 48 * mDensity
-                        || event.getY() < mRow.getActualHeight() - 24 * mDensity
-                        || event.getY() > mRow.getActualHeight() - mRow.getClipBottomAmount()) {
+                        || Math.abs(localX - mRow.getWidth() / 2f) > 48 * mDensity
+                        || localY < mRow.getActualHeight() - 24 * mDensity
+                        || localY > mRow.getActualHeight() - mRow.getClipBottomAmount()) {
                     return false;
                 }
                 // Recheck the user and policy at the boundary, not on every animation frame.

@@ -1,4 +1,5 @@
 /*
+ * Modified by the ArkUI Project in 2026 for notification small-window gesture dispatch.
  * Copyright (C) 2013 The Android Open Source Project
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
@@ -512,6 +513,11 @@ public class ExpandableNotificationRow extends ActivatableNotificationView
 
     public android.graphics.Rect consumeSmallWindowLaunchBounds() {
         return mSmallWindowGesture == null ? null : mSmallWindowGesture.consumeLaunchBounds();
+    }
+
+    /** Let the shade reserve handle drags before heads-up expansion can intercept them. */
+    public boolean dispatchSmallWindowTouchFromShade(MotionEvent event) {
+        return mSmallWindowGesture != null && mSmallWindowGesture.onShadeTouchEvent(event);
     }
 
     @Override

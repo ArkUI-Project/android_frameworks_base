@@ -1,4 +1,5 @@
 /*
+ * Modified by the ArkUI Project in 2026 for notification small-window gesture coverage.
  * Copyright (C) 2024 The Android Open Source Project
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
@@ -80,7 +81,9 @@ import com.android.systemui.statusbar.core.StatusBarConnectedDisplays
 import com.android.systemui.statusbar.data.repository.homeStatusBarComponentsRepository
 import com.android.systemui.statusbar.notification.data.repository.NotificationLaunchAnimationRepository
 import com.android.systemui.statusbar.notification.domain.interactor.NotificationLaunchAnimationInteractor
+import com.android.systemui.statusbar.notification.row.ExpandableNotificationRow
 import com.android.systemui.statusbar.notification.stack.AmbientState
+import com.android.systemui.statusbar.notification.stack.NotificationStackScrollLayout
 import com.android.systemui.statusbar.notification.stack.NotificationStackScrollLayoutController
 import com.android.systemui.statusbar.phone.CentralSurfaces
 import com.android.systemui.statusbar.phone.ConfigurationForwarder
@@ -149,6 +152,7 @@ class NotificationShadeWindowViewControllerTest(flags: FlagsParameterization) : 
     @Mock private lateinit var dumpManager: DumpManager
     @Mock private lateinit var ambientState: AmbientState
     @Mock private lateinit var stackScrollLayoutController: NotificationStackScrollLayoutController
+    @Mock private lateinit var stackScrollLayout: NotificationStackScrollLayout
     @Mock private lateinit var systemUIDisplaySubcomponent: SystemUIDisplaySubcomponent
     @Mock
     private lateinit var perDisplaySubcomponentRepository:
@@ -208,6 +212,8 @@ class NotificationShadeWindowViewControllerTest(flags: FlagsParameterization) : 
         MockitoAnnotations.initMocks(this)
         whenever(view.context).thenReturn(context)
         whenever(view.bottom).thenReturn(VIEW_BOTTOM)
+        whenever(view.findViewById<NotificationStackScrollLayout>(R.id.notification_stack_scroller))
+            .thenReturn(stackScrollLayout)
         whenever(view.findViewById<ViewGroup>(R.id.keyguard_bouncer_container))
             .thenReturn(mock(ViewGroup::class.java))
         whenever(keyguardBouncerComponentFactory.create(any(ViewGroup::class.java)))
@@ -288,8 +294,75 @@ class NotificationShadeWindowViewControllerTest(flags: FlagsParameterization) : 
         interactionEventHandler = interactionEventHandlerCaptor.value
     }
 
-    // Note: So far, these tests only cover interactions with the status bar view controller. More
-    // tests need to be added to test the rest of handleDispatchTouchEvent.
+    @Test
+    fun handleDispatchTouchEvent_smallWindowDrag_keepsSequenceAfterPreviewCancelled() =
+        testScope.runTest {
+            setStatusBarViewController()
+            val row = mock(ExpandableNotificationRow::class.java)
+            whenever(stackScrollLayout.getChildAtRawPosition(anyFloat(), anyFloat())).thenReturn(row)
+            whenever(row.dispatchSmallWindowTouchFromShade(DOWN_EVENT)).thenReturn(true)
+            val up = MotionEvent.obtain(0L, 20L, MotionEvent.ACTION_UP, 0f, 30f, 0)
+            try {
+                assertThat(interactionEventHandler.handleDispatchTouchEvent(DOWN_EVENT)).isTrue()
+                // The row no longer handles MOVE/UP after a rebind or policy cancellation.
+                assertThat(interactionEventHandler.handleDispatchTouchEvent(MOVE_EVENT)).isTrue()
+                assertThat(interactionEventHandler.handleDispatchTouchEvent(up)).isTrue()
+                verify(row).dispatchSmallWindowTouchFromShade(MOVE_EVENT)
+                verify(row).dispatchSmallWindowTouchFromShade(up)
+                verify(phoneStatusBarViewController, never()).sendTouchToView(any())
+
+                // The next gesture outside a handle goes through normal shade dispatch.
+                whenever(stackScrollLayout.getChildAtRawPosition(anyFloat(), anyFloat()))
+                    .thenReturn(null)
+                assertThat(interactionEventHandler.handleDispatchTouchEvent(DOWN_EVENT)).isNull()
+            } finally {
+                up.recycle()
+            }
+        }
+
+    @Test
+    fun handleExternalTouch_smallWindowDrag_neverOfferedToPanelIncludingTerminalEvent() =
+        testScope.runTest {
+            setStatusBarViewController()
+            val row = mock(ExpandableNotificationRow::class.java)
+            whenever(stackScrollLayout.getChildAtRawPosition(anyFloat(), anyFloat())).thenReturn(row)
+            whenever(row.dispatchSmallWindowTouchFromShade(DOWN_EVENT)).thenReturn(true)
+            whenever(view.dispatchTouchEvent(any())).thenAnswer { invocation ->
+                interactionEventHandler.handleDispatchTouchEvent(
+                    invocation.getArgument<MotionEvent>(0)
+                ) == true
+            }
+            val terminalEvents =
+                listOf(
+                    MotionEvent.obtain(0L, 20L, MotionEvent.ACTION_UP, 0f, 30f, 0),
+                    MotionEvent.obtain(0L, 20L, MotionEvent.ACTION_CANCEL, 0f, 30f, 0),
+                )
+            try {
+                for (terminal in terminalEvents) {
+                    underTest.handleExternalTouch(DOWN_EVENT)
+                    underTest.handleExternalTouch(MOVE_EVENT)
+                    underTest.handleExternalTouch(terminal)
+                    verify(row).dispatchSmallWindowTouchFromShade(terminal)
+                }
+            } finally {
+                terminalEvents.forEach { it.recycle() }
+            }
+            // The mocked ViewGroup flag is false: explicit ownership must cover the entire drag.
+            verify(view, never()).onInterceptTouchEvent(any())
+            verify(view, never()).onTouchEvent(any())
+        }
+
+    @Test
+    fun handleDispatchTouchEvent_outsideSmallWindowHandle_usesNormalDispatch() =
+        testScope.runTest {
+            setStatusBarViewController()
+            val row = mock(ExpandableNotificationRow::class.java)
+            whenever(stackScrollLayout.getChildAtRawPosition(anyFloat(), anyFloat())).thenReturn(row)
+
+            assertThat(interactionEventHandler.handleDispatchTouchEvent(DOWN_EVENT)).isNull()
+            assertThat(interactionEventHandler.handleDispatchTouchEvent(MOVE_EVENT)).isNull()
+            verify(row, never()).dispatchSmallWindowTouchFromShade(MOVE_EVENT)
+        }
 
     @Test
     fun handleDispatchTouchEvent_nullStatusBarViewController_returnsFalse() =

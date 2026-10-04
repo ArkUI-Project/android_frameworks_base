@@ -75,6 +75,7 @@ import com.android.systemui.statusbar.NotificationShadeWindowController;
 import com.android.systemui.statusbar.SysuiStatusBarStateController;
 import com.android.systemui.statusbar.core.StatusBarConnectedDisplays;
 import com.android.systemui.statusbar.notification.domain.interactor.NotificationLaunchAnimationInteractor;
+import com.android.systemui.statusbar.notification.row.ExpandableNotificationRow;
 import com.android.systemui.statusbar.notification.stack.AmbientState;
 import com.android.systemui.statusbar.notification.stack.NotificationStackScrollLayout;
 import com.android.systemui.statusbar.notification.stack.NotificationStackScrollLayoutController;
@@ -136,6 +137,7 @@ public class NotificationShadeWindowViewController implements Dumpable {
     private boolean mTouchActive;
     private boolean mTouchCancelled;
     private MotionEvent mDownEvent;
+    private ExpandableNotificationRow mSmallWindowTouchTarget;
     // TODO rename to mLaunchAnimationRunning
     private boolean mExpandAnimationRunning;
     /**
@@ -382,11 +384,12 @@ public class NotificationShadeWindowViewController implements Dumpable {
             // A notification handle may own this event before dispatch, or claim it on DOWN.
             // Remember the former too: dispatching UP/CANCEL clears ViewGroup's intercept flag.
             final boolean childOwnedTouch = event.getActionMasked() != MotionEvent.ACTION_DOWN
-                    && mView.isTouchInterceptDisallowed();
+                    && (mSmallWindowTouchTarget != null || mView.isTouchInterceptDisallowed());
             if (!mView.dispatchTouchEvent(event)) {
                 return;
             }
-            if (childOwnedTouch || mView.isTouchInterceptDisallowed()) {
+            if (childOwnedTouch || mSmallWindowTouchTarget != null
+                    || mView.isTouchInterceptDisallowed()) {
                 return;
             }
             if (hubBlurredByShadeFix()) {
@@ -476,6 +479,10 @@ public class NotificationShadeWindowViewController implements Dumpable {
                 }
 
                 mFalsingCollector.onTouchEvent(ev);
+                if (dispatchSmallWindowTouch(ev)) {
+                    return logDownOrFalseResultDispatch(ev,
+                            "notification small-window gesture", true);
+                }
                 mQQSGestureHandler.onTouchEvent(ev);
                 // Pass touch events to the pulsing gesture listener only if it's dozing,
                 // otherwise lockscreen DT2S and AOD DT2W will conflict.
@@ -738,6 +745,45 @@ public class NotificationShadeWindowViewController implements Dumpable {
         );
     }
 
+    private boolean dispatchSmallWindowTouch(MotionEvent event) {
+        final int action = event.getActionMasked();
+        if (action == MotionEvent.ACTION_DOWN) {
+            if (mSmallWindowTouchTarget != null) {
+                MotionEvent cancel = MotionEvent.obtain(event);
+                cancel.setAction(MotionEvent.ACTION_CANCEL);
+                mSmallWindowTouchTarget.dispatchSmallWindowTouchFromShade(cancel);
+                cancel.recycle();
+                mSmallWindowTouchTarget = null;
+            }
+            if (mStackScrollLayout == null || mStatusBarStateController.isDozing()
+                    || mPrimaryBouncerInteractor.isBouncerShowing()
+                    || mAlternateBouncerInteractor.isVisibleState()
+                    || (mBrightnessMirror != null
+                            && mBrightnessMirror.getVisibility() == View.VISIBLE)) {
+                return false;
+            }
+            // Resolve the notification before the panel's HeadsUpTouchHelper sees DOWN. Its
+            // independent expansion path can otherwise cancel the row before a handle drag starts.
+            final View child = mStackScrollLayout.getChildAtRawPosition(
+                    event.getRawX(), event.getRawY());
+            if (child instanceof ExpandableNotificationRow row
+                    && row.dispatchSmallWindowTouchFromShade(event)) {
+                mSmallWindowTouchTarget = row;
+                return true;
+            }
+            return false;
+        }
+        if (mSmallWindowTouchTarget == null) return false;
+        final ExpandableNotificationRow target = mSmallWindowTouchTarget;
+        if (action == MotionEvent.ACTION_UP || action == MotionEvent.ACTION_CANCEL) {
+            mSmallWindowTouchTarget = null;
+        }
+        target.dispatchSmallWindowTouchFromShade(event);
+        // A rebind, detach, or policy change can cancel the preview. Keep consuming its remaining
+        // events so the shade cannot begin expanding halfway through the same gesture.
+        return true;
+    }
+
     private boolean didNotificationPanelInterceptEvent(MotionEvent ev) {
         // Since NotificationStackScrollLayout is now a sibling of notification_panel, we need to
         // also ask NotificationPanelViewController directly, in order to process swipe up events
@@ -796,6 +842,8 @@ public class NotificationShadeWindowViewController implements Dumpable {
         pw.println(mTouchActive);
         pw.print("  mTouchCancelled=");
         pw.println(mTouchCancelled);
+        pw.print("  mSmallWindowTouchActive=");
+        pw.println(mSmallWindowTouchTarget != null);
     }
 
     @VisibleForTesting
