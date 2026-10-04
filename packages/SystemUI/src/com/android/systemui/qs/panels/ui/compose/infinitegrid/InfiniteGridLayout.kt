@@ -52,6 +52,7 @@ import com.android.systemui.qs.panels.ui.viewmodel.TileViewModel
 import com.android.systemui.qs.pipeline.shared.TileSpec
 import com.android.systemui.qs.shared.ui.QuickSettings.Elements.toElementKey
 import com.android.systemui.res.R
+import com.android.systemui.shade.ui.composable.shadeTail
 import javax.inject.Inject
 import kotlinx.coroutines.launch
 
@@ -134,7 +135,7 @@ constructor(
             ) { spanIndex, column, isFirstInColumn, isLastInColumn ->
                 val it = sizedTiles[spanIndex]
 
-                Element(it.tile.spec.toElementKey(), Modifier) {
+                Element(it.tile.spec.toElementKey(), Modifier.shadeTail(strength = 0.75f)) {
                     Tile(
                         tile = it.tile,
                         iconOnly = iconTilesViewModel.isIconTile(it.tile.spec),

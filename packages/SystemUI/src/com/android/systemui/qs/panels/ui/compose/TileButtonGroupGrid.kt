@@ -38,6 +38,7 @@ import com.android.compose.animation.scene.ElementKey
 import com.android.systemui.qs.panels.shared.model.SizedTile
 import com.android.systemui.qs.panels.shared.model.splitInRowsSequence
 import com.android.systemui.res.R
+import com.android.systemui.shade.ui.composable.shadeTail
 
 /**
  * A grid of [SizedTile] implemented using a column of [ButtonGroup].
@@ -77,6 +78,7 @@ fun <T> ContentScope.ButtonGroupGrid(
                     horizontalPadding,
                     keys,
                     elementKey,
+                    modifier = Modifier.shadeTail(strength = 0.75f),
                     tileContent = tileContent,
                 )
             }

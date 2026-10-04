@@ -36,6 +36,7 @@ import android.widget.FrameLayout
 import androidx.annotation.VisibleForTesting
 import androidx.compose.animation.core.tween
 import androidx.compose.foundation.ScrollState
+import androidx.compose.foundation.background
 import androidx.compose.foundation.isSystemInDarkTheme
 import androidx.compose.foundation.layout.Arrangement.spacedBy
 import androidx.compose.foundation.layout.Box
@@ -52,6 +53,8 @@ import androidx.compose.foundation.layout.systemBars
 import androidx.compose.foundation.layout.windowInsetsBottomHeight
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.Text
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.DisposableEffect
@@ -157,6 +160,10 @@ import com.android.systemui.qs.ui.composable.QuickSettingsShade.systemGestureExc
 import com.android.systemui.qs.ui.composable.QuickSettingsTheme
 import com.android.systemui.res.R
 import com.android.systemui.shade.ShadeDisplayAware
+import com.android.systemui.shade.ShadeTailMotion
+import com.android.systemui.shade.ui.composable.LocalShadeTailMotion
+import com.android.systemui.shade.ui.composable.ShadeTailState
+import com.android.systemui.shade.ui.composable.shadeTail
 import com.android.systemui.shade.shared.flag.ShadeWindowGoesAround
 import com.android.systemui.statusbar.policy.ConfigurationController
 import com.android.systemui.statusbar.policy.ConfigurationController.ConfigurationListener
@@ -193,7 +200,20 @@ constructor(
     @Background private val backgroundDispatcher: CoroutineDispatcher,
     private val mediaLogger: MediaViewLogger,
     @ShadeDisplayAware private val configurationController: ConfigurationController,
-) : LifecycleFragment(), QS, Dumpable {
+) : LifecycleFragment(), QS, Dumpable, ShadeTailMotion.Listener {
+
+    private val shadeMotion = ShadeTailState()
+    private var useControlCenterLayout by mutableStateOf(false)
+
+    override fun setControlCenterEnabled(enabled: Boolean) {
+        useControlCenterLayout = enabled
+    }
+
+    override fun onShadeMotion(enabled: Boolean, reveal: Float, tail: Float) {
+        shadeMotion.enabled = enabled
+        shadeMotion.reveal = reveal
+        shadeMotion.tail = tail
+    }
 
     private val scrollListener = MutableStateFlow<QS.ScrollListener?>(null)
     private val collapsedMediaVisibilityChangedListener =
@@ -299,7 +319,10 @@ constructor(
                                     }
                                 }
                             }
-                            .graphicsLayer { alpha = viewModel.viewAlpha }
+                            .graphicsLayer {
+                                alpha = if (shadeMotion.enabled) shadeMotion.reveal
+                                    else viewModel.viewAlpha
+                            }
                             .thenIf(!Flags.notificationShadeBlur()) {
                                 Modifier.offset {
                                     IntOffset(
@@ -314,7 +337,9 @@ constructor(
                             // by the composables.
                             .thenIf(viewModel.showingMirror) { Modifier.gesturesDisabled() }
                 ) {
-                    CollapsableQuickSettingsSTL()
+                    CompositionLocalProvider(LocalShadeTailMotion provides shadeMotion) {
+                        CollapsableQuickSettingsSTL()
+                    }
                 }
             }
         }
@@ -820,7 +845,12 @@ constructor(
     @Composable
     private fun ContentScope.QuickSettingsElement(modifier: Modifier = Modifier) {
         val qqsPadding = viewModel.qqsHeaderHeight
-        val qsExtraPadding = dimensionResource(R.dimen.qs_panel_padding_top)
+        val controlCenter = useControlCenterLayout
+        val qsExtraPadding = when {
+            !controlCenter -> dimensionResource(R.dimen.qs_panel_padding_top)
+            LocalConfiguration.current.orientation == Configuration.ORIENTATION_LANDSCAPE -> 0.dp
+            else -> 48.dp
+        }
         Column(
             modifier =
                 modifier.collapseExpandSemanticAction(
@@ -928,7 +958,16 @@ constructor(
                                         end = qsHorizontalMargin(),
                                     )
                         ) {
-                            QuickSettingsLayout(
+                            if (controlCenter) {
+                                ControlCenterLayout(
+                                    brightness = BrightnessSlider,
+                                    tiles = TileGrid,
+                                    media = Media,
+                                    brightnessVisible = viewModel.isBrightnessSliderVisible,
+                                    mediaVisible = viewModel.qsMediaVisible,
+                                    mediaInRow = viewModel.qsMediaInRow,
+                                )
+                            } else QuickSettingsLayout(
                                 brightness =
                                     if (viewModel.isBrightnessSliderVisible) {
                                         { BrightnessSlider() }
@@ -945,7 +984,7 @@ constructor(
                 QuickSettingsTheme {
                     Element(
                         Elements.FooterActions,
-                        Modifier.sysuiResTag(ResIdTags.qsFooterActions),
+                        Modifier.sysuiResTag(ResIdTags.qsFooterActions).shadeTail(),
                     ) {
                         FooterActions(viewModel = viewModel.footerActionsViewModel)
                     }
@@ -1057,6 +1096,11 @@ constructor(
             }
             println("QQS visible", qqsVisible.value)
             println("bottom QS padding", bottomContentPadding)
+            printSection("Shade tail motion") {
+                println("enabled", shadeMotion.enabled)
+                println("reveal", shadeMotion.reveal)
+                println("tail", shadeMotion.tail)
+            }
             if (::viewModel.isInitialized) {
                 printSection("View Model") { viewModel.dump(this@run, args) }
             }
@@ -1575,6 +1619,68 @@ fun QuickSettingsLayout(
         if (!mediaInRow) {
             media()
         }
+    }
+}
+
+@Composable
+private fun ControlCenterLayout(
+    brightness: @Composable () -> Unit,
+    tiles: @Composable () -> Unit,
+    media: @Composable () -> Unit,
+    brightnessVisible: Boolean,
+    mediaVisible: Boolean,
+    mediaInRow: Boolean,
+) {
+    val brightnessSettings = rememberQsBrightnessSettings()
+    val compact = LocalConfiguration.current.orientation == Configuration.ORIENTATION_LANDSCAPE
+    val brightnessCard: @Composable () -> Unit = {
+        if (brightnessVisible && brightnessSettings.showSlider != 0) {
+            val cardModifier = Modifier.fillMaxWidth().shadeTail()
+                .background(
+                    MaterialTheme.colorScheme.surfaceContainerHigh,
+                    RoundedCornerShape(32.dp),
+                ).padding(if (compact) 8.dp else 16.dp)
+            val label: @Composable () -> Unit = {
+                Text(
+                    stringResource(R.string.quick_settings_brightness_dialog_title),
+                    style = MaterialTheme.typography.titleSmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    modifier = Modifier.padding(horizontal = 8.dp),
+                )
+            }
+            if (compact) {
+                Row(cardModifier, verticalAlignment = Alignment.CenterVertically) {
+                    label()
+                    Box(Modifier.weight(1f)) { brightness() }
+                }
+            } else {
+                Column(cardModifier, verticalArrangement = spacedBy(12.dp)) {
+                    label()
+                    brightness()
+                }
+            }
+        }
+    }
+    val tilesCard: @Composable () -> Unit = {
+        Box(
+            Modifier.shadeTail(strength = 0.25f).background(
+                MaterialTheme.colorScheme.surfaceContainerHigh,
+                RoundedCornerShape(36.dp),
+            ).padding(if (compact) 8.dp else 12.dp)
+        ) { tiles() }
+    }
+    Column(verticalArrangement = spacedBy(if (compact) 12.dp else 16.dp)) {
+        if (brightnessSettings.sliderAtTop) brightnessCard()
+        if (mediaInRow && mediaVisible) {
+            Row(horizontalArrangement = spacedBy(16.dp)) {
+                Box(Modifier.weight(1f)) { tilesCard() }
+                Box(Modifier.weight(1f).shadeTail()) { media() }
+            }
+        } else {
+            if (mediaVisible) Box(Modifier.shadeTail()) { media() }
+            tilesCard()
+        }
+        if (!brightnessSettings.sliderAtTop) brightnessCard()
     }
 }
 

@@ -346,6 +346,7 @@ public final class NotificationPanelViewController implements
     private long mStatusBarLongPressDowntime = -1L;
     private boolean mTouchSlopExceededBeforeDown;
     private float mOverExpansion;
+    private final ShadeTailMotion mShadeTailMotion;
     private CentralSurfaces mCentralSurfaces;
     private HeadsUpManager mHeadsUpManager;
     private float mExpandedHeight = 0;
@@ -750,6 +751,10 @@ public final class NotificationPanelViewController implements
         mNavigationBarController = navigationBarController;
         mNotificationsQSContainerController.init();
         mNotificationStackScrollLayoutController = notificationStackScrollLayoutController;
+        mShadeTailMotion = new ShadeTailMotion((enabled, reveal, tail) -> {
+            mQsController.setShadeMotion(enabled, reveal, tail);
+            mNotificationStackScrollLayoutController.setShadeMotion(enabled, reveal, tail);
+        });
         mKeyguardStatusBarViewComponentFactory = keyguardStatusBarViewComponentFactory;
         mDepthController = notificationShadeDepthController;
         mContentResolver = contentResolver;
@@ -1453,6 +1458,7 @@ public final class NotificationPanelViewController implements
         // we want to perform an overshoot animation when flinging open
         final boolean addOverscroll =
                 expand
+                        && !mQsController.isDualShadeEnabled()
                         && mStatusBarStateController.getState() != KEYGUARD
                         && mOverExpansion == 0.0f
                         && vel >= 0;
@@ -3173,6 +3179,8 @@ public final class NotificationPanelViewController implements
             }
             mShadeRepository.setLegacyShadeExpansion(mExpandedFraction);
             mQsController.setShadeExpansion(mExpandedHeight, mExpandedFraction);
+            mShadeTailMotion.setExpansion(mQsController.isDualShadeEnabled()
+                    && mStatusBarStateController.getState() == SHADE, mExpandedFraction);
             mExpansionDragDownAmountPx = h;
             if (!SceneContainerFlag.isEnabled()) {
                 mAmbientState.setExpansionFraction(mExpandedFraction);
@@ -3609,6 +3617,9 @@ public final class NotificationPanelViewController implements
             // TODO: maybe add a listener for barstate
             mBarState = statusBarState;
             mQsController.setBarState(statusBarState);
+            if (statusBarState != SHADE) {
+                mShadeTailMotion.reset();
+            }
 
             boolean fromShadeToKeyguard = statusBarState == KEYGUARD
                     && (oldState == SHADE || oldState == SHADE_LOCKED);
@@ -3741,6 +3752,7 @@ public final class NotificationPanelViewController implements
 
         @Override
         public void onViewDetachedFromWindow(View v) {
+            mShadeTailMotion.reset();
             mContentResolver.unregisterContentObserver(mDoubleTapToSleepObserver);
             mFragmentService.getFragmentHostManager(mView)
                     .removeTagListener(QS.TAG, mQsController.getQsFragmentListener());

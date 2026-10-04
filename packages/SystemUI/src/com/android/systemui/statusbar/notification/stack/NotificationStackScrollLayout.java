@@ -99,6 +99,7 @@ import com.android.systemui.qs.flags.QSComposeFragment;
 import com.android.systemui.res.R;
 import com.android.systemui.scene.shared.flag.SceneContainerFlag;
 import com.android.systemui.shade.QSHeaderBoundsProvider;
+import com.android.systemui.shade.ShadeTailMotion;
 import com.android.systemui.shade.TouchLogger;
 import com.android.systemui.statusbar.NotificationShelf;
 import com.android.systemui.statusbar.StatusBarState;
@@ -4079,6 +4080,9 @@ public class NotificationStackScrollLayout
 
     @Override
     public boolean dispatchTouchEvent(MotionEvent ev) {
+        if (ev.getActionMasked() == ACTION_DOWN) {
+            captureShadeTouchTransform(ev.getX(), ev.getY());
+        }
         if (SceneContainerFlag.isEnabled()) {
             int action = ev.getActionMasked();
             boolean isTouchInGuts = mController.isTouchInGutsView(ev);
@@ -4117,6 +4121,18 @@ public class NotificationStackScrollLayout
             }
         }
         // dispatch all touches to TouchHandlers, so they can decide whether they want to handle it.
+        if (mShadeTransformedTouch) {
+            MotionEvent transformed = MotionEvent.obtain(ev);
+            transformed.transform(mShadeTouchInverse);
+            try {
+                return TouchLogger.logDispatchTouch(TAG, ev, super.dispatchTouchEvent(transformed));
+            } finally {
+                transformed.recycle();
+                if (ev.getActionMasked() == ACTION_UP || ev.getActionMasked() == ACTION_CANCEL) {
+                    mShadeTransformedTouch = false;
+                }
+            }
+        }
         return TouchLogger.logDispatchTouch(TAG, ev, super.dispatchTouchEvent(ev));
     }
 
@@ -6745,6 +6761,68 @@ public class NotificationStackScrollLayout
 
     @Override
     protected boolean drawChild(Canvas canvas, View child, long drawingTime) {
+        if (!mShadeTailEnabled || mLaunchingNotification || shouldSkipBlurForChild(child)
+                || (mShadeReveal == 1f && mShadeTail == 1f)) {
+            return drawShadeChild(canvas, child, drawingTime);
+        }
+        final int save = canvas.save();
+        final float top = child.getY();
+        final float scale = ShadeTailMotion.scale(mShadeReveal, mShadeTail);
+        float height = child instanceof ExpandableView expandable
+                ? expandable.getActualHeight() : child.getHeight();
+        canvas.translate(0f, ShadeTailMotion.translation(mShadeReveal, mShadeTail,
+                top + height / 2f, getResources().getDisplayMetrics().density));
+        canvas.scale(scale, ShadeTailMotion.scaleY(mShadeReveal, mShadeTail),
+                getWidth() / 2f, top + height / 2f);
+        boolean result = drawShadeChild(canvas, child, drawingTime);
+        canvas.restoreToCount(save);
+        return result;
+    }
+
+    private boolean mShadeTailEnabled;
+    private float mShadeReveal = 1f;
+    private float mShadeTail = 1f;
+    private final android.graphics.Matrix mShadeTouchInverse = new android.graphics.Matrix();
+    private boolean mShadeTransformedTouch;
+
+    /** Keep a gesture in the touched card's coordinates while its visual tail settles. */
+    private void captureShadeTouchTransform(float x, float y) {
+        mShadeTransformedTouch = false;
+        if (!mShadeTailEnabled || mLaunchingNotification
+                || (mShadeReveal == 1f && mShadeTail == 1f)) return;
+        float scale = ShadeTailMotion.scale(mShadeReveal, mShadeTail);
+        float scaleY = ShadeTailMotion.scaleY(mShadeReveal, mShadeTail);
+        for (int i = getChildCount() - 1; i >= 0; i--) {
+            ExpandableView child = getChildAtIndex(i);
+            if (child.getVisibility() != VISIBLE || shouldSkipBlurForChild(child)) continue;
+            float top = child.getY();
+            float height = child.getActualHeight();
+            float shift = ShadeTailMotion.translation(mShadeReveal, mShadeTail, top + height / 2f,
+                    getResources().getDisplayMetrics().density);
+            float drawnTop = top + height * (1f - scaleY) / 2f + shift;
+            float drawnLeft = getWidth() / 2f + (child.getLeft() - getWidth() / 2f) * scale;
+            if (x >= drawnLeft && x <= drawnLeft + child.getWidth() * scale
+                    && y >= drawnTop + child.getClipTopAmount() * scaleY
+                    && y <= drawnTop + (height - child.getClipBottomAmount()) * scaleY) {
+                mShadeTouchInverse.setScale(scale, scaleY, getWidth() / 2f, top + height / 2f);
+                mShadeTouchInverse.postTranslate(0f, shift);
+                mShadeTransformedTouch = mShadeTouchInverse.invert(mShadeTouchInverse);
+                return;
+            }
+        }
+    }
+
+    public void setShadeMotion(boolean enabled, float reveal, float tail) {
+        if (mShadeTailEnabled == enabled && mShadeReveal == reveal && mShadeTail == tail) {
+            return;
+        }
+        mShadeTailEnabled = enabled;
+        mShadeReveal = reveal;
+        mShadeTail = tail;
+        invalidate();
+    }
+
+    private boolean drawShadeChild(Canvas canvas, View child, long drawingTime) {
         boolean shouldUseClipping =
                 mShouldUseRoundedRectClipping || mShouldUseNegativeRoundedRectClipping;
         if (mBlurEffect != null) {

@@ -1176,10 +1176,20 @@ public class QuickSettingsControllerImpl implements QuickSettingsController, Dum
         mQs.setExpanded(getExpanded());
     }
 
+    void setShadeMotion(boolean enabled, float reveal, float tail) {
+        mShadeHeaderController.setShadeTailProgress(enabled && isDualShadeEnabled(), reveal);
+        if (mQs instanceof ShadeTailMotion.Listener listener) {
+            listener.onShadeMotion(enabled && isDualShadeEnabled(), reveal, tail);
+        }
+    }
+
     /** update expanded state of QS */
     void updateExpansion() {
         if (mQs == null) return;
         boolean dualShade = isDualShadeEnabled();
+        if (mQs instanceof ShadeTailMotion.Listener listener) {
+            listener.setControlCenterEnabled(dualShade);
+        }
         mQsFrame.setVisibility(dualShade && !mDualShadeShowingQs
                 ? View.INVISIBLE : View.VISIBLE);
         mNotificationStackScrollLayoutController.setHiddenForDualShade(
@@ -1197,6 +1207,8 @@ public class QuickSettingsControllerImpl implements QuickSettingsController, Dum
         }
         final float qsExpansionFraction = computeExpansionFraction();
         final float adjustedExpansionFraction = mSplitShadeEnabled
+                || (dualShade && mDualShadeShowingQs && mBarState != KEYGUARD
+                        && mShadeExpandedFraction > 0f)
                 ? 1f : computeExpansionFraction();
         mQs.setQsExpansion(
                 adjustedExpansionFraction,

@@ -235,11 +235,18 @@ constructor(
             onHeaderStateChanged()
         }
 
+    private var shadeTailReveal: Float? = null
+
+    fun setShadeTailProgress(enabled: Boolean, reveal: Float) {
+        shadeTailReveal = if (enabled) reveal else null
+        header.alpha = shadeTailReveal ?: ShadeInterpolation.getContentAlpha(shadeExpandedFraction)
+    }
+
     /** Expansion fraction of the QQS/QS shade. This is not the expansion between QQS <-> QS. */
     var shadeExpandedFraction = -1f
         set(value) {
             if (qsVisible && field != value) {
-                header.alpha = ShadeInterpolation.getContentAlpha(value)
+                header.alpha = shadeTailReveal ?: ShadeInterpolation.getContentAlpha(value)
                 field = value
                 updateIgnoredSlots()
             }

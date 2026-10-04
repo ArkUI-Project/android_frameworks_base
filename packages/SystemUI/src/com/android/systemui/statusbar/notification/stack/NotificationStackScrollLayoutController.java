@@ -319,6 +319,7 @@ public class NotificationStackScrollLayoutController implements Dumpable {
     private float mMaxAlphaForUnhide = 1.0f;
     private float mMaxAlphaForRebind = 1.0f;
     private float mMaxAlphaFromView = 1.0f;
+    private float mShadeTailAlpha = 1.0f;
     private boolean mHiddenForDualShade;
     private boolean mRequestedVisible = true;
 
@@ -1502,7 +1503,7 @@ public class NotificationStackScrollLayoutController implements Dumpable {
             float newAlpha = Math.min(mMaxAlphaForRebind,
                     Math.min(Math.min(mMaxAlphaFromView, mMaxAlphaForKeyguard),
                             Math.min(mMaxAlphaForUnhide, mMaxAlphaForGlanceableHub)));
-            mView.setAlpha(newAlpha);
+            mView.setAlpha(newAlpha * mShadeTailAlpha);
         }
     }
 
@@ -1615,6 +1616,16 @@ public class NotificationStackScrollLayoutController implements Dumpable {
         if (mHiddenForDualShade == hidden) return;
         mHiddenForDualShade = hidden;
         updateVisibility(mRequestedVisible);
+    }
+
+    public void setShadeMotion(boolean enabled, float reveal, float tail) {
+        mView.setShadeMotion(enabled, reveal, tail);
+        // A collapsed shade must not hide incoming heads-up notifications.
+        float alpha = enabled && reveal > 0f ? reveal : 1f;
+        if (alpha != mShadeTailAlpha) {
+            mShadeTailAlpha = alpha;
+            updateAlpha();
+        }
     }
 
     public boolean isShowingEmptyShadeView() {
@@ -1987,6 +1998,7 @@ public class NotificationStackScrollLayoutController implements Dumpable {
     @Override
     public void dump(@NonNull PrintWriter pw, @NonNull String[] args) {
         pw.println("mMaxAlphaFromView=" + mMaxAlphaFromView);
+        pw.println("mShadeTailAlpha=" + mShadeTailAlpha);
         pw.println("mMaxAlphaForUnhide=" + mMaxAlphaForUnhide);
         pw.println("mMaxAlphaForRebind=" + mMaxAlphaForRebind);
         pw.println("mMaxAlphaForGlanceableHub=" + mMaxAlphaForGlanceableHub);
