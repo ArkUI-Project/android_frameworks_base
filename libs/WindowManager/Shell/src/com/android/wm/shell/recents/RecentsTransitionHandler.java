@@ -1,5 +1,5 @@
 /*
- * Modified by the ArkUI Project in 2026 for native small-window support.
+ * Modified by the ArkUI Project in 2026 for small windows and atomic gesture handoff.
  * Copyright (C) 2023 The Android Open Source Project
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
@@ -20,6 +20,7 @@ package com.android.wm.shell.recents;
 import static android.app.ActivityTaskManager.INVALID_TASK_ID;
 import static android.app.WindowConfiguration.ACTIVITY_TYPE_HOME;
 import static android.app.WindowConfiguration.ACTIVITY_TYPE_RECENTS;
+import static android.app.WindowConfiguration.ACTIVITY_TYPE_STANDARD;
 import static android.app.WindowConfiguration.WINDOWING_MODE_FULLSCREEN;
 import static android.app.WindowConfiguration.WINDOWING_MODE_PINNED_WINDOW_EXT;
 import static android.view.Display.DEFAULT_DISPLAY;
@@ -40,6 +41,10 @@ import static android.window.TransitionInfo.FLAG_TRANSLUCENT;
 import static com.android.wm.shell.recents.RecentsTransitionStateListener.TRANSITION_STATE_ANIMATING;
 import static com.android.wm.shell.recents.RecentsTransitionStateListener.TRANSITION_STATE_NOT_RUNNING;
 import static com.android.wm.shell.recents.RecentsTransitionStateListener.TRANSITION_STATE_REQUESTED;
+import static com.android.wm.shell.shared.ShellSharedConstants.KEY_EXTRA_RECENTS_START_ACK;
+import static com.android.wm.shell.shared.ShellSharedConstants.KEY_EXTRA_RECENTS_START_CALLBACK;
+import static com.android.wm.shell.shared.ShellSharedConstants.KEY_EXTRA_RECENTS_START_HANDOFF;
+import static com.android.wm.shell.shared.ShellSharedConstants.KEY_EXTRA_RECENTS_START_TRANSACTION;
 import static com.android.wm.shell.shared.ShellSharedConstants.KEY_EXTRA_SHELL_CAN_HAND_OFF_ANIMATION;
 import static com.android.wm.shell.shared.split.SplitBounds.KEY_EXTRA_SPLIT_BOUNDS;
 import static com.android.wm.shell.transition.Transitions.TRANSIT_END_RECENTS_TRANSITION;
@@ -61,6 +66,7 @@ import android.graphics.Rect;
 import android.os.Binder;
 import android.os.Bundle;
 import android.os.IBinder;
+import android.os.RemoteCallback;
 import android.os.RemoteException;
 import android.util.ArrayMap;
 import android.util.IntArray;
@@ -115,6 +121,7 @@ public class RecentsTransitionHandler implements Transitions.TransitionHandler,
     public static final IBinder SYNTHETIC_TRANSITION = new Binder();
 
     private static final int CANCEL_WITH_SNAPSHOTS_FINISH_TIMEOUT_MS = 200;
+    private static final int START_HANDOFF_TIMEOUT_MS = 1000;
 
     private final Transitions mTransitions;
     private final ShellTaskOrganizer mShellTaskOrganizer;
@@ -294,6 +301,7 @@ public class RecentsTransitionHandler implements Transitions.TransitionHandler,
         }
 
         final RecentsController controller = new RecentsController(listener, displayId);
+        controller.mCanDeferStart = options.getBoolean(KEY_EXTRA_RECENTS_START_HANDOFF, false);
         if (transition != null) {
             controller.setTransition(transition);
             mControllers.add(controller);
@@ -343,6 +351,42 @@ public class RecentsTransitionHandler implements Transitions.TransitionHandler,
             }
         }
         return null;
+    }
+
+    @Override
+    public boolean deferStartingAnimation(IBinder transition, TransitionInfo info,
+            TransitionInfo previousInfo, Runnable onStartApplied) {
+        final RecentsController controller = findController(transition);
+        if (controller == null || !controller.mCanDeferStart || controller.mListener == null
+                || info.getType() != TRANSIT_START_RECENTS_TRANSITION
+                || info.getRootCount() != 1
+                || ((info.getFlags() | previousInfo.getFlags())
+                        & (KEYGUARD_VISIBILITY_TRANSIT_FLAGS | TRANSIT_FLAG_KEYGUARD_LOCKED)) != 0) {
+            return false;
+        }
+        // Only a fullscreen app launch followed by recents for that same task/display can
+        // retain the old hierarchy. Split, desktop, home and unrelated launches use normal start.
+        for (TransitionInfo.Change change : info.getChanges()) {
+            final ActivityManager.RunningTaskInfo task = change.getTaskInfo();
+            if (task == null || task.displayId != controller.mDisplayId
+                    || task.getActivityType() != ACTIVITY_TYPE_STANDARD
+                    || task.getWindowingMode() != WINDOWING_MODE_FULLSCREEN
+                    || !TransitionUtil.isClosingType(change.getMode())) continue;
+            for (TransitionInfo.Change previous : previousInfo.getChanges()) {
+                final ActivityManager.RunningTaskInfo oldTask = previous.getTaskInfo();
+                if (oldTask != null && oldTask.taskId == task.taskId
+                        && oldTask.displayId == task.displayId
+                        && oldTask.getWindowingMode() == WINDOWING_MODE_FULLSCREEN
+                        && TransitionUtil.isOpeningType(previous.getMode())) {
+                    ProtoLog.v(ShellProtoLogGroup.WM_SHELL_RECENTS_TRANSITION,
+                            "[%d] Deferring app launch finish for taskId=%d",
+                            controller.mInstanceId, task.taskId);
+                    controller.mOnStartApplied = onStartApplied;
+                    return true;
+                }
+            }
+        }
+        return false;
     }
 
     @Override
@@ -417,6 +461,12 @@ public class RecentsTransitionHandler implements Transitions.TransitionHandler,
         private IBinder.DeathRecipient mDeathHandler;
         private Transitions.TransitionFinishCallback mFinishCB = null;
         private SurfaceControl.Transaction mFinishTransaction = null;
+        private boolean mCanDeferStart;
+        private boolean mStartHandoffCancelled;
+        private SurfaceControl.Transaction mStartTransaction;
+        private Runnable mOnStartApplied;
+        private final Runnable mStartHandoffTimeout = () ->
+                cancel(this.mWillFinishToHome, false /* withScreenshots */, "first frame timed out");
 
         /**
          * List of tasks that we are switching away from via this transition, ordered from top most
@@ -519,6 +569,8 @@ public class RecentsTransitionHandler implements Transitions.TransitionHandler,
         }
 
         void cancel(boolean toHome, boolean withScreenshots, String reason) {
+            mStartHandoffCancelled = true;
+            mExecutor.removeCallbacks(mStartHandoffTimeout);
             if (cancelSyntheticTransition(reason)) {
                 return;
             }
@@ -643,6 +695,11 @@ public class RecentsTransitionHandler implements Transitions.TransitionHandler,
          * the cancel() methods to ensure that Launcher is notified.
          */
         void cleanUp() {
+            mExecutor.removeCallbacks(mStartHandoffTimeout);
+            // The transaction belongs to Transitions. On cancellation its operations have been
+            // moved into finish; on failed start a fallback handler still needs the original.
+            mStartTransaction = null;
+            mOnStartApplied = null;
             ProtoLog.v(ShellProtoLogGroup.WM_SHELL_RECENTS_TRANSITION,
                     "[%d] RecentsController.cleanup", mInstanceId);
             if (mListener != null && mDeathHandler != null) {
@@ -950,16 +1007,27 @@ public class RecentsTransitionHandler implements Transitions.TransitionHandler,
                             taskInfo != null ? taskInfo.taskId : -1);
                 }
             }
-            ProtoLog.v(ShellProtoLogGroup.WM_SHELL_RECENTS_TRANSITION,
-                    "Applying transaction=%d", t.getId());
-            t.apply();
-
             mTakeoverHandler = mTransitions.getHandlerForTakeover(mTransition, info);
 
             Bundle b = new Bundle(2 /*capacity*/);
             b.putParcelable(KEY_EXTRA_SPLIT_BOUNDS,
                     mRecentTasksController.getSplitBoundsForTaskId(closingSplitTaskId));
             b.putBoolean(KEY_EXTRA_SHELL_CAN_HAND_OFF_ANIMATION, mTakeoverHandler != null);
+            if (mOnStartApplied != null) {
+                // Keep the launch visible until Launcher has transformed the replacement leashes.
+                // Shell owns the transaction so a late first frame cannot revive a canceled task.
+                mStartTransaction = t;
+                ProtoLog.v(ShellProtoLogGroup.WM_SHELL_RECENTS_TRANSITION,
+                        "[%d] Waiting for Launcher first frame, transaction=%d",
+                        mInstanceId, t.getId());
+                b.putParcelable(KEY_EXTRA_RECENTS_START_CALLBACK, new RemoteCallback(result ->
+                        mExecutor.execute(() -> applyStartFrame(result))));
+                mExecutor.executeDelayed(mStartHandoffTimeout, START_HANDOFF_TIMEOUT_MS);
+            } else {
+                ProtoLog.v(ShellProtoLogGroup.WM_SHELL_RECENTS_TRANSITION,
+                        "Applying transaction=%d", t.getId());
+                t.apply();
+            }
             try {
                 ProtoLog.v(ShellProtoLogGroup.WM_SHELL_RECENTS_TRANSITION,
                         "[%d] RecentsController.start: calling onAnimationStart with %d apps",
@@ -976,6 +1044,43 @@ public class RecentsTransitionHandler implements Transitions.TransitionHandler,
                 cancel("onAnimationStart() failed");
             }
             return true;
+        }
+
+        private void applyStartFrame(@Nullable Bundle result) {
+            final SurfaceControl.Transaction frame = result == null ? null
+                    : result.getParcelable(KEY_EXTRA_RECENTS_START_TRANSACTION,
+                            SurfaceControl.Transaction.class);
+            final RemoteCallback ack = result == null ? null
+                    : result.getParcelable(KEY_EXTRA_RECENTS_START_ACK, RemoteCallback.class);
+            boolean applied = false;
+            try {
+                if (frame == null && mStartTransaction != null && !mStartHandoffCancelled) {
+                    cancel(mWillFinishToHome, false /* withScreenshots */,
+                            "first-frame gesture listener removed");
+                }
+                if (frame != null && mStartTransaction != null && mFinishCB != null
+                        && !mStartHandoffCancelled && mPendingFinishTransition == null) {
+                    mExecutor.removeCallbacks(mStartHandoffTimeout);
+                    mStartTransaction.merge(frame);
+                    ProtoLog.v(ShellProtoLogGroup.WM_SHELL_RECENTS_TRANSITION,
+                            "[%d] Applying atomic recents start, transaction=%d",
+                            mInstanceId, mStartTransaction.getId());
+                    mStartTransaction.apply();
+                    mStartTransaction = null;
+                    final Runnable onStartApplied = mOnStartApplied;
+                    mOnStartApplied = null;
+                    // This also releases the old root in WM, strictly after the atomic apply.
+                    if (onStartApplied != null) onStartApplied.run();
+                    applied = true;
+                }
+            } finally {
+                if (frame != null) frame.close();
+                if (ack != null) {
+                    Bundle response = new Bundle();
+                    response.putBoolean(KEY_EXTRA_RECENTS_START_HANDOFF, applied);
+                    ack.sendResult(response);
+                }
+            }
         }
 
         @Override
@@ -1086,6 +1191,13 @@ public class RecentsTransitionHandler implements Transitions.TransitionHandler,
                         "[%d] RecentsController.merge: Awaiting TRANSIT_END_RECENTS_TRANSITION",
                         mInstanceId);
                 onFinishInner(null /* wct */);
+                return;
+            }
+
+            if (mStartTransaction != null) {
+                // An intervening launch/lock/display change supersedes this handoff. Cancel
+                // before accepting new targets; the queued transition will run after cleanup.
+                cancel("transition before first frame");
                 return;
             }
 
@@ -1477,7 +1589,13 @@ public class RecentsTransitionHandler implements Transitions.TransitionHandler,
                     "[%d] RecentsController.merge: consuming merge",
                     mInstanceId);
 
-            startT.apply();
+            if (mStartTransaction != null) {
+                // A bookend can arrive before the first frame (cancel/death/timeout). Include
+                // its start in the eventual finish instead of displaying a fullscreen frame.
+                mStartTransaction.merge(startT);
+            } else {
+                startT.apply();
+            }
             // Since we're accepting the merge, update the finish transaction so that changes via
             // that transaction will be applied on top of those of the merged transitions
             mFinishTransaction = finishT;
@@ -1630,6 +1748,8 @@ public class RecentsTransitionHandler implements Transitions.TransitionHandler,
          */
         private void finishInner(boolean toHome, boolean sendUserLeaveHint,
                 IResultReceiver runnerFinishCb, String reason) {
+            mStartHandoffCancelled = true;
+            mExecutor.removeCallbacks(mStartHandoffTimeout);
             if (finishSyntheticTransition(runnerFinishCb, reason)) {
                 return;
             }
@@ -1878,6 +1998,13 @@ public class RecentsTransitionHandler implements Transitions.TransitionHandler,
             // finish transaction to ensure that it's applied after the default finish transaction
             // created for the bookend transition (if it's used)
             mFinishTransaction.merge(mPendingFinishTransaction);
+            if (mStartTransaction != null) {
+                // Prefix the complete unapplied handoff to cleanup. Transitions will apply it
+                // once, then drain the preceding WM finish before finishing this transition.
+                mStartTransaction.merge(mFinishTransaction);
+                mFinishTransaction.merge(mStartTransaction);
+                mStartTransaction = null;
+            }
 
             cleanUp();
             finishCb.onTransitionFinished(wct);

@@ -1,4 +1,5 @@
 /*
+ * Modified by the ArkUI Project in 2026 for atomic launch-to-gesture handoff.
  * Copyright (C) 2021 The Android Open Source Project
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
@@ -261,6 +262,11 @@ public class Transitions implements RemoteCallable<Transitions>,
         TransitionInfo mInfo;
         SurfaceControl.Transaction mStartT;
         SurfaceControl.Transaction mFinishT;
+
+        /** Finish the preceding transition only after its surfaces have been handed off. */
+        Runnable mFinishPredecessor;
+        boolean mFinishRequested;
+        boolean mFinishedInWm;
 
         /** Ordered list of transitions which have been merged into this one. */
         private ArrayList<ActiveTransition> mMerged;
@@ -1170,6 +1176,7 @@ public class Transitions implements RemoteCallable<Transitions>,
             Log.e(TAG, "Trying to finish a non-existent transition: " + token);
             return;
         }
+        if (active.mFinishRequested) return;
         if (DEBUG_FINISH_TRANSITION) {
             final String name = active.mHandler != null
                     ?  active.mHandler.getClass().getName() : "null";
@@ -1185,19 +1192,26 @@ public class Transitions implements RemoteCallable<Transitions>,
             return;
         }
         track.mActiveTransition = null;
+        active.mFinishRequested = true;
 
         for (int i = 0; i < mObservers.size(); ++i) {
             mObservers.get(i).onTransitionFinished(active.mToken, active.mAborted);
         }
         ProtoLog.v(WM_SHELL_TRANSITIONS, "Transition animation finished "
                 + "(aborted=%b), notifying core %s", active.mAborted, active);
-        if (active.mStartT != null) {
+        if (active.mStartT != null && active.mFinishPredecessor == null) {
             // Applied by now, so clear immediately to remove any references. Do not set to null
             // yet, though, since nullness is used later to disambiguate malformed transitions.
             active.mStartT.clear();
         }
         // Merge all associated transactions together
         SurfaceControl.Transaction fullFinish = active.mFinishT;
+        if (active.mFinishPredecessor != null && active.mStartT != null) {
+            // A forced finish may bypass the receiving handler's normal cleanup. Never drop
+            // the retained old finish/new start; prefix it to the final state atomically.
+            if (fullFinish != null) active.mStartT.merge(fullFinish);
+            fullFinish = active.mStartT;
+        }
         if (active.mMerged != null) {
             for (int iM = 0; iM < active.mMerged.size(); ++iM) {
                 final ActiveTransition toMerge = active.mMerged.get(iM);
@@ -1219,8 +1233,37 @@ public class Transitions implements RemoteCallable<Transitions>,
                 }
             }
         }
-        if (fullFinish != null) {
-            fullFinish.apply();
+        if (fullFinish != null && !track.mReadyTransitions.isEmpty()) {
+            final ActiveTransition next = track.mReadyTransitions.get(0);
+            final Runnable finishInWm = () -> finishTransitionInWm(active, wct);
+            if (!next.mAborted && next.mStartT != null && next.mHandler != null
+                    && next.mHandler.deferStartingAnimation(next.mToken, next.mInfo,
+                            active.mInfo, finishInWm)) {
+                // Preserve ordering: old finish, new hierarchy, then the gesture's first frame.
+                // Applying old finish alone would expose the task at its fullscreen bounds.
+                fullFinish.merge(next.mStartT);
+                next.mStartT.merge(fullFinish);
+                next.mFinishPredecessor = finishInWm;
+                // WM cleanup also detaches the old root. Keep it alive until the receiving
+                // handler applies the handoff, or until that transition is canceled/finished.
+                processReadyQueue(track);
+                return;
+            }
+        }
+        if (fullFinish != null) fullFinish.apply();
+        finishTransitionInWm(active, wct);
+
+        // Now that this is done, check the ready queue for more work.
+        processReadyQueue(track);
+    }
+
+    private void finishTransitionInWm(ActiveTransition active,
+            @Nullable WindowContainerTransaction wct) {
+        if (active.mFinishedInWm) return;
+        active.mFinishedInWm = true;
+        if (active.mFinishPredecessor != null) {
+            active.mFinishPredecessor.run();
+            active.mFinishPredecessor = null;
         }
         // Now perform all the finish callbacks (starting with the playing one and then all the
         // transitions merged into it).
@@ -1235,10 +1278,7 @@ public class Transitions implements RemoteCallable<Transitions>,
             }
             active.mMerged.clear();
         }
-        mKnownTransitions.remove(token);
-
-        // Now that this is done, check the ready queue for more work.
-        processReadyQueue(track);
+        mKnownTransitions.remove(active.mToken);
     }
 
     /** @see ITransitionPlayer#requestStartTransition  */
@@ -1534,6 +1574,19 @@ public class Transitions implements RemoteCallable<Transitions>,
                 @NonNull IBinder mergeTarget, @NonNull TransitionFinishCallback finishCallback) {
             // Call the legacy implementation by default
             mergeAnimation(transition, info, startTransaction, mergeTarget, finishCallback);
+        }
+
+        /**
+         * Opts into an atomic handoff from the preceding animation on the same track. If accepted,
+         * the preceding finish transaction is prepended to this transition's start transaction.
+         * The handler must apply it with its first animation frame, then call onStartApplied on
+         * the main thread. If canceled first, it must include the unapplied start in its finish.
+         * Transitions also drains the preceding WM finish when the receiving transition finishes.
+         */
+        default boolean deferStartingAnimation(@NonNull IBinder transition,
+                @NonNull TransitionInfo info, @NonNull TransitionInfo previousInfo,
+                @NonNull Runnable onStartApplied) {
+            return false;
         }
 
         /**

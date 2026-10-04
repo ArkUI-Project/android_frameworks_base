@@ -1,4 +1,5 @@
 /*
+ * Modified by the ArkUI Project in 2026 for atomic launch-to-gesture handoff.
  * Copyright (C) 2024 The Android Open Source Project
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
@@ -22,6 +23,15 @@ package com.android.wm.shell.shared;
 public class ShellSharedConstants {
     public static final String KEY_EXTRA_SHELL_CAN_HAND_OFF_ANIMATION =
             "extra_shell_can_hand_off_animation";
+
+    /** Launcher can supply a first frame before Shell commits a launch-to-recents handoff. */
+    public static final String KEY_EXTRA_RECENTS_START_HANDOFF = "arkui_recents_start_handoff";
+    /** RemoteCallback in onAnimationStart extras, accepting the first-frame transaction. */
+    public static final String KEY_EXTRA_RECENTS_START_CALLBACK = "arkui_recents_start_callback";
+    /** SurfaceControl.Transaction sent to the start callback; Shell owns applying it. */
+    public static final String KEY_EXTRA_RECENTS_START_TRANSACTION = "arkui_recents_start_transaction";
+    /** RemoteCallback acknowledging whether the handoff was applied before cancellation. */
+    public static final String KEY_EXTRA_RECENTS_START_ACK = "arkui_recents_start_ack";
 
     /**
      * Defines the max screen width or height in dp for a device to be considered a small tablet.
