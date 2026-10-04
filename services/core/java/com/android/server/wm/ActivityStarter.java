@@ -3125,6 +3125,10 @@ class ActivityStarter {
             }
         }
 
+        // Reused notification activities return before startActivityLocked. Preserve the drag's
+        // last frame here, while the launch options still exist, for the small-window transition.
+        PopUpWindowController.getInstance().setGestureStartBounds(intentTask, mOptions);
+
         // Layout the task to ensure the Task is in correct bounds.
         mSupervisor.getLaunchParamsController().layoutTask(intentTask,
                 mStartActivity.info.windowLayout, mStartActivity, mSourceRecord, mOptions);

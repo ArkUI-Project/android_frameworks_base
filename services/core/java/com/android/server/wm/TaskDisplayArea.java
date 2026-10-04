@@ -1345,9 +1345,12 @@ final class TaskDisplayArea extends DisplayArea<WindowContainer> {
      */
     boolean isValidWindowingMode(int windowingMode, @Nullable ActivityRecord r, @Nullable Task task
     ) {
+        // A normal launch has an undefined activity type until it is attached to its task.
+        // Rejecting it here discards explicit small-window options, including notification drags
+        // that reuse an existing fullscreen task. Special activity types remain excluded.
         if (WindowConfiguration.isPopUpWindowMode(windowingMode)
                 && ((task != null && !task.isActivityTypeStandard())
-                        || (r != null && (!r.isActivityTypeStandard()
+                        || (r != null && (!r.isActivityTypeStandardOrUndefined()
                                 || !PopUpSettingsConfig.getInstance().isPackageAllowed(r.packageName)))
                         || (task != null && task.getTopNonFinishingActivity() != null
                                 && !PopUpSettingsConfig.getInstance().isPackageAllowed(
