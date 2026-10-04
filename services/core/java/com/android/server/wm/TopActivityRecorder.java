@@ -33,6 +33,8 @@ public class TopActivityRecorder {
     private ActivityInfo mTopFullscreenActivity = null;
     private ArrayList<ActivityInfo> mTopMiniWindowActivity = new ArrayList<>();
     private ActivityInfo mTopPinnedWindowActivity = null;
+    // HyperOS keeps every preview independently; the last entry is most recently focused.
+    private final ArrayList<ActivityInfo> mPinnedWindowActivities = new ArrayList<>();
 
     private WindowManagerService mWms;
 
@@ -64,9 +66,13 @@ public class TopActivityRecorder {
             if (WindowConfiguration.isMiniExtWindowMode(windowingMode)) {
                 updateTopMiniWindowTask(newTask);
             } else if (WindowConfiguration.isPinnedExtWindowMode(windowingMode)) {
-                mTopPinnedWindowActivity = new ActivityInfo(newFocus, newTask);
-                logD("Top pinned-window activity changed to " + newFocus);
-                PinnedWindowOverlayController.getInstance().setTask(newTask);
+                if (PopUpSettingsConfig.getInstance().isHyperOsMode()) {
+                    updateTopPinnedWindowActivity(newFocus);
+                } else {
+                    mTopPinnedWindowActivity = new ActivityInfo(newFocus, newTask);
+                    logD("Top pinned-window activity changed to " + newFocus);
+                    PinnedWindowOverlayController.getInstance().setTask(newTask);
+                }
             } else if (windowingMode == WindowConfiguration.WINDOWING_MODE_UNDEFINED
                     || windowingMode == WindowConfiguration.WINDOWING_MODE_FULLSCREEN) {
                 final ComponentName oldComponent = getTopFullscreenComponentLocked();
@@ -89,16 +95,31 @@ public class TopActivityRecorder {
         synchronized (mFocusLock) {
             final Task rootTask = task.getRootTask();
             final ActivityRecord activity = rootTask.getTopNonFinishingActivity();
-            mTopMiniWindowActivity.clear();
+            final boolean hyperOs = PopUpSettingsConfig.getInstance().isHyperOsMode();
+            if (hyperOs) {
+                removeTaskFromList(mTopMiniWindowActivity, rootTask);
+            } else {
+                mTopMiniWindowActivity.clear();
+            }
             if (activity != null) {
                 mTopMiniWindowActivity.add(new ActivityInfo(activity, rootTask));
             }
-            DimmerWindow.getInstance().setTask(rootTask);
+            if (!hyperOs) {
+                DimmerWindow.getInstance().setTask(rootTask);
+            }
         }
     }
 
     void updateTopPinnedWindowActivity(ActivityRecord newActivity) {
         synchronized (mFocusLock) {
+            if (PopUpSettingsConfig.getInstance().isHyperOsMode()) {
+                if (newActivity != null && newActivity.getTask() != null) {
+                    final Task rootTask = newActivity.getRootTask();
+                    removeTaskFromList(mPinnedWindowActivities, rootTask);
+                    mPinnedWindowActivities.add(new ActivityInfo(newActivity, rootTask));
+                }
+                return;
+            }
             if (mTopPinnedWindowActivity != null &&
                     newActivity != null &&
                     isSameRootTask(mTopPinnedWindowActivity.task, newActivity.getTask())) {
@@ -160,6 +181,10 @@ public class TopActivityRecorder {
 
     String getTopMiniWindowPackage() {
         synchronized (mFocusLock) {
+            if (PopUpSettingsConfig.getInstance().isHyperOsMode()) {
+                final ActivityInfo activity = getTopActivityLocked(mTopMiniWindowActivity, false);
+                return activity != null ? activity.packageName : "";
+            }
             final int n = mTopMiniWindowActivity.size();
             if (n == 0) {
                 return "";
@@ -176,6 +201,35 @@ public class TopActivityRecorder {
             }
         }
         return null;
+    }
+
+    Task getTopMiniWindowTask() {
+        synchronized (mFocusLock) {
+            return getTopMiniWindowTaskLocked();
+        }
+    }
+
+    private ActivityInfo getTopActivityLocked(ArrayList<ActivityInfo> activities, boolean pinned) {
+        for (int i = activities.size() - 1; i >= 0; --i) {
+            final ActivityInfo activity = activities.get(i);
+            final Task task = activity.task;
+            if (task.isAttached() && (pinned
+                    ? task.getWindowConfiguration().isPinnedExtWindowMode()
+                    : task.getWindowConfiguration().isMiniExtWindowMode())) {
+                return activity;
+            }
+            activities.remove(i);
+        }
+        return null;
+    }
+
+    private void removeTaskFromList(ArrayList<ActivityInfo> activities, Task task) {
+        for (int i = activities.size() - 1; i >= 0; --i) {
+            if (isSameRootTask(activities.get(i).task, task)
+                    || !activities.get(i).task.isAttached()) {
+                activities.remove(i);
+            }
+        }
     }
 
     private static boolean isSameRootTask(Task first, Task second) {
@@ -200,7 +254,8 @@ public class TopActivityRecorder {
 
     public boolean hasMiniWindow() {
         synchronized (mFocusLock) {
-            return mTopMiniWindowActivity.size() > 0;
+            return PopUpSettingsConfig.getInstance().isHyperOsMode()
+                    ? getTopMiniWindowTaskLocked() != null : !mTopMiniWindowActivity.isEmpty();
         }
     }
 
@@ -222,7 +277,8 @@ public class TopActivityRecorder {
                     removed = true;
                 }
             }
-            if (removed || isSameRootTask(DimmerWindow.getInstance().getTask(), task)) {
+            if (!PopUpSettingsConfig.getInstance().isHyperOsMode()
+                    && (removed || isSameRootTask(DimmerWindow.getInstance().getTask(), task))) {
                 DimmerWindow.getInstance().setTask(getTopMiniWindowTaskLocked());
             }
         }
@@ -230,14 +286,17 @@ public class TopActivityRecorder {
 
     void removePinnedWindowTask(Task task) {
         synchronized (mFocusLock) {
+            removeTaskFromList(mPinnedWindowActivities, task);
             if (mTopPinnedWindowActivity != null
                     && isSameRootTask(mTopPinnedWindowActivity.task, task)) {
                 mTopPinnedWindowActivity = null;
             }
-            final PinnedWindowOverlayController overlay =
-                    PinnedWindowOverlayController.getInstance();
-            if (isSameRootTask(overlay.getTask(), task)) {
-                overlay.setTask(null);
+            if (!PopUpSettingsConfig.getInstance().isHyperOsMode()) {
+                final PinnedWindowOverlayController overlay =
+                        PinnedWindowOverlayController.getInstance();
+                if (isSameRootTask(overlay.getTask(), task)) {
+                    overlay.setTask(null);
+                }
             }
         }
     }
@@ -247,6 +306,10 @@ public class TopActivityRecorder {
             // Publish both owners together after their modes and geometry have changed.
             updateTopMiniWindowTask(miniTask);
             final ActivityRecord pinnedActivity = pinnedTask.getTopNonFinishingActivity();
+            if (PopUpSettingsConfig.getInstance().isHyperOsMode()) {
+                updateTopPinnedWindowActivity(pinnedActivity);
+                return;
+            }
             mTopPinnedWindowActivity = pinnedActivity != null
                     ? new ActivityInfo(pinnedActivity, pinnedTask) : null;
             PinnedWindowOverlayController.getInstance().setTask(pinnedTask);
@@ -256,6 +319,16 @@ public class TopActivityRecorder {
     void moveTopMiniToFull() {
         synchronized (mFocusLock) {
             logD("moveTopMiniToFull");
+            if (PopUpSettingsConfig.getInstance().isHyperOsMode()) {
+                // The caller may already have changed the task's windowing mode.
+                final ActivityInfo activity = mTopMiniWindowActivity.isEmpty() ? null
+                        : mTopMiniWindowActivity.get(mTopMiniWindowActivity.size() - 1);
+                if (activity != null) {
+                    mTopFullscreenActivity = new ActivityInfo(activity);
+                    removeTaskFromList(mTopMiniWindowActivity, activity.task);
+                }
+                return;
+            }
             final int n = mTopMiniWindowActivity.size();
             if (n > 0) {
                 final ComponentName oldComponent = getTopFullscreenComponentLocked();
@@ -271,12 +344,25 @@ public class TopActivityRecorder {
         synchronized (mFocusLock) {
             logD("clearMiniWindow");
             mTopMiniWindowActivity.clear();
-            DimmerWindow.getInstance().setTask(null);
+            if (!PopUpSettingsConfig.getInstance().isHyperOsMode()) {
+                DimmerWindow.getInstance().setTask(null);
+            }
         }
     }
 
     Task moveTopPinnedToMini() {
         synchronized (mFocusLock) {
+            if (PopUpSettingsConfig.getInstance().isHyperOsMode()) {
+                final ActivityInfo activity = mPinnedWindowActivities.isEmpty() ? null
+                        : mPinnedWindowActivities.get(mPinnedWindowActivities.size() - 1);
+                if (activity != null) {
+                    removeTaskFromList(mPinnedWindowActivities, activity.task);
+                    removeTaskFromList(mTopMiniWindowActivity, activity.task);
+                    mTopMiniWindowActivity.add(new ActivityInfo(activity));
+                }
+                // Restoring one preview must not replace another interactive window.
+                return null;
+            }
             if (mTopPinnedWindowActivity == null) {
                 return null;
             }
@@ -299,13 +385,25 @@ public class TopActivityRecorder {
         synchronized (mFocusLock) {
             logD("clearPinnedWindow");
             mTopPinnedWindowActivity = null;
-            PinnedWindowOverlayController.getInstance().setTask(null);
+            mPinnedWindowActivities.clear();
+            if (!PopUpSettingsConfig.getInstance().isHyperOsMode()) {
+                PinnedWindowOverlayController.getInstance().setTask(null);
+            }
         }
     }
 
     void moveTopPinnedToFull() {
         synchronized (mFocusLock) {
             logD("moveTopPinnedToFull");
+            if (PopUpSettingsConfig.getInstance().isHyperOsMode()) {
+                final ActivityInfo activity = mPinnedWindowActivities.isEmpty() ? null
+                        : mPinnedWindowActivities.get(mPinnedWindowActivities.size() - 1);
+                if (activity != null) {
+                    mTopFullscreenActivity = new ActivityInfo(activity);
+                    removeTaskFromList(mPinnedWindowActivities, activity.task);
+                }
+                return;
+            }
             if (mTopPinnedWindowActivity != null) {
                 mTopFullscreenActivity = new ActivityInfo(mTopPinnedWindowActivity);
                 logD("Top fullscreen window activity changed to " + mTopFullscreenActivity);
@@ -317,12 +415,20 @@ public class TopActivityRecorder {
 
     Task getTopPinnedWindowTask() {
         synchronized (mFocusLock) {
+            if (PopUpSettingsConfig.getInstance().isHyperOsMode()) {
+                final ActivityInfo activity = getTopActivityLocked(mPinnedWindowActivities, true);
+                return activity != null ? activity.task.getRootTask() : null;
+            }
             return mTopPinnedWindowActivity != null ? mTopPinnedWindowActivity.task : null;
         }
     }
 
     String getTopPinnedWindowPackage() {
         synchronized (mFocusLock) {
+            if (PopUpSettingsConfig.getInstance().isHyperOsMode()) {
+                final ActivityInfo activity = getTopActivityLocked(mPinnedWindowActivities, true);
+                return activity != null ? activity.packageName : "";
+            }
             return mTopPinnedWindowActivity != null ? mTopPinnedWindowActivity.packageName : "";
         }
     }
@@ -344,7 +450,8 @@ public class TopActivityRecorder {
                 }
             }
             // A newly created root may get its handle before its first activity attaches.
-            final Task candidate = DimmerWindow.getInstance().getTask();
+            final Task candidate = PopUpSettingsConfig.getInstance().isHyperOsMode()
+                    ? null : DimmerWindow.getInstance().getTask();
             if (candidate != null && !isSameRootTask(candidate, task) && candidate.isAttached()
                     && candidate.getWindowConfiguration().isMiniExtWindowMode()) {
                 return candidate.getRootTask();
@@ -358,6 +465,11 @@ public class TopActivityRecorder {
             for (int i = mTopMiniWindowActivity.size() - 1; i >= 0; --i) {
                 if (packageName.equals(mTopMiniWindowActivity.get(i).packageName)) {
                     mTopMiniWindowActivity.remove(i);
+                }
+            }
+            for (int i = mPinnedWindowActivities.size() - 1; i >= 0; --i) {
+                if (packageName.equals(mPinnedWindowActivities.get(i).packageName)) {
+                    mPinnedWindowActivities.remove(i);
                 }
             }
         }

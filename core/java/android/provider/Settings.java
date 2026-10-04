@@ -5402,6 +5402,9 @@ public final class Settings {
         /** Whether native small windows are enabled for this user. @hide */
         @Readable
         public static final String ARKUI_SMALL_WINDOW_ENABLED = "arkui_small_window_enabled";
+        /** Small-window interaction mode: 0 Flyme (default), 1 HyperOS. @hide */
+        @Readable
+        public static final String ARKUI_SMALL_WINDOW_MODE = "arkui_small_window_mode";
         /** Show the small-window action in recent tasks. @hide */
         @Readable
         public static final String ARKUI_SMALL_WINDOW_RECENTS = "arkui_small_window_recents";

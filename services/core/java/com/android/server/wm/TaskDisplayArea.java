@@ -524,6 +524,7 @@ final class TaskDisplayArea extends DisplayArea<WindowContainer> {
         if (rootTask.isActivityTypeDream()) return 3;
         if (rootTask.inPinnedWindowingMode()) return 2;
         if (rootTask.getWindowConfiguration().isPinnedExtWindowMode()
+                && !PopUpSettingsConfig.getInstance().isHyperOsMode()
                 && rootTask.isAlwaysOnTop()) {
             return 2;
         }

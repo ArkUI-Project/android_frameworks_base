@@ -9,7 +9,8 @@
     xmlns:androidprv="http://schemas.android.com/apk/prv/res/android"
     android:shape="rectangle">
     <corners android:radius="53dp" />
+    <solid android:color="@color/materialColorSurfaceContainer" />
     <stroke
         android:width="2dp"
-        android:color="?attr/colorAccentPrimary" />
+        android:color="@color/materialColorPrimary" />
 </shape>

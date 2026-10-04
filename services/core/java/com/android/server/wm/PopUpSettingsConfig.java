@@ -24,6 +24,7 @@ class PopUpSettingsConfig {
 
     // Read by window-management and gesture threads; publish immutable snapshots.
     private volatile boolean mEnabled;
+    private volatile int mMode = SmallWindowSettings.MODE_FLYME;
     private volatile boolean mEdgeDockEnabled = true;
     private volatile boolean mEdgeDockForeground = true;
     private volatile boolean mHapticsEnabled = true;
@@ -49,6 +50,7 @@ class PopUpSettingsConfig {
         };
         for (String key : new String[] {
                 Settings.System.ARKUI_SMALL_WINDOW_ENABLED,
+                Settings.System.ARKUI_SMALL_WINDOW_MODE,
                 Settings.System.ARKUI_SMALL_WINDOW_BLACKLIST,
                 Settings.System.ARKUI_SMALL_WINDOW_EDGE_DOCK,
                 Settings.System.ARKUI_SMALL_WINDOW_EDGE_DOCK_FOREGROUND,
@@ -67,6 +69,10 @@ class PopUpSettingsConfig {
 
     boolean isEnabled() {
         return mEnabled;
+    }
+
+    boolean isHyperOsMode() {
+        return mMode == SmallWindowSettings.MODE_HYPEROS;
     }
 
     boolean isPackageAllowed(String packageName) {
@@ -118,6 +124,7 @@ class PopUpSettingsConfig {
 
     private void readSettings() {
         mEnabled = SmallWindowSettings.isEnabled(mContext);
+        mMode = SmallWindowSettings.getMode(mContext);
         mEdgeDockEnabled = SmallWindowSettings.getBoolean(mContext,
                 Settings.System.ARKUI_SMALL_WINDOW_EDGE_DOCK, true, UserHandle.USER_CURRENT);
         mEdgeDockForeground = SmallWindowSettings.getBoolean(mContext,

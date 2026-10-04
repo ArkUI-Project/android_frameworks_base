@@ -772,7 +772,7 @@
     <!-- Notification icon tint color-->
     <color name="security_privacy_notification_tint_normal">#1A73E8</color>
     <!-- Pop-Up View -->
-    <color name="pinned_window_button_background_color">#F2F0F2F2</color>
-    <color name="pinned_window_button_color">#CC06080A</color>
-    <color name="pinned_window_dim_color">#3306080A</color>
+    <color name="pinned_window_button_background_color">@color/materialColorPrimaryContainer</color>
+    <color name="pinned_window_button_color">@color/materialColorOnPrimaryContainer</color>
+    <color name="pinned_window_dim_color">@color/materialColorSurfaceContainer</color>
 </resources>

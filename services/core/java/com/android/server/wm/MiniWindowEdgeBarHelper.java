@@ -11,7 +11,6 @@ import static com.android.internal.arkui.DebugConstants.DEBUG_POP_UP;
 
 import android.content.Context;
 import android.graphics.Canvas;
-import android.graphics.Color;
 import android.graphics.Insets;
 import android.graphics.Paint;
 import android.graphics.Paint.Style;
@@ -31,8 +30,6 @@ import com.android.internal.R;
 class MiniWindowEdgeBarHelper {
 
     private static final String TAG = "MiniWindowEdgeBarHelper";
-
-    private static final int EDGE_BAR_COLOR = Color.parseColor("#FFF0F2F2");
 
     private static final int DRAG_SCALE_TYPE_NONE = 0;
     private static final int DRAG_SCALE_TYPE_TO_PINNED = 1;
@@ -403,6 +400,9 @@ class MiniWindowEdgeBarHelper {
         mBarHeight = getContext().getResources().getDimensionPixelSize(R.dimen.mini_window_bar_height);
         mBarRadius = getContext().getResources().getDimensionPixelSize(R.dimen.mini_window_bar_radius);
         mBarMargin = getContext().getResources().getDimensionPixelSize(R.dimen.mini_window_bar_margin);
+        if (mPaint != null) {
+            mPaint.setColor(getContext().getColor(R.color.materialColorPrimary));
+        }
     }
 
     RectF getBarTouchBounds() {
@@ -411,11 +411,9 @@ class MiniWindowEdgeBarHelper {
 
     void setUp(View view) {
         mView = view;
-        updateResources();
-
         mPaint = new Paint(Paint.ANTI_ALIAS_FLAG);
-        mPaint.setColor(EDGE_BAR_COLOR);
         mPaint.setStyle(Style.FILL);
+        updateResources();
 
         mDragSlop = (float) ViewConfiguration.get(getContext()).getScaledTouchSlop();
 

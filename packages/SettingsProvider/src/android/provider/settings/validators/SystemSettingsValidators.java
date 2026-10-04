@@ -171,6 +171,8 @@ public class SystemSettingsValidators {
         VALIDATORS.put(System.POP_UP_DOUBLE_TAP_ACTION,
                 new DiscreteValueValidator(new String[]{"0", "1", "2", "3"}));
         VALIDATORS.put(System.ARKUI_SMALL_WINDOW_ENABLED, BOOLEAN_VALIDATOR);
+        VALIDATORS.put(System.ARKUI_SMALL_WINDOW_MODE,
+                new DiscreteValueValidator(new String[]{"0", "1"}));
         VALIDATORS.put(System.ARKUI_SMALL_WINDOW_RECENTS, BOOLEAN_VALIDATOR);
         VALIDATORS.put(System.ARKUI_SMALL_WINDOW_SWIPE_UP, BOOLEAN_VALIDATOR);
         VALIDATORS.put(System.ARKUI_SMALL_WINDOW_NOTIFICATION_DRAG, BOOLEAN_VALIDATOR);

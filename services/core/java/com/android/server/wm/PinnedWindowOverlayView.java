@@ -8,6 +8,8 @@
 package com.android.server.wm;
 
 import android.content.Context;
+import android.content.res.ColorStateList;
+import android.content.res.Configuration;
 import android.util.AttributeSet;
 import android.view.MotionEvent;
 import android.view.View;
@@ -31,6 +33,8 @@ public class PinnedWindowOverlayView extends FrameLayout {
     private final android.graphics.Paint mTabPaint = new android.graphics.Paint(
             android.graphics.Paint.ANTI_ALIAS_FLAG);
     private View mMenuContainer;
+    private int mTabColor;
+    private int mTabHandleColor;
 
     private boolean mIsMenuVisible = false;
 
@@ -45,6 +49,40 @@ public class PinnedWindowOverlayView extends FrameLayout {
     }
 
     private void init() {
+        updateColors();
+    }
+
+    @Override
+    protected void onAttachedToWindow() {
+        super.onAttachedToWindow();
+        updateColors();
+    }
+
+    @Override
+    protected void onConfigurationChanged(Configuration newConfig) {
+        super.onConfigurationChanged(newConfig);
+        updateColors();
+    }
+
+    private void updateColors() {
+        mTabColor = getContext().getColor(R.color.materialColorPrimaryContainer);
+        mTabHandleColor = getContext().getColor(R.color.materialColorOnPrimaryContainer);
+        final ColorStateList iconTint = ColorStateList.valueOf(mTabHandleColor);
+        if (mMenuContainer != null) {
+            mMenuContainer.setBackground(getContext().getDrawable(
+                    R.drawable.pinned_window_menu_shape));
+        }
+        if (mMuteButton != null) {
+            mMuteButton.setBackground(getContext().getDrawable(
+                    R.drawable.pinned_window_button_shape));
+            mMuteButton.setImageTintList(iconTint);
+        }
+        if (mScaleButton != null) {
+            mScaleButton.setBackground(getContext().getDrawable(
+                    R.drawable.pinned_window_button_shape));
+            mScaleButton.setImageTintList(iconTint);
+        }
+        invalidate();
     }
 
     @Override
@@ -64,6 +102,7 @@ public class PinnedWindowOverlayView extends FrameLayout {
             mScaleButton.setOnClickListener(v -> toggleScale());
         }
 
+        updateColors();
         hideMenu();
     }
 
@@ -184,10 +223,10 @@ public class PinnedWindowOverlayView extends FrameLayout {
         final float width = 12 * density;
         final float left = mDockedLeft ? -width / 2 : getWidth() - width / 2;
         final float top = (getHeight() - 72 * density) / 2;
-        mTabPaint.setColor(0xB36E757C);
+        mTabPaint.setColor(mTabColor);
         canvas.drawRoundRect(left, top, left + width, top + 72 * density,
                 width / 2, width / 2, mTabPaint);
-        mTabPaint.setColor(0xFFF5F5F5);
+        mTabPaint.setColor(mTabHandleColor);
         final float center = mDockedLeft ? 3 * density : getWidth() - 3 * density;
         canvas.drawRoundRect(center - density, top + 22 * density, center + density,
                 top + 50 * density, density, density, mTabPaint);

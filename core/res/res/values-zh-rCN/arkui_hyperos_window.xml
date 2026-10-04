@@ -1,0 +1,12 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Copyright (C) 2026 The ArkUI Project
+     SPDX-License-Identifier: Apache-2.0 -->
+<resources>
+    <string name="hyperos_window_fullscreen">全屏</string>
+    <string name="hyperos_window_minimize">最小化</string>
+    <string name="hyperos_window_close">关闭</string>
+    <string name="hyperos_window_controls">小窗控制</string>
+    <string name="hyperos_window_resize">调整小窗大小</string>
+    <string name="hyperos_window_move">移动小窗</string>
+    <string name="hyperos_window_restore">恢复小窗</string>
+</resources>

@@ -1451,12 +1451,15 @@ class TaskFragment extends WindowContainer<WindowContainer> {
                 affectsSiblingVisibility &= other.hasFillingContent();
             }
 
-            // Popup windows should NOT hide tasks below UNLESS it's the same popup mode
+            // Flyme owns one slot per popup mode. HyperOS windows remain independently visible.
             final int otherWindowingMode = other.getWindowingMode();
             final int thisWindowingMode = getWindowingMode();
             if (WindowConfiguration.isPopUpWindowMode(otherWindowingMode)) {
-                // Only hide tasks of the SAME popup mode
-                affectsSiblingVisibility = (thisWindowingMode == otherWindowingMode);
+                final Task otherTask = other.asTask();
+                final boolean independentHyperOsWindow = PopUpSettingsConfig.getInstance()
+                        .isHyperOsMode() && otherTask != null && otherTask.isRootTask();
+                affectsSiblingVisibility = !independentHyperOsWindow
+                        && thisWindowingMode == otherWindowingMode;
             }
 
             if (affectsSiblingVisibility) {

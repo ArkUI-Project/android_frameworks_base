@@ -8,6 +8,7 @@ package com.android.wm.shell.popupview;
 
 import static android.view.WindowManager.TRANSIT_CHANGE;
 
+import android.app.WindowConfiguration;
 import android.content.Context;
 import android.graphics.Rect;
 import android.util.Slog;
@@ -24,6 +25,7 @@ import android.view.animation.ScaleAnimation;
 import android.view.animation.TranslateAnimation;
 import android.window.TransitionInfo;
 
+import com.android.internal.arkui.SmallWindowSettings;
 import com.android.wm.shell.popupview.PopUpViewTransitionAnimationAdapter;
 import com.android.wm.shell.shared.TransitionUtil;
 
@@ -43,6 +45,14 @@ class PopUpViewTransitionAnimationSpec {
 
     static final long LAUNCH_FROM_RECENTS_ANIMATION_DURATION = 500L;
 
+    private static final long HYPER_OS_EXPAND_DURATION = 420L;
+    private static final long HYPER_OS_MINIMIZE_DURATION = 360L;
+    private static final long HYPER_OS_CLOSE_DURATION = 220L;
+    private static final Interpolator HYPER_OS_INTERPOLATOR =
+            new PathInterpolator(.16f, 1f, .30f, 1f);
+
+    private final Context mContext;
+
     private final LinearInterpolator mLinearInterpolator = new LinearInterpolator();
 
     static final Interpolator INTERPOLATOR_TO_BACK = new PathInterpolator(0.17f, 0.0f, 0.83f, 1.0f);
@@ -57,6 +67,7 @@ class PopUpViewTransitionAnimationSpec {
     private float mTransitionAnimationScaleSetting = 1f;
 
     PopUpViewTransitionAnimationSpec(Context context) {
+        mContext = context;
         mFastOutExtraSlowInInterpolator = AnimationUtils.loadInterpolator(context,
                 android.R.interpolator.fast_out_extra_slow_in);
     }
@@ -66,22 +77,32 @@ class PopUpViewTransitionAnimationSpec {
     }
 
     Animation createFadeOutAnimation(TransitionInfo.Change change) {
-        final long duration = (long) (ANIMATION_DURATION_TO_BACK * mTransitionAnimationScaleSetting);
+        final boolean hyperOs = SmallWindowSettings.isHyperOsMode(mContext);
+        final long duration = (long) ((hyperOs ? HYPER_OS_CLOSE_DURATION
+                : ANIMATION_DURATION_TO_BACK) * mTransitionAnimationScaleSetting);
         final AnimationSet animationSet = new AnimationSet(false);
         final AlphaAnimation alphaAnimation = new AlphaAnimation(1.0f, 0.0f);
         alphaAnimation.setDuration(duration);
         animationSet.addAnimation(alphaAnimation);
 
         final float startScale = change.mPopUpView.mStartScale;
-        final float endScale = startScale * 0.95f;
+        final float endScale = startScale * (hyperOs ? .78f : .95f);
         final ScaleAnimation scaleAnimation = new ScaleAnimation(startScale, endScale, startScale, endScale);
-        scaleAnimation.setInterpolator(INTERPOLATOR_SCALE_SMOOTH);
+        scaleAnimation.setInterpolator(hyperOs ? HYPER_OS_INTERPOLATOR
+                : INTERPOLATOR_SCALE_SMOOTH);
         scaleAnimation.setDuration(duration);
         animationSet.addAnimation(scaleAnimation);
 
-        final TranslateAnimation translateAnimation = new TranslateAnimation(change.mPopUpView.mStartPos.x,
-                change.mPopUpView.mStartPos.x, change.mPopUpView.mStartPos.y, change.mPopUpView.mStartPos.y);
-        translateAnimation.setInterpolator(INTERPOLATOR_TO_BACK);
+        final float offsetX = hyperOs
+                ? change.mPopUpView.mWindowCrop.width() * (startScale - endScale) / 2f : 0f;
+        final float offsetY = hyperOs
+                ? change.mPopUpView.mWindowCrop.height() * (startScale - endScale) / 2f
+                        - 20f * mContext.getResources().getDisplayMetrics().density : 0f;
+        final TranslateAnimation translateAnimation = new TranslateAnimation(
+                change.mPopUpView.mStartPos.x, change.mPopUpView.mStartPos.x + offsetX,
+                change.mPopUpView.mStartPos.y, change.mPopUpView.mStartPos.y + offsetY);
+        translateAnimation.setInterpolator(hyperOs ? HYPER_OS_INTERPOLATOR
+                : INTERPOLATOR_TO_BACK);
         translateAnimation.setDuration(duration);
         animationSet.addAnimation(translateAnimation);
 
@@ -113,8 +134,13 @@ class PopUpViewTransitionAnimationSpec {
     }
 
     Animation createLaunchFromRecentsAnimation(TransitionInfo.Change change) {
-        final long duration = (long) (LAUNCH_FROM_RECENTS_ANIMATION_DURATION * mTransitionAnimationScaleSetting);
+        final boolean hyperOs = SmallWindowSettings.isHyperOsMode(mContext);
+        final Interpolator interpolator = hyperOs ? HYPER_OS_INTERPOLATOR
+                : INTERPOLATOR_MODE_CHANGING;
+        final long duration = (long) ((hyperOs ? HYPER_OS_EXPAND_DURATION
+                : LAUNCH_FROM_RECENTS_ANIMATION_DURATION) * mTransitionAnimationScaleSetting);
         final AnimationSet animationSet = new AnimationSet(false);
+        if (hyperOs) animationSet.setInterpolator(interpolator);
         final AlphaAnimation alphaAnimation = new AlphaAnimation(1.0f, 1.0f);
         alphaAnimation.setDuration(duration);
         animationSet.addAnimation(alphaAnimation);
@@ -122,13 +148,13 @@ class PopUpViewTransitionAnimationSpec {
         final float startScale = change.mPopUpView.mStartScale;
         final float endScale = change.mPopUpView.mEndScale;
         final ScaleAnimation scaleAnimation = new ScaleAnimation(startScale, endScale, startScale, endScale);
-        scaleAnimation.setInterpolator(INTERPOLATOR_MODE_CHANGING);
+        scaleAnimation.setInterpolator(interpolator);
         scaleAnimation.setDuration(duration);
         animationSet.addAnimation(scaleAnimation);
 
         final TranslateAnimation translateAnimation = new TranslateAnimation(change.mPopUpView.mStartPos.x,
                 change.mPopUpView.mEndPos.x, change.mPopUpView.mStartPos.y, change.mPopUpView.mEndPos.y);
-        translateAnimation.setInterpolator(INTERPOLATOR_MODE_CHANGING);
+        translateAnimation.setInterpolator(interpolator);
         translateAnimation.setDuration(duration);
         animationSet.addAnimation(translateAnimation);
 
@@ -137,8 +163,18 @@ class PopUpViewTransitionAnimationSpec {
     }
 
     Animation createAnimation(TransitionInfo.Change change) {
-        final long duration = (long) (ANIMATION_DURATION_MODE_CHANGING * mTransitionAnimationScaleSetting);
+        final boolean hyperOs = SmallWindowSettings.isHyperOsMode(mContext);
+        final boolean minimizing = change.getTaskInfo() != null
+                && WindowConfiguration.isPinnedExtWindowMode(
+                        change.getTaskInfo().getWindowingMode());
+        final Interpolator interpolator = hyperOs ? HYPER_OS_INTERPOLATOR
+                : INTERPOLATOR_MODE_CHANGING;
+        final long modeDuration = hyperOs
+                ? (minimizing ? HYPER_OS_MINIMIZE_DURATION : HYPER_OS_EXPAND_DURATION)
+                : ANIMATION_DURATION_MODE_CHANGING;
+        final long duration = (long) (modeDuration * mTransitionAnimationScaleSetting);
         final AnimationSet animationSet = new AnimationSet(false);
+        if (hyperOs) animationSet.setInterpolator(interpolator);
 
         final float startScale = change.mPopUpView.mStartScale;
         final float endScale = change.mPopUpView.mEndScale;
@@ -147,13 +183,13 @@ class PopUpViewTransitionAnimationSpec {
 
         // Scale and position must use the same clock and curve: otherwise the
         // apparent centre keeps moving after translation has already finished.
-        scaleAnimation.setInterpolator(INTERPOLATOR_MODE_CHANGING);
+        scaleAnimation.setInterpolator(interpolator);
         scaleAnimation.setDuration(duration);
         animationSet.addAnimation(scaleAnimation);
 
         final TranslateAnimation translateAnimation = new TranslateAnimation(change.mPopUpView.mStartPos.x,
                 change.mPopUpView.mEndPos.x, change.mPopUpView.mStartPos.y, change.mPopUpView.mEndPos.y);
-        translateAnimation.setInterpolator(INTERPOLATOR_MODE_CHANGING);
+        translateAnimation.setInterpolator(interpolator);
         translateAnimation.setDuration(duration);
         animationSet.addAnimation(translateAnimation);
 
@@ -162,13 +198,15 @@ class PopUpViewTransitionAnimationSpec {
     }
 
     private Animation[] createChangeBoundsChangeAnimations(TransitionInfo.Change change, Rect rect) {
+        final boolean hyperOs = SmallWindowSettings.isHyperOsMode(mContext);
         final Rect endBounds = change.getEndAbsBounds();
         final Rect startBounds = change.mPopUpView.mStartDragBounds;
         final float width = (float) Math.max(1, startBounds.width())
                 / Math.max(1, endBounds.width());
         final float height = (float) Math.max(1, startBounds.height())
                 / Math.max(1, endBounds.height());
-        final long duration = (long) (CHANGE_ANIMATION_DURATION * mTransitionAnimationScaleSetting);
+        final long duration = (long) ((hyperOs ? HYPER_OS_EXPAND_DURATION
+                : CHANGE_ANIMATION_DURATION) * mTransitionAnimationScaleSetting);
 
         final AnimationSet snapshot = new AnimationSet(false);
         final AlphaAnimation fade = new AlphaAnimation(1f, 0f);
@@ -183,7 +221,7 @@ class PopUpViewTransitionAnimationSpec {
                 endBounds.width(), endBounds.height());
 
         final AnimationSet content = new AnimationSet(true);
-        content.setInterpolator(INTERPOLATOR_MODE_CHANGING);
+        content.setInterpolator(hyperOs ? HYPER_OS_INTERPOLATOR : INTERPOLATOR_MODE_CHANGING);
         final ScaleAnimation scale = new ScaleAnimation(width, 1f, height, 1f);
         scale.setDuration(duration);
         content.addAnimation(scale);

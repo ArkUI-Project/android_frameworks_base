@@ -1,0 +1,12 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Copyright (C) 2026 The ArkUI Project
+     SPDX-License-Identifier: Apache-2.0 -->
+<resources>
+    <string name="hyperos_window_fullscreen">Full screen</string>
+    <string name="hyperos_window_minimize">Minimize</string>
+    <string name="hyperos_window_close">Close</string>
+    <string name="hyperos_window_controls">Window controls</string>
+    <string name="hyperos_window_resize">Resize window</string>
+    <string name="hyperos_window_move">Move window</string>
+    <string name="hyperos_window_restore">Restore window</string>
+</resources>

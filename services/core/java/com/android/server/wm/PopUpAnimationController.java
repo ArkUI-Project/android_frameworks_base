@@ -41,6 +41,8 @@ class PopUpAnimationController {
 
     private static final float DAMPING_RATIO = 0.75f;
     private static final float STPRING_STIFFNESS = 200.0f;
+    private static final PathInterpolator HYPER_OS_INTERPOLATOR =
+            new PathInterpolator(.16f, 1f, .30f, 1f);
 
     private final WindowManagerService mService;
     private final Handler mSurfaceAnimationHandler;
@@ -65,6 +67,26 @@ class PopUpAnimationController {
     private volatile float mCurrentAnimScale;
     private volatile boolean mHasAnimPosition;
 
+    // Publish each HyperOS frame atomically. Some animation-end callbacks hold only
+    // mCancelLock, so taking mLock here would invert the frame callback's lock order.
+    private volatile AnimationPosition mHyperOsAnimationPosition;
+
+    private static final class AnimationPosition {
+        final int x;
+        final int y;
+        final float scale;
+        final Rect bounds;
+
+        AnimationPosition(float x, float y, float scale, Rect taskBounds) {
+            this.x = Math.round(x);
+            this.y = Math.round(y);
+            this.scale = scale;
+            bounds = new Rect(this.x, this.y,
+                    this.x + Math.round(taskBounds.width() * scale),
+                    this.y + Math.round(taskBounds.height() * scale));
+        }
+    }
+
     private OnAnimationEndCallback mCallback;
     private Choreographer mChoreographer;
     private SurfaceControl.Transaction mFrameTransaction;
@@ -83,8 +105,8 @@ class PopUpAnimationController {
     private float mVelX;
     private float mVelY;
 
-    private boolean mIsAnimating;
-    private boolean mIsCancelling;
+    private volatile boolean mIsAnimating;
+    private volatile boolean mIsCancelling;
     private boolean mIsFromLeaveButton;
     private float mLastAnimatingScale;
     private int mRunningSpringAnimations;
@@ -137,8 +159,17 @@ class PopUpAnimationController {
                 if (mDockAnimator != null) {
                     mDockAnimator.cancel();
                 }
-                synchronized (mCancelLock) {
-                    mIsCancelling = false;
+                synchronized (mLock) {
+                    synchronized (mCancelLock) {
+                        if (PopUpSettingsConfig.getInstance().isHyperOsMode()
+                                && mFrameTransaction != null) {
+                            // A traversal callback may still be queued after cancellation.
+                            // Never restore the old position over the next drag frame.
+                            mFrameTransaction.clear();
+                            mHyperOsAnimationPosition = null;
+                        }
+                        mIsCancelling = false;
+                    }
                 }
             }
         };
@@ -157,6 +188,29 @@ class PopUpAnimationController {
         }
     }
 
+    private void updateHyperOsPosition(float x, float y, float scale) {
+        if (!PopUpSettingsConfig.getInstance().isHyperOsMode()) return;
+        mHyperOsAnimationPosition = new AnimationPosition(x, y, scale, mTask.getBounds());
+        HyperOsWindowDecor.getInstance().update(mTask);
+    }
+
+    private void updateOverlayPosition(int x, int y, int width, int height, float scale) {
+        if (PopUpSettingsConfig.getInstance().isHyperOsMode()) {
+            updateHyperOsPosition(x, y, scale);
+        } else {
+            PinnedWindowOverlayController.getInstance().updateOverlayPosition(
+                    mTask, x, y, width, height, scale);
+        }
+    }
+
+    private void notifyHyperOsAnimationFinished() {
+        if (PopUpSettingsConfig.getInstance().isHyperOsMode()) {
+            // The final frame can be consumed by UiThread before the animator clears
+            // its running state. Publish once more so chrome input is enabled again.
+            HyperOsWindowDecor.getInstance().update(mTask);
+        }
+    }
+
     private void setTaskPosition(int x, int y, float scale, int boundWidth, int boundHeight) {
         if (mTask != null && mFrameTransaction != null) {
             final SurfaceControl leash = mTask.mSurfaceControl;
@@ -167,6 +221,7 @@ class PopUpAnimationController {
                         .setScale(leash, scale, scale)
                         .setCornerRadius(leash, cornerRadius)
                         .show(leash);
+                updateHyperOsPosition(x, y, scale);
             }
             mCurrentAnimX = x;
             mCurrentAnimY = y;
@@ -179,10 +234,34 @@ class PopUpAnimationController {
         if (!mApplyScheduled && mFrameTransaction != null) {
             mChoreographer.postCallback(Choreographer.CALLBACK_TRAVERSAL,
                     () -> {
-                        mFrameTransaction.apply();
                         mApplyScheduled = false;
+                        applyFrameTransaction();
                     }, null);
             mApplyScheduled = true;
+        }
+    }
+
+    /** Called outside the animation locks: decoration snapshots take the WM lock. */
+    private void applyFrameTransaction() {
+        if (PopUpSettingsConfig.getInstance().isHyperOsMode()) {
+            final SurfaceControl.Transaction frame = mService.mTransactionFactory.get();
+            final AnimationPosition position;
+            final boolean cancelling;
+            synchronized (mLock) {
+                synchronized (mCancelLock) {
+                    frame.merge(mFrameTransaction);
+                    position = mHyperOsAnimationPosition;
+                    cancelling = mIsCancelling;
+                }
+            }
+            if (cancelling || position == null) {
+                frame.close();
+                return;
+            }
+            HyperOsWindowDecor.getInstance().applyTransaction(
+                    mTask, frame, position.bounds, position.scale);
+        } else {
+            mFrameTransaction.apply();
         }
     }
 
@@ -197,6 +276,7 @@ class PopUpAnimationController {
     }
 
     private void startCrossOverAnimation() {
+        final boolean hyperOs = PopUpSettingsConfig.getInstance().isHyperOsMode();
         final float startScale = mStartScale;
         final float endScale = mEndScale;
         mCrossOverAnimator = ValueAnimator.ofFloat(0.0f, 1.0f);
@@ -213,6 +293,7 @@ class PopUpAnimationController {
                             mFrameTransaction.setPosition(leash, pos.x, pos.y);
                             mFrameTransaction.setScale(leash, currentScale, currentScale);
                             mFrameTransaction.setCornerRadius(leash, cornerRadius);
+                            updateHyperOsPosition(pos.x, pos.y, currentScale);
                         }
                         mLastAnimatingScale = currentScale;
                     }
@@ -243,6 +324,7 @@ class PopUpAnimationController {
                             mFrameTransaction.setPosition(leash, pos.x, pos.y);
                             mFrameTransaction.setScale(leash, endScale, endScale);
                             mFrameTransaction.setCornerRadius(leash, cornerRadius);
+                            updateHyperOsPosition(pos.x, pos.y, endScale);
                         }
                         mLastAnimatingScale = -1.0f;
                     }
@@ -251,10 +333,12 @@ class PopUpAnimationController {
                 synchronized (mLock) {
                     mIsAnimating = false;
                 }
+                notifyHyperOsAnimationFinished();
             }
         });
-        mCrossOverAnimator.setDuration(ANIMATION_CROSS_OVER_EXIT_DURATION);
-        mCrossOverAnimator.setInterpolator(new PathInterpolator(0.17f, 0.0f, 0.83f, 1.0f));
+        mCrossOverAnimator.setDuration(hyperOs ? 220L : ANIMATION_CROSS_OVER_EXIT_DURATION);
+        mCrossOverAnimator.setInterpolator(hyperOs ? HYPER_OS_INTERPOLATOR
+                : new PathInterpolator(0.17f, 0.0f, 0.83f, 1.0f));
         mCrossOverAnimator.start();
     }
 
@@ -269,6 +353,10 @@ class PopUpAnimationController {
         }
         mStartScale = startScale;
         mCallback = callback;
+        if (PopUpSettingsConfig.getInstance().isHyperOsMode()) {
+            // The closing guard must not hide the app while its first frame is queued.
+            mIsAnimating = true;
+        }
         mChoreographer.postFrameCallback(mFrameExitCallback);
     }
 
@@ -283,9 +371,11 @@ class PopUpAnimationController {
     }
 
     private void startExitAnimation() {
-        final float startAlpha = mIsFromLeaveButton ? 0.5f : 1.0f;
+        final boolean hyperOs = PopUpSettingsConfig.getInstance().isHyperOsMode();
+        final float startAlpha = mIsFromLeaveButton && !hyperOs ? 0.5f : 1.0f;
         final float startScale = mStartScale;
-        final float endScale = mIsFromLeaveButton ? 0.0f : mStartScale;
+        final float endScale = hyperOs ? mStartScale * .78f
+                : mIsFromLeaveButton ? 0.0f : mStartScale;
         mWindowExitAnimator = ValueAnimator.ofFloat(0.0f, 1.0f);
         mWindowExitAnimator.addUpdateListener(animation -> {
             synchronized (mLock) {
@@ -300,6 +390,7 @@ class PopUpAnimationController {
                             mFrameTransaction.setPosition(leash, pos.x, pos.y);
                             mFrameTransaction.setAlpha(leash, currentAlpha);
                             mFrameTransaction.setScale(leash, currentScale, currentScale);
+                            updateHyperOsPosition(pos.x, pos.y, currentScale);
                         }
                     }
                 }
@@ -329,6 +420,7 @@ class PopUpAnimationController {
                                 mFrameTransaction.setPosition(leash, pos.x, pos.y);
                                 mFrameTransaction.setAlpha(leash, 0.0f);
                                 mFrameTransaction.setScale(leash, endScale, endScale);
+                                updateHyperOsPosition(pos.x, pos.y, endScale);
                             }
                         }
                         mService.mAnimationHandler.post(() -> {
@@ -342,10 +434,12 @@ class PopUpAnimationController {
                 synchronized (mLock) {
                     mIsAnimating = false;
                 }
+                notifyHyperOsAnimationFinished();
             }
         });
-        mWindowExitAnimator.setDuration(ANIMATION_CROSS_OVER_EXIT_DURATION);
-        mWindowExitAnimator.setInterpolator(new PathInterpolator(0.17f, 0.0f, 0.83f, 1.0f));
+        mWindowExitAnimator.setDuration(hyperOs ? 220L : ANIMATION_CROSS_OVER_EXIT_DURATION);
+        mWindowExitAnimator.setInterpolator(hyperOs ? HYPER_OS_INTERPOLATOR
+                : new PathInterpolator(0.17f, 0.0f, 0.83f, 1.0f));
         mWindowExitAnimator.start();
     }
 
@@ -368,6 +462,7 @@ class PopUpAnimationController {
     }
 
     private void startToggleResizeAnimation() {
+        final boolean hyperOs = PopUpSettingsConfig.getInstance().isHyperOsMode();
         final Point startPos = mStartPos;
         final Point endPos = mEndPos;
         final float startScale = mStartScale;
@@ -383,9 +478,10 @@ class PopUpAnimationController {
                 mCurrentAnimY = Math.round(currentPosY);
                 mCurrentAnimScale = currentScale;
                 mHasAnimPosition = true;
-                PinnedWindowOverlayController.getInstance().updateOverlayPosition(
-                        mTask, mCurrentAnimX, mCurrentAnimY,
-                        mBounds.width(), mBounds.height(), currentScale);
+                if (!hyperOs) {
+                    updateOverlayPosition(mCurrentAnimX, mCurrentAnimY,
+                            mBounds.width(), mBounds.height(), currentScale);
+                }
                 synchronized (mCancelLock) {
                     if (!mIsCancelling && mTask != null && mFrameTransaction != null) {
                         final SurfaceControl leash = mTask.mSurfaceControl;
@@ -394,6 +490,7 @@ class PopUpAnimationController {
                             mFrameTransaction.setPosition(leash, currentPosX, currentPosY);
                             mFrameTransaction.setScale(leash, currentScale, currentScale);
                             mFrameTransaction.setCornerRadius(leash, cornerRadius);
+                            updateHyperOsPosition(currentPosX, currentPosY, currentScale);
                         }
                     }
                 }
@@ -423,6 +520,7 @@ class PopUpAnimationController {
                                 mFrameTransaction.setPosition(leash, endPos.x, endPos.y);
                                 mFrameTransaction.setScale(leash, endScale, endScale);
                                 mFrameTransaction.setCornerRadius(leash, cornerRadius);
+                                updateHyperOsPosition(endPos.x, endPos.y, endScale);
                             }
                         }
                         mService.mAnimationHandler.post(() -> {
@@ -436,11 +534,12 @@ class PopUpAnimationController {
                 synchronized (mLock) {
                     mIsAnimating = false;
                 }
+                notifyHyperOsAnimationFinished();
             }
         });
-        mToggleResizeAnimator.setDuration(ANIMATION_RESIZE);
-        mToggleResizeAnimator.setInterpolator(new android.view.animation.PathInterpolator(
-                0.2f, 0f, 0f, 1f));
+        mToggleResizeAnimator.setDuration(hyperOs ? 320L : ANIMATION_RESIZE);
+        mToggleResizeAnimator.setInterpolator(hyperOs ? HYPER_OS_INTERPOLATOR
+                : new PathInterpolator(0.2f, 0f, 0f, 1f));
         mToggleResizeAnimator.start();
     }
 
@@ -448,6 +547,7 @@ class PopUpAnimationController {
             int boundWidth, int boundHeight,
             float startWinScale, float endWinScale,
             Rect displayBound, boolean isLandscape, TaskWindowSurfaceInfo info) {
+        final boolean hyperOs = PopUpSettingsConfig.getInstance().isHyperOsMode();
         final ValueAnimator windowScaleAnimator = ValueAnimator.ofFloat(0.0f, 1.0f);
         windowScaleAnimator.addUpdateListener(animation -> {
             final float progress = (float) animation.getAnimatedValue();
@@ -478,10 +578,12 @@ class PopUpAnimationController {
                     doWindowTransition(endPos.x, endPos.y, endWinScale, boundWidth, boundHeight);
                     mIsAnimating = false;
                 }
+                notifyHyperOsAnimationFinished();
             }
         });
-        windowScaleAnimator.setDuration(ANIMATION_SCALE_DURATION);
-        windowScaleAnimator.setInterpolator(new AccelerateDecelerateInterpolator());
+        windowScaleAnimator.setDuration(hyperOs ? 320L : ANIMATION_SCALE_DURATION);
+        windowScaleAnimator.setInterpolator(hyperOs ? HYPER_OS_INTERPOLATOR
+                : new AccelerateDecelerateInterpolator());
         windowScaleAnimator.start();
     }
 
@@ -527,9 +629,10 @@ class PopUpAnimationController {
 
     private SpringAnimation startSpringAnimation(FloatValueHolder valueHolder, float endValue,
             float velocity) {
+        final boolean hyperOs = PopUpSettingsConfig.getInstance().isHyperOsMode();
         final SpringForce springForce = new SpringForce();
-        springForce.setStiffness(STPRING_STIFFNESS);
-        springForce.setDampingRatio(DAMPING_RATIO);
+        springForce.setStiffness(hyperOs ? 380f : STPRING_STIFFNESS);
+        springForce.setDampingRatio(hyperOs ? .85f : DAMPING_RATIO);
         springForce.setFinalPosition(endValue);
 
         final SpringAnimation springAnimation = new SpringAnimation(valueHolder, velocity);
@@ -554,8 +657,9 @@ class PopUpAnimationController {
                         }
                         scheduleApplyTransaction();
                     }
-                    PinnedWindowOverlayController.getInstance().updateOverlayPosition(
-                            mTask, x, y, boundWidth, boundHeight, windowScale);
+                    if (!hyperOs) {
+                        updateOverlayPosition(x, y, boundWidth, boundHeight, windowScale);
+                    }
                 })
                 .addEndListener((anim, canceled, val, vel) -> {
                     final boolean finished;
@@ -578,7 +682,14 @@ class PopUpAnimationController {
                             }
                         }
                         if (!canceled && mFrameTransaction != null) {
-                            mFrameTransaction.apply();
+                            if (hyperOs) {
+                                // Reuse the queued frame callback instead of applying once here
+                                // and a second time from that callback. It takes the WM lock only
+                                // after this animation lock has been released.
+                                scheduleApplyTransaction();
+                            } else {
+                                mFrameTransaction.apply();
+                            }
                         }
                         final OnAnimationEndCallback cb = mCallback;
                         mIsAnimating = false;
@@ -586,9 +697,9 @@ class PopUpAnimationController {
                             mService.mAnimationHandler.post(cb::onAnimationEnded);
                         }
                     }
-                    if (!mIsCancelling && !canceled) {
-                        PinnedWindowOverlayController.getInstance().updateOverlayPosition(
-                                mTask, mEndPos.x, mEndPos.y, mBoundWidth, mBoundHeight, mWindowScale);
+                    if (!hyperOs && !mIsCancelling && !canceled) {
+                        updateOverlayPosition(mEndPos.x, mEndPos.y,
+                                mBoundWidth, mBoundHeight, mWindowScale);
                     }
                 });
         springAnimation.start();
@@ -602,6 +713,14 @@ class PopUpAnimationController {
     }
 
     boolean getCurrentAnimPosition(int[] outXY, float[] outScale) {
+        if (PopUpSettingsConfig.getInstance().isHyperOsMode()) {
+            final AnimationPosition position = mHyperOsAnimationPosition;
+            if (position == null) return false;
+            outXY[0] = position.x;
+            outXY[1] = position.y;
+            outScale[0] = position.scale;
+            return true;
+        }
         if (!mHasAnimPosition) return false;
         outXY[0] = mCurrentAnimX;
         outXY[1] = mCurrentAnimY;
@@ -610,6 +729,7 @@ class PopUpAnimationController {
     }
 
     void clearAnimPosition() {
+        mHyperOsAnimationPosition = null;
         mHasAnimPosition = false;
     }
 
@@ -643,12 +763,14 @@ class PopUpAnimationController {
     void playDockAnimation(int startX, int startY, int endX, int endY,
             int startCropW, int startCropH, int endCropW, int endCropH,
             float startAlpha, float endAlpha, float scale, Task task, TaskWindowSurfaceInfo info) {
+        final boolean hyperOs = PopUpSettingsConfig.getInstance().isHyperOsMode();
         mIsAnimating = true;
         mDockAnimator = ValueAnimator.ofFloat(0.0f, 1.0f);
         mDockAnimator.addUpdateListener(animation -> {
             synchronized (mLock) {
                 final float progress = (float) animation.getAnimatedValue();
-                final float easeProgress = 1.0f - (1.0f - progress) * (1.0f - progress);
+                final float easeProgress = hyperOs ? progress
+                        : 1.0f - (1.0f - progress) * (1.0f - progress);
                 final int x = (int) (startX + (endX - startX) * easeProgress);
                 final int y = (int) (startY + (endY - startY) * easeProgress);
                 final int cropW = (int) (startCropW + (endCropW - startCropW) * easeProgress);
@@ -664,6 +786,7 @@ class PopUpAnimationController {
                                     .setAlpha(leash, alpha)
                                     .setCornerRadius(leash, 0)
                                     .show(leash);
+                            updateHyperOsPosition(x, y, scale);
                         }
                     }
                 }
@@ -683,6 +806,7 @@ class PopUpAnimationController {
                                     .setAlpha(leash, endAlpha)
                                     .setCornerRadius(leash, 0)
                                     .show(leash);
+                            updateHyperOsPosition(endX, endY, scale);
                         }
                     }
                 }
@@ -690,14 +814,16 @@ class PopUpAnimationController {
                 synchronized (mLock) {
                     mIsAnimating = false;
                 }
+                notifyHyperOsAnimationFinished();
                 // Let cancellation clear its flags before checking policy on the WM thread.
                 // Never take the WM lock while holding the animation locks.
                 mSurfaceAnimationHandler.post(() ->
                         mService.mH.post(info::updateDockedForegroundState));
             }
         });
-        mDockAnimator.setDuration(250L);
-        mDockAnimator.setInterpolator(new AccelerateDecelerateInterpolator());
+        mDockAnimator.setDuration(hyperOs ? 220L : 250L);
+        mDockAnimator.setInterpolator(hyperOs ? HYPER_OS_INTERPOLATOR
+                : new AccelerateDecelerateInterpolator());
         mDockAnimator.start();
     }
 
@@ -705,12 +831,14 @@ class PopUpAnimationController {
             int startCropW, int startCropH, int endCropW, int endCropH,
             float startAlpha, float endAlpha, float scale, float cornerRadius,
             Task task, TaskWindowSurfaceInfo info) {
+        final boolean hyperOs = PopUpSettingsConfig.getInstance().isHyperOsMode();
         mIsAnimating = true;
         mDockAnimator = ValueAnimator.ofFloat(0.0f, 1.0f);
         mDockAnimator.addUpdateListener(animation -> {
             synchronized (mLock) {
                 final float progress = (float) animation.getAnimatedValue();
-                final float easeProgress = progress * progress * (3.0f - 2.0f * progress);
+                final float easeProgress = hyperOs ? progress
+                        : progress * progress * (3.0f - 2.0f * progress);
                 final int x = (int) (startX + (endX - startX) * easeProgress);
                 final int y = (int) (startY + (endY - startY) * easeProgress);
                 final int cropW = (int) (startCropW + (endCropW - startCropW) * easeProgress);
@@ -726,6 +854,7 @@ class PopUpAnimationController {
                                     .setAlpha(leash, alpha)
                                     .setCornerRadius(leash, cornerRadius * easeProgress)
                                     .show(leash);
+                            updateHyperOsPosition(x, y, scale);
                         }
                     }
                 }
@@ -745,6 +874,7 @@ class PopUpAnimationController {
                                     .setAlpha(leash, endAlpha)
                                     .setCornerRadius(leash, cornerRadius)
                                     .show(leash);
+                            updateHyperOsPosition(endX, endY, scale);
                         }
                     }
                 }
@@ -752,10 +882,12 @@ class PopUpAnimationController {
                 synchronized (mLock) {
                     mIsAnimating = false;
                 }
+                notifyHyperOsAnimationFinished();
             }
         });
-        mDockAnimator.setDuration(300L);
-        mDockAnimator.setInterpolator(new OvershootInterpolator(0.8f));
+        mDockAnimator.setDuration(hyperOs ? 360L : 300L);
+        mDockAnimator.setInterpolator(hyperOs ? HYPER_OS_INTERPOLATOR
+                : new OvershootInterpolator(0.8f));
         mDockAnimator.start();
     }
 
@@ -777,11 +909,23 @@ class PopUpAnimationController {
         final SurfaceControl leash = mTask.mSurfaceControl;
         if (leash != null && leash.isValid()) {
             final float cornerRadius = mTask.mWindowContainerExt.getTaskWindowSurfaceInfo().getCornerRadius();
-            mTask.getSyncTransaction().setPosition(leash, x, y)
+            final boolean hyperOs = PopUpSettingsConfig.getInstance().isHyperOsMode();
+            final SurfaceControl.Transaction transaction = hyperOs
+                    ? mService.mTransactionFactory.get() : mTask.getSyncTransaction();
+            transaction.setPosition(leash, x, y)
                     .setWindowCrop(leash, boundWidth, boundHeight)
                     .setScale(leash, scale, scale)
                     .setCornerRadius(leash, cornerRadius)
-                    .show(leash).apply();
+                    .show(leash);
+            if (hyperOs) {
+                // Publish before snapshotting the decoration for this transaction.
+                updateHyperOsPosition(x, y, scale);
+                HyperOsWindowDecor.getInstance().applyTransaction(mTask, transaction,
+                        new Rect(x, y, x + Math.round(boundWidth * scale),
+                                y + Math.round(boundHeight * scale)), scale);
+            } else {
+                transaction.apply();
+            }
         }
     }
 

@@ -6368,6 +6368,8 @@
     <java-symbol type="drawable" name="ic_pop_up_view" />
     <java-symbol type="bool" name="config_supportsArkuiSmallWindows" />
     <java-symbol type="drawable" name="pinned_window_close_button" />
+    <java-symbol type="drawable" name="pinned_window_menu_shape" />
+    <java-symbol type="drawable" name="pinned_window_button_shape" />
     <java-symbol type="drawable" name="pinned_window_dismiss_button_bg" />
     <java-symbol type="drawable" name="pinned_window_dismiss_button_bg_normal" />
     <java-symbol type="drawable" name="pinned_window_dismiss_button_bg_select" />
@@ -6388,4 +6390,11 @@
     <java-symbol type="string" name="arkui_small_window_unmute" />
     <java-symbol type="string" name="arkui_small_window_restore_preview" />
     <java-symbol type="string" name="arkui_small_window_resize_preview" />
+    <java-symbol type="string" name="hyperos_window_fullscreen" />
+    <java-symbol type="string" name="hyperos_window_minimize" />
+    <java-symbol type="string" name="hyperos_window_close" />
+    <java-symbol type="string" name="hyperos_window_controls" />
+    <java-symbol type="string" name="hyperos_window_resize" />
+    <java-symbol type="string" name="hyperos_window_move" />
+    <java-symbol type="string" name="hyperos_window_restore" />
 </resources>

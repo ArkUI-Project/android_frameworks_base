@@ -22,8 +22,10 @@ import android.animation.ValueAnimator;
 import android.animation.TimeInterpolator;
 import android.app.ActivityThread;
 import android.content.Context;
+import android.content.res.Configuration;
 import android.graphics.PixelFormat;
 import android.graphics.Rect;
+import android.graphics.drawable.GradientDrawable;
 import android.os.Handler;
 import android.os.Looper;
 import android.util.AttributeSet;
@@ -40,6 +42,7 @@ import android.widget.FrameLayout;
 import android.widget.ImageView;
 
 import com.android.internal.R;
+import com.android.internal.graphics.ColorUtils;
 
 class PinnedWindowDismissView extends FrameLayout {
 
@@ -89,7 +92,35 @@ class PinnedWindowDismissView extends FrameLayout {
     protected void onFinishInflate() {
         super.onFinishInflate();
         mButtonView = findViewById(R.id.pinned_window_dismiss_button);
+        updateColors();
         setAlpha(0.0f);
+    }
+
+    @Override
+    protected void onAttachedToWindow() {
+        super.onAttachedToWindow();
+        updateColors();
+    }
+
+    @Override
+    protected void onConfigurationChanged(Configuration newConfig) {
+        super.onConfigurationChanged(newConfig);
+        updateColors();
+    }
+
+    private void updateColors() {
+        setBackground(getContext().getDrawable(R.drawable.pinned_window_dismiss_gradient_bg));
+        final int primary = getContext().getColor(R.color.materialColorPrimary);
+        final GradientDrawable gradient = (GradientDrawable) getBackground().mutate();
+        gradient.setColors(new int[] {ColorUtils.setAlphaComponent(primary, 102),
+                ColorUtils.setAlphaComponent(primary, 0)});
+        if (mButtonView != null) {
+            // Reinflate selectors so an already visible target follows palette and night changes.
+            mButtonView.setBackground(getContext().getDrawable(
+                    R.drawable.pinned_window_dismiss_button_bg));
+            mButtonView.setImageDrawable(getContext().getDrawable(
+                    R.drawable.pinned_window_close_button));
+        }
     }
 
     void showOnScreen(Looper looper) {

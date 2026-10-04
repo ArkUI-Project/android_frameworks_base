@@ -12,7 +12,19 @@ import android.text.TextUtils;
 
 /** Shared policy for ArkUI small-window entry points. @hide */
 public final class SmallWindowSettings {
+    public static final int MODE_FLYME = 0;
+    public static final int MODE_HYPEROS = 1;
+
     private SmallWindowSettings() {}
+
+    public static int getMode(Context context) {
+        return getChoice(context, Settings.System.ARKUI_SMALL_WINDOW_MODE,
+                MODE_FLYME, MODE_HYPEROS);
+    }
+
+    public static boolean isHyperOsMode(Context context) {
+        return getMode(context) == MODE_HYPEROS;
+    }
 
     public static boolean isSupported(Context context) {
         return PopUpViewManager.FEATURE_SUPPORTED

@@ -137,6 +137,7 @@ public class SystemSettings {
                 Settings.System.POP_UP_SINGLE_TAP_ACTION,
                 Settings.System.POP_UP_DOUBLE_TAP_ACTION,
                 Settings.System.ARKUI_SMALL_WINDOW_ENABLED,
+                Settings.System.ARKUI_SMALL_WINDOW_MODE,
                 Settings.System.ARKUI_SMALL_WINDOW_RECENTS,
                 Settings.System.ARKUI_SMALL_WINDOW_SWIPE_UP,
                 Settings.System.ARKUI_SMALL_WINDOW_NOTIFICATION_DRAG,

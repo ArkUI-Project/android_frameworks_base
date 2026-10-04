@@ -41,6 +41,7 @@ import android.os.UserHandle;
 import android.os.Vibrator;
 import android.os.VibrationEffect;
 import android.text.TextUtils;
+import android.util.ArrayMap;
 import android.util.ArraySet;
 import android.util.Slog;
 import android.view.IWindow;
@@ -108,6 +109,10 @@ public class PopUpWindowController {
     private boolean mTryExitWindowingModeByDrag;
     private boolean mLaunchPopUpViewFromRecents;
     private boolean mNextRecentIsPin;
+    private boolean mLastHyperOsMode;
+
+    // WM lock protects pending closes until queued transitions commit task invisibility.
+    private final ArrayMap<Task, Integer> mPendingHyperOsCloses = new ArrayMap<>();
 
     // Guarded by the WM global lock; one UID can own more than one small-window task.
     private final android.util.SparseIntArray mMutedTasks = new android.util.SparseIntArray();
@@ -181,6 +186,13 @@ public class PopUpWindowController {
 
     void systemReady() {
         PopUpSettingsConfig.getInstance().init(mContext, mHandler);
+        mLastHyperOsMode = PopUpSettingsConfig.getInstance().isHyperOsMode();
+        HyperOsWindowDecor.getInstance().init(mService);
+        // Aborting an unstarted Shell transition may not dispatch activity callbacks.
+        // Sync-engine idle also covers that case without timing-based close delays.
+        synchronized (mService.mGlobalLock) {
+            mService.mSyncEngine.addOnIdleListener(this::schedulePendingHyperOsCloses);
+        }
         PinnedWindowOverlayController.getInstance().init(mContext, mHandler.getLooper(), mService);
         PinnedWindowOverlayController.getInstance().systemReady();
 
@@ -206,6 +218,9 @@ public class PopUpWindowController {
     }
 
     boolean onWindowTokenAssignLayer(WindowToken token, SurfaceControl.Transaction t, int layer) {
+        if (HyperOsWindowDecor.getInstance().assignLayer(token, t)) {
+            return true;
+        }
         if (token.windowType != TYPE_MINI_WINDOW_DIMMER &&
                 token.windowType != TYPE_PINNED_WINDOW_DISMISS_HINT) {
             return false;
@@ -247,6 +262,10 @@ public class PopUpWindowController {
     void onPrepareSurfaces(Task task, SurfaceControl.Transaction t) {
         if (task.mWindowContainerExt.getTaskWindowSurfaceInfo() != null) {
             task.mWindowContainerExt.getTaskWindowSurfaceInfo().onPrepareSurfaces(t);
+        }
+        if (task.isRootTask() && task.getWindowConfiguration().isPopUpWindowMode()
+                && PopUpSettingsConfig.getInstance().isHyperOsMode()) {
+            HyperOsWindowDecor.getInstance().update(task);
         }
     }
 
@@ -336,6 +355,8 @@ public class PopUpWindowController {
     }
 
     void removeChild(Task task) {
+        mPendingHyperOsCloses.remove(task);
+        HyperOsWindowDecor.getInstance().remove(task);
         releaseTaskMute(task);
         if (tryExitPopUpView(task, true, true, true)) {
             if (DEBUG_POP_UP) {
@@ -354,6 +375,7 @@ public class PopUpWindowController {
 
     boolean shouldSkipAppFocusChanged(Task newTask) {
         if (newTask != null && !newTask.getWindowConfiguration().isPopUpWindowMode()
+                && !PopUpSettingsConfig.getInstance().isHyperOsMode()
                 && TopActivityRecorder.getInstance().hasMiniWindow()) {
             if (DEBUG_POP_UP) {
                 Slog.d(TAG, "skip fullscreen app focus change due to mini-window showing");
@@ -393,6 +415,9 @@ public class PopUpWindowController {
         if (newTask != null && newTask.getWindowConfiguration().isMiniExtWindowMode()) {
             newTask.mWindowContainerExt.setFinishTopTask(false);
         }
+        if (newTask != null && PopUpSettingsConfig.getInstance().isHyperOsMode()) {
+            HyperOsWindowDecor.getInstance().update(newTask.getRootTask());
+        }
     }
 
     void findAndExitAllPopUp() {
@@ -411,6 +436,7 @@ public class PopUpWindowController {
             }
             TopActivityRecorder.getInstance().clearMiniWindow();
             TopActivityRecorder.getInstance().clearPinnedWindow();
+            HyperOsWindowDecor.getInstance().clear();
         }
     }
 
@@ -420,6 +446,15 @@ public class PopUpWindowController {
             return;
         }
         synchronized (mService.mGlobalLock) {
+            final boolean hyperOs = PopUpSettingsConfig.getInstance().isHyperOsMode();
+            if (mLastHyperOsMode != hyperOs) {
+                // Reconcile every task before changing decoration ownership. Flyme only
+                // supports one interactive window and one minimized window.
+                findAndExitAllPopUp();
+                DimmerWindow.getInstance().setTask(null);
+                PinnedWindowOverlayController.getInstance().setTask(null);
+                mLastHyperOsMode = hyperOs;
+            }
             if (!PopUpSettingsConfig.getInstance().isEnabled()) {
                 findAndExitAllPopUp();
                 return;
@@ -442,6 +477,7 @@ public class PopUpWindowController {
                 if (info != null) {
                     info.updateDockedForegroundState();
                 }
+                if (hyperOs) HyperOsWindowDecor.getInstance().update(task);
             }
         }
     }
@@ -471,6 +507,10 @@ public class PopUpWindowController {
 
     void moveActivityTaskToBack(Task task, int reason) {
         synchronized (mAtmService.mGlobalLock) {
+            if (PopUpSettingsConfig.getInstance().isHyperOsMode()) {
+                if (reason != MOVE_TO_BACK_TOUCH_OUTSIDE) moveHyperOsTaskToBack(task, reason);
+                return;
+            }
             if (DEBUG_POP_UP) {
                 Slog.d(TAG, "moveActivityTaskToBack, task=" + (task != null ? task : "null")
                         + ", reason=" + reasonToString(reason));
@@ -503,6 +543,101 @@ public class PopUpWindowController {
                 );
             }
         }
+    }
+
+    private void moveHyperOsTaskToBack(Task task, int reason) {
+        final Task root = task != null ? task.getRootTask() : null;
+        if (root == null || !root.isAttached()
+                || !root.getWindowConfiguration().isPopUpWindowMode()) return;
+        final TaskWindowSurfaceInfo info = root.mWindowContainerExt.getTaskWindowSurfaceInfo();
+        if (info == null || info.isHyperOsClosing()) return;
+        final int generation = info.getHyperOsCloseGeneration() + 1;
+        TopActivityRecorder.getInstance().removeMiniWindowTask(root);
+        TopActivityRecorder.getInstance().removePinnedWindowTask(root);
+        info.playExitAnimation(reason == MOVE_TO_BACK_FROM_LEAVE_BUTTON,
+                info.getWindowSurfaceRealScale(), () -> {
+                    synchronized (mAtmService.mGlobalLock) {
+                        if (!isPendingHyperOsClose(root, info, generation)) return;
+                        root.setAlwaysOnTop(false);
+                        // This retains the normal LockTask/watcher checks and Shell's task
+                        // history, visibility and focus handling. Success can mean queued.
+                        if (!root.moveTaskToBack(root)) {
+                            cancelHyperOsTaskClose(root, info);
+                            return;
+                        }
+                        mPendingHyperOsCloses.put(root, generation);
+                        finishHyperOsTaskClose(root, info, generation);
+                    }
+                });
+    }
+
+    private boolean isPendingHyperOsClose(Task task, TaskWindowSurfaceInfo info, int generation) {
+        return task.isAttached() && task.getWindowConfiguration().isPopUpWindowMode()
+                && info.isHyperOsClosing() && info.getHyperOsCloseGeneration() == generation;
+    }
+
+    private void finishHyperOsTaskClose(Task task, TaskWindowSurfaceInfo info, int generation) {
+        if (!isPendingHyperOsClose(task, info, generation)) {
+            mPendingHyperOsCloses.remove(task);
+            return;
+        }
+        // Move-to-back can still be queued. Finish/idle callbacks retry after WM commits
+        // visibility; never restore fullscreen merely because moveTaskToBack returned true.
+        if (task.mTransitionController.inTransition()) return;
+        mPendingHyperOsCloses.remove(task);
+        if (task.isVisibleRequested()) {
+            // A deferred move can be rejected, or this task can be opened again meanwhile.
+            cancelHyperOsTaskClose(task, info);
+            return;
+        }
+        mAtmService.deferWindowLayout();
+        try {
+            if (task.mSurfaceControl != null && task.mSurfaceControl.isValid()) {
+                task.getSyncTransaction().hide(task.mSurfaceControl);
+            }
+            // Restore launch geometry only once the task is in the background. Keep it
+            // hidden while resetting alpha so a later normal launch can display it again.
+            tryExitPopUpView(task, true, true, true);
+            if (task.mSurfaceControl != null && task.mSurfaceControl.isValid()) {
+                task.getSyncTransaction().setAlpha(task.mSurfaceControl, 1f)
+                        .hide(task.mSurfaceControl);
+            }
+        } finally {
+            mAtmService.continueWindowLayout();
+        }
+    }
+
+    private void schedulePendingHyperOsCloses() {
+        if (mPendingHyperOsCloses.isEmpty()) return;
+        mHandler.post(() -> {
+            synchronized (mAtmService.mGlobalLock) {
+                final ArrayList<Task> tasks = new ArrayList<>(mPendingHyperOsCloses.keySet());
+                for (Task task : tasks) {
+                    final Integer generation = mPendingHyperOsCloses.get(task);
+                    if (generation == null) continue;
+                    final TaskWindowSurfaceInfo info = task.mWindowContainerExt
+                            .getTaskWindowSurfaceInfo();
+                    if (info == null) {
+                        mPendingHyperOsCloses.remove(task);
+                    } else {
+                        finishHyperOsTaskClose(task, info, generation);
+                    }
+                }
+            }
+        });
+    }
+
+    private void cancelHyperOsTaskClose(Task task, TaskWindowSurfaceInfo info) {
+        mPendingHyperOsCloses.remove(task);
+        info.cancelHyperOsClose();
+        task.setAlwaysOnTop(true);
+        if (task.getWindowConfiguration().isMiniExtWindowMode()) {
+            TopActivityRecorder.getInstance().updateTopMiniWindowTask(task);
+        } else {
+            final ActivityRecord top = task.getTopNonFinishingActivity();
+            if (top != null) TopActivityRecorder.getInstance().updateTopPinnedWindowActivity(top);
+        }
+        HyperOsWindowDecor.getInstance().update(task);
     }
 
     boolean getOrCreateRootTask(Task candidateTask, DisplayContent displayContent, int windowingMode) {
@@ -638,6 +773,8 @@ public class PopUpWindowController {
                             rootTask.mWindowContainerExt.prepareTransition();
                         }
                         rootTask.setAlwaysOnTop(false);
+                        mPendingHyperOsCloses.remove(rootTask);
+                        HyperOsWindowDecor.getInstance().remove(rootTask);
                         rootTask.setWindowingMode(WINDOWING_MODE_UNDEFINED);
                         rootTask.setBounds(null);
                         rootTask.mWindowContainerExt.setFreezerSkipAnim(false);
@@ -681,6 +818,7 @@ public class PopUpWindowController {
     }
 
     private void makeRoomForPinnedWindow(Task rootTask) {
+        if (PopUpSettingsConfig.getInstance().isHyperOsMode()) return;
         final Task existing = TopActivityRecorder.getInstance().getTopPinnedWindowTask();
         final Task existingRoot = existing != null ? existing.getRootTask() : null;
         if (existingRoot != null && existingRoot != rootTask) {
@@ -694,6 +832,7 @@ public class PopUpWindowController {
     }
 
     private void makeRoomForMiniWindow(Task task) {
+        if (PopUpSettingsConfig.getInstance().isHyperOsMode()) return;
         final Task existing = TopActivityRecorder.getInstance()
                 .getTopMiniWindowExceptTask(task);
         if (existing != null) {
@@ -705,6 +844,7 @@ public class PopUpWindowController {
     }
 
     private boolean swapPopUpWindows(Task pinnedTask) {
+        if (PopUpSettingsConfig.getInstance().isHyperOsMode()) return false;
         if (pinnedTask == null
                 || !pinnedTask.getWindowConfiguration().isPinnedExtWindowMode()) {
             return false;
@@ -771,6 +911,10 @@ public class PopUpWindowController {
     void enterMiniWindowingMode(WindowState win) {
         synchronized (mAtmService.mGlobalLock) {
             if (win != null) {
+                if (PopUpSettingsConfig.getInstance().isHyperOsMode()) {
+                    setHyperOsWindowingMode(win.getTask(), WINDOWING_MODE_MINI_WINDOW_EXT);
+                    return;
+                }
                 final Task task = win.getTask();
                 final Task rootTask = task != null ? task.getRootTask() : null;
                 if (rootTask == null) {
@@ -818,6 +962,10 @@ public class PopUpWindowController {
             final Task rootTask = isFromDimmer ? taskOrRootTask : taskOrRootTask.getRootTask();
             if (rootTask == null) {
                 Slog.e(TAG, "enterPinnedWindowingModeInternal: rootTask is null");
+                return;
+            }
+            if (PopUpSettingsConfig.getInstance().isHyperOsMode()) {
+                setHyperOsWindowingMode(rootTask, WINDOWING_MODE_PINNED_WINDOW_EXT);
                 return;
             }
             final TaskWindowSurfaceInfo info = rootTask.mWindowContainerExt.getTaskWindowSurfaceInfo();
@@ -919,6 +1067,10 @@ public class PopUpWindowController {
 
     void enterMiniWindowingMode(Task task) {
         synchronized (mAtmService.mGlobalLock) {
+            if (PopUpSettingsConfig.getInstance().isHyperOsMode()) {
+                setHyperOsWindowingMode(task, WINDOWING_MODE_MINI_WINDOW_EXT);
+                return;
+            }
             if (task == null) {
                 return;
             }
@@ -975,6 +1127,10 @@ public class PopUpWindowController {
     }
 
     private void setWindowingModePopUpView(Task task, int windowingMode) {
+        if (PopUpSettingsConfig.getInstance().isHyperOsMode()) {
+            setHyperOsWindowingMode(task, windowingMode);
+            return;
+        }
         if (task != null) {
             final Task rootTask = task.getRootTask();
             if (rootTask == null) {
@@ -1097,6 +1253,104 @@ public class PopUpWindowController {
         }
     }
 
+    /** Every HyperOS window owns its mode, placement and decoration independently. */
+    private void setHyperOsWindowingMode(Task task, int windowingMode) {
+        synchronized (mAtmService.mGlobalLock) {
+            if (task == null || !task.isAttached()) return;
+            final Task root = task.getRootTask();
+            final TaskWindowSurfaceInfo info = root.mWindowContainerExt.getTaskWindowSurfaceInfo();
+            if (info == null || root.getDisplayContent() == null) return;
+            final ActivityRecord activity = root.getTopNonFinishingActivity();
+            if (!PopUpSettingsConfig.getInstance().isEnabled()
+                    || (activity != null && !PopUpSettingsConfig.getInstance()
+                            .isPackageAllowed(activity.packageName))) return;
+            mPendingHyperOsCloses.remove(root);
+            info.cancelHyperOsClose();
+            if (root.getWindowingMode() == windowingMode
+                    && !info.getTaskWindowSurfaceBounds().isEmpty()
+                    && root.isAlwaysOnTop() && info.hasHyperOsPlacement()) {
+                if (windowingMode == WINDOWING_MODE_MINI_WINDOW_EXT) focusHyperOsTask(root);
+                HyperOsWindowDecor.getInstance().update(root);
+                return;
+            }
+            final boolean firstEntry = !root.getWindowConfiguration().isPopUpWindowMode()
+                    || !root.isAlwaysOnTop() || !info.hasHyperOsPlacement();
+            if (info.isDockedToEdge()) info.restoreFromDocked();
+            info.cancelPopUpViewAnimation();
+            final Rect bounds = new Rect(root.getBounds());
+            WindowResizingAlgorithm.getPopUpViewDefalutBounds(bounds);
+            mAtmService.deferWindowLayout();
+            try {
+                root.mWindowContainerExt.prepareTransition();
+                // A fullscreen root discards override bounds. Enter popup mode first so
+                // the app is laid out at the popup aspect ratio, including direct previews.
+                root.setWindowingMode(windowingMode);
+                root.setAlwaysOnTop(true);
+                root.setBounds(bounds);
+                if (firstEntry) {
+                    info.setHyperOsInitialPlacement(getHyperOsInitialCenter(root, bounds));
+                }
+                if (windowingMode == WINDOWING_MODE_MINI_WINDOW_EXT) {
+                    TopActivityRecorder.getInstance().removePinnedWindowTask(root);
+                    TopActivityRecorder.getInstance().updateTopMiniWindowTask(root);
+                    focusHyperOsTask(root);
+                } else {
+                    TopActivityRecorder.getInstance().removeMiniWindowTask(root);
+                    final ActivityRecord top = root.getTopNonFinishingActivity();
+                    if (top != null) {
+                        TopActivityRecorder.getInstance().updateTopPinnedWindowActivity(top);
+                    }
+                    updateFocusedApp();
+                }
+                root.mWindowContainerExt.scheduleTransition();
+            } finally {
+                mAtmService.continueWindowLayout();
+            }
+            HyperOsWindowDecor.getInstance().update(root);
+        }
+    }
+
+    private Point getHyperOsInitialCenter(Task task, Rect bounds) {
+        final Rect display = task.getDisplayContent().getBounds();
+        final Point center = WindowResizingAlgorithm.getDefaultMiniWindowCenter(
+                display, bounds, task.getConfiguration().orientation);
+        final int[] count = {0};
+        task.getDisplayContent().forAllRootTasks((Task other) -> {
+            if (other != task && other.showToCurrentUser()
+                    && other.getWindowConfiguration().isPopUpWindowMode()) count[0]++;
+        });
+        final int offset = Math.round(28 * mContext.getResources().getDisplayMetrics().density)
+                * (count[0] % 5);
+        center.offset((count[0] % 2 == 0 ? -1 : 1) * offset / 2, offset);
+        return center;
+    }
+
+    void focusHyperOsTask(Task task) {
+        synchronized (mAtmService.mGlobalLock) {
+            if (!PopUpSettingsConfig.getInstance().isHyperOsMode() || task == null) return;
+            final Task root = task.getRootTask();
+            if (!root.isAttached() || !root.showToCurrentUser()
+                    || !root.getWindowConfiguration().isPopUpWindowMode()) return;
+            root.moveToFront("hyperos-small-window-touch");
+            if (root.getWindowConfiguration().isMiniExtWindowMode()) {
+                mAtmService.setFocusedTask(root.mTaskId);
+                TopActivityRecorder.getInstance().updateTopMiniWindowTask(root);
+            }
+            HyperOsWindowDecor.getInstance().update(root);
+        }
+    }
+
+    void closeHyperOsTask(Task task) {
+        synchronized (mAtmService.mGlobalLock) {
+            if (task == null || !task.isAttached()
+                    || !task.getWindowConfiguration().isPopUpWindowMode()) return;
+            final TaskWindowSurfaceInfo info = task.getRootTask().mWindowContainerExt
+                    .getTaskWindowSurfaceInfo();
+            if (info == null || info.isHyperOsClosing()) return;
+            moveActivityTaskToBack(task.getRootTask(), MOVE_TO_BACK_FROM_LEAVE_BUTTON);
+        }
+    }
+
     void triggerVibrate() {
         if (!PopUpSettingsConfig.getInstance().isHapticsEnabled()
                 || android.provider.Settings.System.getIntForUser(mContext.getContentResolver(),
@@ -1176,6 +1430,8 @@ public class PopUpWindowController {
     void notifyFinishTransition() {
         mTryExitWindowingModeByDrag = false;
         mLaunchPopUpViewFromRecents = false;
+        // The notification precedes Shell's final visibility commit; posting exits that stack.
+        schedulePendingHyperOsCloses();
     }
 
     InsetsState adjustInsetsForWindow(WindowState target, InsetsState state) {
@@ -1373,7 +1629,7 @@ public class PopUpWindowController {
     }
 
     boolean isMiniWindowFocused() {
-        final Task miniTask = DimmerWindow.getInstance().getTask();
+        final Task miniTask = getMiniWindowTask();
         if (miniTask == null || !miniTask.getWindowConfiguration().isMiniExtWindowMode()) {
             return false;
         }
@@ -1403,6 +1659,9 @@ public class PopUpWindowController {
         }
     }
     Task getMiniWindowTask() {
+        if (PopUpSettingsConfig.getInstance().isHyperOsMode()) {
+            return TopActivityRecorder.getInstance().getTopMiniWindowTask();
+        }
         return DimmerWindow.getInstance().getTask();
     }
     Task getTopFullscreenTaskBelowMini() {
@@ -1419,18 +1678,29 @@ public class PopUpWindowController {
 
     public void exitMiniWindowingMode() {
         synchronized (mAtmService.mGlobalLock) {
-            exitMiniWindowingMode(DimmerWindow.getInstance().getTask());
+            exitMiniWindowingMode(getMiniWindowTask());
         }
     }
 
     void exitMiniWindowingMode(Task task) {
         synchronized (mAtmService.mGlobalLock) {
             final Task rootTask = task != null ? task.getRootTask() : null;
-            if (rootTask != null && rootTask.getWindowConfiguration().isMiniExtWindowMode()) {
-                TopActivityRecorder.getInstance().moveTopMiniToFull();
+            final boolean hyperOs = PopUpSettingsConfig.getInstance().isHyperOsMode();
+            if (rootTask != null && (rootTask.getWindowConfiguration().isMiniExtWindowMode()
+                    || (hyperOs && rootTask.getWindowConfiguration().isPopUpWindowMode()))) {
+                if (PopUpSettingsConfig.getInstance().isHyperOsMode()) {
+                    TopActivityRecorder.getInstance().removeMiniWindowTask(rootTask);
+                    TopActivityRecorder.getInstance().removePinnedWindowTask(rootTask);
+                } else {
+                    TopActivityRecorder.getInstance().moveTopMiniToFull();
+                }
                 setTryExitWindowingMode(true);
                 try {
                     tryExitPopUpView(rootTask, false, true, true);
+                    if (PopUpSettingsConfig.getInstance().isHyperOsMode()) {
+                        rootTask.moveToFront("hyperos-small-window-fullscreen");
+                        mAtmService.setFocusedTask(rootTask.mTaskId);
+                    }
                 } finally {
                     setTryExitWindowingMode(false);
                 }
@@ -1457,7 +1727,11 @@ public class PopUpWindowController {
             if (DEBUG_POP_UP) {
                 Slog.d(TAG, "exitPinnedWindowingMode: task=" + task);
             }
-            TopActivityRecorder.getInstance().moveTopPinnedToFull();
+            if (PopUpSettingsConfig.getInstance().isHyperOsMode()) {
+                TopActivityRecorder.getInstance().removePinnedWindowTask(rootTask);
+            } else {
+                TopActivityRecorder.getInstance().moveTopPinnedToFull();
+            }
             setTryExitWindowingMode(true);
             try {
                 tryExitPopUpView(rootTask, false, false, true);
@@ -1469,6 +1743,10 @@ public class PopUpWindowController {
 
     void enterMiniWindowingModeFromPinned(WindowState win) {
         synchronized (mAtmService.mGlobalLock) {
+            if (win != null && PopUpSettingsConfig.getInstance().isHyperOsMode()) {
+                setHyperOsWindowingMode(win.getTask(), WINDOWING_MODE_MINI_WINDOW_EXT);
+                return;
+            }
             if (win == null) {
                 Slog.e(TAG, "enterMiniWindowingModeFromPinned: win is null");
                 return;
@@ -1522,6 +1800,7 @@ public class PopUpWindowController {
     private boolean mMiniWindowHasInputFocus = false;
 
     boolean shouldMiniWindowHandleInput() {
+        if (PopUpSettingsConfig.getInstance().isHyperOsMode()) return isMiniWindowFocused();
         final Task miniTask = DimmerWindow.getInstance().getTask();
         if (miniTask == null || !miniTask.getWindowConfiguration().isMiniExtWindowMode()) {
             return false;
@@ -1540,6 +1819,28 @@ public class PopUpWindowController {
     private void setupMiniWindowPointerListener() {
         mMiniWindowPointerListener = event -> {
             if (event.getActionMasked() != android.view.MotionEvent.ACTION_DOWN) {
+                return;
+            }
+
+            if (PopUpSettingsConfig.getInstance().isHyperOsMode()) {
+                synchronized (mService.mGlobalLock) {
+                    final DisplayContent dc = getDefaultDisplayContent();
+                    final int x = (int) event.getRawX();
+                    final int y = (int) event.getRawY();
+                    if (dc == null || isShadeExpanded(dc) || isInExcludeArea(dc, x, y)) return;
+                    final Task touched = dc.getRootTask(root -> {
+                        final TaskWindowSurfaceInfo info = root.mWindowContainerExt
+                                .getTaskWindowSurfaceInfo();
+                        return root.getWindowConfiguration().isPopUpWindowMode()
+                                && root.isVisible() && root.showToCurrentUser() && info != null
+                                && !info.isSurfaceAnimating()
+                                && info.getHyperOsDecorBounds().contains(x, y);
+                    });
+                    if (touched != null
+                            && touched.getWindowConfiguration().isMiniExtWindowMode()) {
+                        focusHyperOsTask(touched);
+                    }
+                }
                 return;
             }
 

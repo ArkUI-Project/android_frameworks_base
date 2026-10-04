@@ -213,6 +213,13 @@ class DimmerWindow {
         }
 
         @Override
+        protected void onAttachedToWindow() {
+            super.onAttachedToWindow();
+            mEdgeBarHelper.updateResources();
+            invalidate();
+        }
+
+        @Override
         protected void onConfigurationChanged(Configuration newConfig) {
             super.onConfigurationChanged(newConfig);
             if ((newConfig.diff(mOldConfig) & CONFIG_DENSITY) != 0) {
@@ -220,6 +227,9 @@ class DimmerWindow {
             } else if ((newConfig.diff(mOldConfig) & CONFIG_ORIENTATION) != 0) {
                 mEdgeBarHelper.onOrientationChanged();
             }
+            // Monet overlays can change without a density or orientation change.
+            mEdgeBarHelper.updateResources();
+            invalidate();
             mOldConfig.setTo(newConfig);
         }
 

@@ -16,6 +16,7 @@ import static com.android.internal.arkui.DebugConstants.DEBUG_POP_UP;
 import android.app.WindowConfiguration;
 import android.content.pm.ActivityInfo;
 import android.content.res.Configuration;
+import android.graphics.Insets;
 import android.graphics.Point;
 import android.graphics.PointF;
 import android.graphics.Rect;
@@ -29,6 +30,7 @@ import android.view.WindowInsets;
 import android.view.MotionEvent;
 
 import com.android.internal.R;
+import com.android.internal.arkui.SmallWindowBounds;
 
 import com.android.server.wm.Transition.ChangeInfo.PopUpViewInfo;
 
@@ -82,10 +84,111 @@ class TaskWindowSurfaceInfo {
     private int mLastSurfaceX = Integer.MIN_VALUE;
     private int mLastSurfaceY = Integer.MIN_VALUE;
     private float mLastSurfaceScale = -1.0f;
+    private final Rect mLastHyperOsTaskBounds = new Rect();
+    private SurfaceControl mLastHyperOsSurface;
     private final int[] mAnimationPosition = new int[2];
     private final float[] mAnimationScale = new float[1];
     private boolean mSurfaceAnimating;
     private boolean mNeedsFullscreenSurfaceReset;
+    private final Point mHyperOsMiniCenter = new Point();
+    private final Rect mHyperOsDisplayBounds = new Rect();
+    private float mHyperOsMiniScale;
+    private boolean mPreserveHyperOsMiniPlacement;
+    private boolean mHyperOsClosing;
+    private int mHyperOsCloseGeneration;
+
+    boolean isHyperOsClosing() {
+        return mHyperOsClosing;
+    }
+
+    int getHyperOsCloseGeneration() {
+        return mHyperOsCloseGeneration;
+    }
+
+    void cancelHyperOsClose() {
+        if (!mHyperOsClosing) return;
+        mHyperOsClosing = false;
+        mHyperOsCloseGeneration++;
+        cancelPopUpViewAnimation();
+        invalidateHyperOsSurface();
+        mService.requestTraversal();
+    }
+
+    void invalidateHyperOsSurface() {
+        mLastHyperOsSurface = null;
+        mLastHyperOsTaskBounds.setEmpty();
+    }
+
+    void preserveHyperOsMiniPlacement(Point center, float scale) {
+        mHyperOsMiniCenter.set(center);
+        mHyperOsMiniScale = scale;
+        mPreserveHyperOsMiniPlacement = true;
+    }
+
+    private boolean isHyperOs() {
+        return PopUpSettingsConfig.getInstance().isHyperOsMode();
+    }
+
+    private void updateDecor() {
+        if (isHyperOs() && mTask.isRootTask()) HyperOsWindowDecor.getInstance().update(mTask);
+    }
+
+    /** Screen-space geometry used by the per-task input and decoration window. */
+    Rect getHyperOsDecorBounds() {
+        if (mIsDockedToEdge && mTask.mDisplayContent != null) {
+            return getDockedBounds(mTask.mDisplayContent.getBounds());
+        }
+        if (mPopUpAnimationController.isAnimating()
+                && mPopUpAnimationController.getCurrentAnimPosition(
+                        mAnimationPosition, mAnimationScale)) {
+            final Rect bounds = mTask.getBounds();
+            return new Rect(mAnimationPosition[0], mAnimationPosition[1],
+                    mAnimationPosition[0] + Math.round(bounds.width() * mAnimationScale[0]),
+                    mAnimationPosition[1] + Math.round(bounds.height() * mAnimationScale[0]));
+        }
+        return getTaskWindowSurfaceBounds();
+    }
+
+    boolean isSurfaceAnimating() {
+        return mPopUpAnimationController.isAnimating() || isDecorTransitionAnimating();
+    }
+
+    boolean isDecorTransitionAnimating() {
+        return hasTaskSurfaceAnimationLeash()
+                || mTask.mTransitionController.inPlayingTransition(mTask);
+    }
+
+    void setHyperOsInitialPlacement(Point center) {
+        if (mTask.mDisplayContent == null) return;
+        mHyperOsDisplayBounds.set(mTask.mDisplayContent.getBounds());
+        mHyperOsMiniCenter.set(center);
+        mHyperOsMiniScale = WindowResizingAlgorithm.getDefaultMiniWindowScale(
+                mTask.getConfiguration().orientation, mTask.mDisplayContent.getRotation());
+        setWindowSurfaceScale(mTask.getWindowConfiguration().isPinnedExtWindowMode()
+                ? WindowResizingAlgorithm.getDefaultPinnedWindowScale(
+                        mTask.getConfiguration().orientation, true) : mHyperOsMiniScale);
+        setWindowSurfaceScaleFactor(1f);
+        setWindowCenterPosition(center);
+        resetWindowBoundaryGap();
+        if (mTask.getWindowConfiguration().isPinnedExtWindowMode()) {
+            final Rect display = mTask.mDisplayContent.getBounds();
+            final int width = Math.round(mTask.getBounds().width() * mWindowSurfaceScale);
+            final int height = Math.round(mTask.getBounds().height() * mWindowSurfaceScale);
+            setWindowCenterPosition(new Point(display.right - BOUNDARY_GAP - width / 2,
+                    display.top + Math.round(display.height() * SmallWindowBounds.HYPER_OS_TOP_RATIO)
+                            + Math.round(width * SmallWindowBounds.HYPER_OS_PREVIEW_BORDER_RATIO)
+                            + height / 2));
+            placeIndependentPreview(display);
+        } else {
+            constrainHyperOsCenter(mTask.mDisplayContent.getBounds());
+            mHyperOsMiniCenter.set(mWindowCenterPosition);
+        }
+        updateDecor();
+    }
+
+    boolean hasHyperOsPlacement() {
+        return mHyperOsMiniScale > 0f;
+    }
 
     TaskWindowSurfaceInfo(Task task) {
         mTask = task;
@@ -214,6 +317,10 @@ class TaskWindowSurfaceInfo {
     void setWindowSurfaceScaleDrag(float scale, Rect displayBound, boolean isLandscape) {
         if (mWindowSurfaceScale != scale) {
             mWindowSurfaceScale = scale;
+            if (isHyperOs()) {
+                updateDecor();
+                return;
+            }
             if (mTask.getWindowConfiguration().isPinnedExtWindowMode()) {
                 final Rect result = new Rect();
                 final Point pos = new Point();
@@ -242,7 +349,7 @@ class TaskWindowSurfaceInfo {
         }
         if (mWindowSurfaceScale != scale) {
             mWindowSurfaceScale = scale;
-            DimmerWindow.getInstance().onResizeChanged();
+            if (!isHyperOs()) DimmerWindow.getInstance().onResizeChanged();
         }
     }
 
@@ -271,6 +378,12 @@ class TaskWindowSurfaceInfo {
     }
 
     float getCornerRadius() {
+        final int mode = mFreezedWindowingMode != WINDOWING_MODE_UNDEFINED
+                ? mFreezedWindowingMode : mTask.getWindowingMode();
+        if (isHyperOs() && WindowConfiguration.isMiniExtWindowMode(mode)) {
+            // The content joins the caption/footer without a second rounded card inside.
+            return 0f;
+        }
         return mCornerRadius;
     }
 
@@ -279,7 +392,7 @@ class TaskWindowSurfaceInfo {
     }
 
     float getMiniWindowCornerRadius() {
-        return mMiniWindowCornerRadius;
+        return isHyperOs() ? 0f : mMiniWindowCornerRadius;
     }
 
     void setPinnedWindowVerticalPosRatio(Point pos, Rect displayBound, boolean isDrag) {
@@ -336,8 +449,15 @@ class TaskWindowSurfaceInfo {
             final Point pos = new Point();
             final Rect bound = getSurfaceTaskBounds();
             final boolean isPinned = WindowConfiguration.isPinnedExtWindowMode(windowingMode);
+            if (isHyperOs() && mIsDragging) {
+                result.set(0, 0, bound.width(), bound.height());
+                result.scale(getWindowSurfaceRealScale());
+                result.offsetTo(mWindowCenterPosition.x - result.width() / 2,
+                        mWindowCenterPosition.y - result.height() / 2);
+                return result;
+            }
             if (isPinned) {
-                if (mIsDragging) {
+                if (mIsDragging || isHyperOs()) {
                     final Point center = getWindowCenterPosition();
                     result.set(0, 0, bound.width(), bound.height());
                     result.scale(mWindowSurfaceScale);
@@ -390,6 +510,7 @@ class TaskWindowSurfaceInfo {
         final boolean isPopUpWindow = winConfig.isPopUpWindowMode();
         final boolean isPrevMiniWindow = WindowConfiguration.isMiniExtWindowMode(preWindowMode);
         final boolean isPrevPopUpWindow = WindowConfiguration.isPopUpWindowMode(preWindowMode);
+        if (isPopUpWindow || isPrevPopUpWindow) invalidateHyperOsSurface();
         if (!winConfig.isPinnedExtWindowMode()) {
             // Fullscreen and interactive small windows must not inherit the docked policy.
             mDockedInBackground = false;
@@ -405,6 +526,11 @@ class TaskWindowSurfaceInfo {
         if (!isPopUpWindow && isPrevPopUpWindow) {
             mNeedsFullscreenSurfaceReset = true;
             PopUpWindowController.getInstance().releaseTaskMute(mTask);
+            HyperOsWindowDecor.getInstance().remove(mTask);
+            mHyperOsMiniScale = 0f;
+            mPreserveHyperOsMiniPlacement = false;
+            mHyperOsClosing = false;
+            mHyperOsCloseGeneration++;
             resetDraggingState();
             final IWindow window = getIWindow();
             if (window != null) {
@@ -418,7 +544,16 @@ class TaskWindowSurfaceInfo {
         }
         if (isMiniWindow) {
             resetDraggingState();
-            if (isPrevPopUpWindow && !isPrevMiniWindow) {
+            if (isHyperOs() && isPrevPopUpWindow && !isPrevMiniWindow
+                    && mTask.mDisplayContent != null) {
+                setWindowSurfaceScale(mHyperOsMiniScale > 0f ? mHyperOsMiniScale
+                        : WindowResizingAlgorithm.getDefaultMiniWindowScale(
+                                mTask.getConfiguration().orientation,
+                                mTask.mDisplayContent.getRotation()));
+                if (mHyperOsMiniScale > 0f) setWindowCenterPosition(mHyperOsMiniCenter);
+                resetWindowBoundaryGap();
+                constrainHyperOsCenter(mTask.mDisplayContent.getBounds());
+            } else if (isPrevPopUpWindow && !isPrevMiniWindow) {
             } else {
                 final Rect displayBound = new Rect();
                 if (mTask.mDisplayContent != null) {
@@ -432,7 +567,33 @@ class TaskWindowSurfaceInfo {
             mCornerRadius = mMiniWindowCornerRadius;
         } else if (mTask.getWindowConfiguration().isPinnedExtWindowMode()) {
             mCornerRadius = mPinnedWindowCornerRadius;
-            if (!isPrevPopUpWindow) {
+            if (isHyperOs()) {
+                final float previousScale = getWindowSurfaceRealScale();
+                if (isPrevMiniWindow && !mPreserveHyperOsMiniPlacement) {
+                    mHyperOsMiniCenter.set(mWindowCenterPosition);
+                    mHyperOsMiniScale = mWindowSurfaceScale;
+                }
+                mPreserveHyperOsMiniPlacement = false;
+                setWindowSurfaceScale(WindowResizingAlgorithm.getDefaultPinnedWindowScale(
+                        mTask.getConfiguration().orientation, mIsPinnedWindowSmall));
+                setWindowSurfaceScaleFactor(1f);
+                resetWindowBoundaryGap();
+                if (isPrevMiniWindow) {
+                    // Match the upper-right preview landing, while retaining this task's
+                    // own expanded placement and allowing additional previews below it.
+                    final Rect display = mTask.mDisplayContent.getBounds();
+                    mWindowCenterPosition.set(display.right - BOUNDARY_GAP
+                                    - Math.round(mTask.getBounds().width()
+                                            * mWindowSurfaceScale / 2f),
+                            mWindowCenterPosition.y - Math.round(mTask.getBounds().height()
+                                    * (previousScale - mWindowSurfaceScale) / 2f)
+                                    - Math.round(mTask.getBounds().width()
+                                            * (previousScale * SmallWindowBounds.HYPER_OS_HEADER_HEIGHT_RATIO
+                                                    - mWindowSurfaceScale
+                                                            * SmallWindowBounds.HYPER_OS_PREVIEW_BORDER_RATIO)));
+                    placeIndependentPreview(display);
+                }
+            } else if (!isPrevPopUpWindow) {
                 resetWindowBoundaryGapToOrigin();
                 final Rect displayBound = new Rect();
                 if (mTask.mDisplayContent != null) {
@@ -460,6 +621,7 @@ class TaskWindowSurfaceInfo {
             }
             updateDensityIfNeed(isPrevPopUpWindow && !isPopUpWindow);
         }
+        updateDecor();
     }
 
     private void updateDensityIfNeed(boolean isExitPopUpView) {
@@ -498,6 +660,31 @@ class TaskWindowSurfaceInfo {
             return;
         }
 
+        if (isHyperOs() && mTask.getWindowConfiguration().isPopUpWindowMode()) {
+            final Rect previous = mHyperOsDisplayBounds;
+            if (!previous.isEmpty()) {
+                mWindowCenterPosition.set(displayBound.left + Math.round(
+                                (mWindowCenterPosition.x - previous.left)
+                                        * (float) displayBound.width() / previous.width()),
+                        displayBound.top + Math.round((mWindowCenterPosition.y - previous.top)
+                                * (float) displayBound.height() / previous.height()));
+                mHyperOsMiniCenter.set(displayBound.left + Math.round(
+                                (mHyperOsMiniCenter.x - previous.left)
+                                        * (float) displayBound.width() / previous.width()),
+                        displayBound.top + Math.round((mHyperOsMiniCenter.y - previous.top)
+                                * (float) displayBound.height() / previous.height()));
+            }
+            if (mIsDockedToEdge) {
+                placeIndependentDockTab(displayBound);
+                updateDockedPositionAfterRotation(displayBound);
+            } else {
+                constrainHyperOsCenter(displayBound);
+            }
+            mHyperOsDisplayBounds.set(displayBound);
+            updateDecor();
+            return;
+        }
+
         if (mTask.getConfiguration().windowConfiguration.isMiniExtWindowMode()) {
             final Point pos = new Point(displayBound.width() / 2, displayBound.height() / 2);
             setWindowSurfaceScale(WindowResizingAlgorithm.getDefaultMiniWindowScale(
@@ -529,17 +716,25 @@ class TaskWindowSurfaceInfo {
     }
 
     private int dockedTouchWidth() {
+        if (isHyperOs() && mTask.mDisplayContent != null) {
+            final Rect display = mTask.mDisplayContent.getBounds();
+            return Math.round(Math.min(display.width(), display.height()) * .205f);
+        }
         return Math.round(24 * mService.mContext.getResources().getDisplayMetrics().density);
     }
 
     private int dockedTouchHeight() {
+        if (isHyperOs()) return dockedTouchWidth();
         return Math.round(96 * mService.mContext.getResources().getDisplayMetrics().density);
     }
 
     private Rect getDockedBounds(Rect display) {
         final int width = dockedTouchWidth();
         final int height = Math.min(dockedTouchHeight(), display.height());
-        final int left = mIsDockedLeft ? display.left : display.right - width;
+        final int visibleWidth = isHyperOs()
+                ? Math.round(Math.min(display.width(), display.height()) * .064f) : width;
+        final int left = mIsDockedLeft ? display.left - width + visibleWidth
+                : display.right - visibleWidth;
         final int top = Math.max(display.top, Math.min(
                 mWindowCenterPosition.y - height / 2, display.bottom - height));
         return new Rect(left, top, left + width, top + height);
@@ -560,17 +755,18 @@ class TaskWindowSurfaceInfo {
         final long diff = mConfiguration.windowConfiguration.diff(newConfig.windowConfiguration, false);
         if ((WindowConfiguration.WINDOW_CONFIG_BOUNDS & diff) != 0
                 || (WindowConfiguration.WINDOW_CONFIG_ROTATION & diff) != 0) {
-            if (mTask.getWindowConfiguration().isMiniExtWindowMode()
+            if (!isHyperOs() && mTask.getWindowConfiguration().isMiniExtWindowMode()
                     && mTask.mDisplayContent != null) {
                 setWindowSurfaceScale(WindowResizingAlgorithm.getDefaultMiniWindowScale(
                         mTask.getConfiguration().orientation, mTask.mDisplayContent.getRotation()));
             }
-            DimmerWindow.getInstance().onResizeChanged();
+            if (!isHyperOs()) DimmerWindow.getInstance().onResizeChanged();
         }
         if ((mConfiguration.diff(newConfig) & ActivityInfo.CONFIG_DENSITY) != 0) {
             updateDensityIfNeed(false);
         }
         mConfiguration.setTo(newConfig);
+        updateDecor();
     }
 
     void onPrepareSurfaces(SurfaceControl.Transaction t) {
@@ -582,7 +778,15 @@ class TaskWindowSurfaceInfo {
         }
         final boolean isPinned = winConfig.isPinnedExtWindowMode();
         final boolean animating = mPopUpAnimationController.isAnimating();
-        if (isPinned && !mIsDragging && !mIsDockedToEdge) {
+        if (mHyperOsClosing && winConfig.isPopUpWindowMode() && !animating) {
+            // The exit callback is posted to WM. Keep its final transparent frame until
+            // that callback moves this task behind other windows and restores fullscreen.
+            if (mTask.mSurfaceControl != null && mTask.mSurfaceControl.isValid()) {
+                t.setAlpha(mTask.mSurfaceControl, 0f);
+            }
+            return;
+        }
+        if (isPinned && !isHyperOs() && !mIsDragging && !mIsDockedToEdge) {
             if (mPopUpAnimationController.getCurrentAnimPosition(mAnimationPosition, mAnimationScale)) {
                 PinnedWindowOverlayController.getInstance().updateOverlayPosition(
                         mTask, mAnimationPosition[0], mAnimationPosition[1], mTask.getBounds().width(),
@@ -596,6 +800,7 @@ class TaskWindowSurfaceInfo {
         final boolean hasAnimationLeash = hasTaskSurfaceAnimationLeash() ||
                 animating ||
                 mTask.mTransitionController.inPlayingTransition(mTask);
+        final boolean animationFinished = mSurfaceAnimating && !hasAnimationLeash;
         if (mNeedsFullscreenSurfaceReset && !hasAnimationLeash
                 && !mTask.mTransitionController.isCollecting(mTask)
                 && !winConfig.isPopUpWindowMode()
@@ -611,7 +816,48 @@ class TaskWindowSurfaceInfo {
         }
         if (hasAnimationLeash != mSurfaceAnimating) {
             mSurfaceAnimating = hasAnimationLeash;
-            DimmerWindow.getInstance().onTaskSurfaceAnimationChanged(mTask, hasAnimationLeash);
+            if (!isHyperOs()) {
+                DimmerWindow.getInstance().onTaskSurfaceAnimationChanged(mTask, hasAnimationLeash);
+            }
+        }
+        if (isHyperOs() && winConfig.isPopUpWindowMode()) {
+            if (!mTask.isVisible() && !mIsDockedToEdge) {
+                invalidateHyperOsSurface();
+                return;
+            }
+            if (!hasAnimationLeash && !mIsDragging && !isWindowPositioningLocked()
+                    && mTask.mSurfaceControl != null && mTask.mSurfaceControl.isValid()) {
+                if (mIsDockedToEdge) {
+                    applyDockedSurfaceState(t);
+                } else {
+                    final Rect bounds = getTaskWindowSurfaceBounds();
+                    final float scale = getWindowSurfaceRealScale();
+                    // Do not enqueue an unchanged frame from every decoration traversal.
+                    // Also restore transforms after Shell returns ownership to WM.
+                    if (animationFinished || mLastHyperOsSurface != mTask.mSurfaceControl
+                            || !mLastHyperOsTaskBounds.equals(mTask.getBounds())
+                            || bounds.left != mLastSurfaceX || bounds.top != mLastSurfaceY
+                            || scale != mLastSurfaceScale) {
+                        final SurfaceControl.Transaction frame = mService.mTransactionFactory.get();
+                        frame.setPosition(mTask.mSurfaceControl, bounds.left, bounds.top)
+                                .setWindowCrop(mTask.mSurfaceControl,
+                                        mTask.getBounds().width(), mTask.getBounds().height())
+                                .setCornerRadius(mTask.mSurfaceControl, getCornerRadius())
+                                .setScale(mTask.mSurfaceControl, scale, scale)
+                                .setAlpha(mTask.mSurfaceControl, NORMAL_ALPHA)
+                                .show(mTask.mSurfaceControl);
+                        final boolean accepted = HyperOsWindowDecor.getInstance()
+                                .applyTransaction(mTask, frame);
+                        mLastHyperOsSurface = accepted ? mTask.mSurfaceControl : null;
+                        mLastHyperOsTaskBounds.set(mTask.getBounds());
+                        mLastSurfaceX = bounds.left;
+                        mLastSurfaceY = bounds.top;
+                        mLastSurfaceScale = scale;
+                    }
+                }
+            }
+            if (!animating) mPopUpAnimationController.clearAnimPosition();
+            return;
         }
         if (winConfig.isPopUpWindowMode() && !hasAnimationLeash &&
                 !isWindowPositioningLocked() && !mIsDragging && !isPinned) {
@@ -633,7 +879,7 @@ class TaskWindowSurfaceInfo {
                 mLastSurfaceX = pos.x;
                 mLastSurfaceY = pos.y;
                 mLastSurfaceScale = getWindowSurfaceRealScale();
-                DimmerWindow.getInstance().onResizeChanged();
+                if (!isHyperOs()) DimmerWindow.getInstance().onResizeChanged();
             }
             if (mIsDockedToEdge) {
                 t.setAlpha(mTask.mSurfaceControl, DOCKED_ALPHA);
@@ -660,15 +906,18 @@ class TaskWindowSurfaceInfo {
                         .show(mTask.mSurfaceControl);
                 if (surfaceBounds.left != mLastSurfaceX || surfaceBounds.top != mLastSurfaceY
                         || mLastSurfaceScale != mWindowSurfaceScale) {
-                    PinnedWindowOverlayController.getInstance().updateOverlayPosition(
-                            mTask, surfaceBounds.left, surfaceBounds.top,
-                            mTask.getBounds().width(), mTask.getBounds().height(), mWindowSurfaceScale);
+                    if (!isHyperOs()) {
+                        PinnedWindowOverlayController.getInstance().updateOverlayPosition(
+                                mTask, surfaceBounds.left, surfaceBounds.top,
+                                mTask.getBounds().width(), mTask.getBounds().height(), mWindowSurfaceScale);
+                    }
                 }
                 mLastSurfaceX = surfaceBounds.left;
                 mLastSurfaceY = surfaceBounds.top;
                 mLastSurfaceScale = mWindowSurfaceScale;
             }
         }
+        if (isHyperOs() && !animating) mPopUpAnimationController.clearAnimPosition();
     }
 
     private void applyDockedSurfaceState(SurfaceControl.Transaction t) {
@@ -677,8 +926,12 @@ class TaskWindowSurfaceInfo {
         // The app is entirely hidden. The trusted overlay draws a neutral edge tab,
         // so no cropped app contents remain visible at the screen edge.
         t.setAlpha(mTask.mSurfaceControl, 0f);
-        PinnedWindowOverlayController.getInstance().updateOverlayPosition(
-                mTask, dock.left, dock.top, dock.width(), dock.height(), 1f);
+        if (isHyperOs()) {
+            updateDecor();
+        } else {
+            PinnedWindowOverlayController.getInstance().updateOverlayPosition(
+                    mTask, dock.left, dock.top, dock.width(), dock.height(), 1f);
+        }
     }
 
     void scheduleTransition(TaskWindowSurfaceInfo freezeTaskWindowSurfaceInfo, DisplayInfo displayInfo) {
@@ -703,6 +956,10 @@ class TaskWindowSurfaceInfo {
 
     void playExitAnimation(boolean isFromLeaveButton, float startScale,
             PopUpAnimationController.OnAnimationEndCallback callback) {
+        if (isHyperOs()) {
+            mHyperOsClosing = true;
+            mHyperOsCloseGeneration++;
+        }
         mPopUpAnimationController.playExitAnimation(
                 isFromLeaveButton, startScale, callback);
     }
@@ -765,11 +1022,118 @@ class TaskWindowSurfaceInfo {
     private long mDragStartTime;
     private android.view.VelocityTracker mVelocityTracker;
 
+    void finishHyperOsResize() {
+        if (!isHyperOs() || mTask.mDisplayContent == null
+                || !mTask.getWindowConfiguration().isPopUpWindowMode()) return;
+        final Rect start = getTaskWindowSurfaceBounds();
+        final float startScale = getWindowSurfaceRealScale();
+        constrainHyperOsCenter(mTask.mDisplayContent.getBounds());
+        final Rect end = getTaskWindowSurfaceBounds();
+        if (!start.equals(end)) {
+            playToggleResizeWindowAnimation(new Point(start.left, start.top),
+                    new Point(end.left, end.top), startScale, getWindowSurfaceRealScale(),
+                    () -> {
+                        synchronized (mService.mGlobalLock) {
+                            mService.requestTraversal();
+                        }
+                        updateDecor();
+                    });
+        } else {
+            mService.requestTraversal();
+            updateDecor();
+        }
+    }
+
+    /** Keep a released window reachable without snapping unrelated windows to a shared slot. */
+    private void constrainHyperOsCenter(Rect display) {
+        if (display.isEmpty()) return;
+        // Refresh the orientation fit before calculating the physical chrome footprint.
+        getTaskWindowSurfaceBounds();
+        final int margin = Math.round(12 * mService.mContext.getResources()
+                .getDisplayMetrics().density);
+        final Insets safe = mTask.mDisplayContent == null ? Insets.NONE
+                : mTask.mDisplayContent.getInsetsStateController().getRawInsetsState()
+                        .calculateInsets(display, display, WindowInsets.Type.systemBars()
+                                | WindowInsets.Type.displayCutout(), false);
+        final float currentScale = getWindowSurfaceRealScale();
+        final boolean preview = mTask.getWindowConfiguration().isPinnedExtWindowMode();
+        final float headerRatio = preview ? SmallWindowBounds.HYPER_OS_PREVIEW_BORDER_RATIO
+                : SmallWindowBounds.HYPER_OS_HEADER_HEIGHT_RATIO;
+        final float footerRatio = preview ? SmallWindowBounds.HYPER_OS_PREVIEW_BORDER_RATIO
+                : SmallWindowBounds.HYPER_OS_FOOTER_HEIGHT_RATIO;
+        final float sideRatio = preview ? SmallWindowBounds.HYPER_OS_PREVIEW_BORDER_RATIO : 0f;
+        final float totalWidth = mTask.getBounds().width() * currentScale * (1 + 2 * sideRatio);
+        final float totalHeight = (mTask.getBounds().height() + mTask.getBounds().width()
+                * (headerRatio + footerRatio)) * currentScale;
+        if (totalWidth > 0f && totalHeight > 0f) {
+            final float fit = Math.min(1f, Math.min(
+                    Math.max(1, display.width() - safe.left - safe.right - margin * 2) / totalWidth,
+                    Math.max(1, display.height() - safe.top - safe.bottom - margin * 2) / totalHeight));
+            if (fit < 1f) setWindowSurfaceScale(mWindowSurfaceScale * fit);
+        }
+        final float scale = getWindowSurfaceRealScale();
+        final int halfWidth = Math.round(mTask.getBounds().width() * scale / 2f);
+        final int halfHeight = Math.round(mTask.getBounds().height() * scale / 2f);
+        final int header = Math.round(halfWidth * 2 * headerRatio);
+        final int footer = Math.round(halfWidth * 2 * footerRatio);
+        final int side = Math.round(halfWidth * 2 * sideRatio);
+        final int minX = display.left + safe.left + halfWidth + margin + side;
+        final int maxX = Math.max(minX, display.right - safe.right - halfWidth - margin - side);
+        final int minY = display.top + safe.top + halfHeight + margin + header;
+        final int maxY = Math.max(minY,
+                display.bottom - safe.bottom - halfHeight - margin - footer);
+        mWindowCenterPosition.set(Math.max(minX, Math.min(mWindowCenterPosition.x, maxX)),
+                Math.max(minY, Math.min(mWindowCenterPosition.y, maxY)));
+    }
+
+    private void placeIndependentPreview(Rect display) {
+        final java.util.ArrayList<Rect> previews = new java.util.ArrayList<>();
+        mTask.mDisplayContent.forAllRootTasks((Task other) -> {
+            final TaskWindowSurfaceInfo info = other.mWindowContainerExt.getTaskWindowSurfaceInfo();
+            if (other != mTask && other.showToCurrentUser() && info != null
+                    && other.getWindowConfiguration().isPinnedExtWindowMode()
+                    && !info.isDockedToEdge()) {
+                final Rect bounds = info.getTaskWindowSurfaceBounds();
+                final int width = bounds.width();
+                final int surround = Math.round(width * SmallWindowBounds.HYPER_OS_PREVIEW_BORDER_RATIO);
+                bounds.inset(-surround, -surround);
+                previews.add(bounds);
+            }
+        });
+        final int halfHeight = Math.round(mTask.getBounds().height() * mWindowSurfaceScale / 2f);
+        final float width = mTask.getBounds().width() * mWindowSurfaceScale;
+        final int header = Math.round(width * SmallWindowBounds.HYPER_OS_PREVIEW_BORDER_RATIO);
+        final int footer = header;
+        final int gap = Math.round(8 * mService.mContext.getResources().getDisplayMetrics().density);
+        for (int i = 0; i < previews.size(); i++) {
+            final Rect candidate = getTaskWindowSurfaceBounds();
+            candidate.inset(-header, -header);
+            boolean moved = false;
+            for (Rect other : previews) {
+                if (Rect.intersects(candidate, other)
+                        && other.bottom + gap + header + halfHeight * 2 + footer
+                                <= display.bottom - gap) {
+                    mWindowCenterPosition.y = other.bottom + gap + header + halfHeight;
+                    moved = true;
+                    break;
+                }
+            }
+            if (!moved) break;
+        }
+        constrainHyperOsCenter(display);
+    }
+
     void startMoving(float x, float y) {
         final Rect bounds = getTaskWindowSurfaceBounds();
         final int[] animXY = new int[2];
         final float[] animScale = new float[1];
-        if (mPopUpAnimationController.getCurrentAnimPosition(animXY, animScale)) {
+        if ((!isHyperOs() || mPopUpAnimationController.isAnimating())
+                && mPopUpAnimationController.getCurrentAnimPosition(animXY, animScale)) {
+            if (isHyperOs()) {
+                bounds.set(0, 0, Math.round(mTask.getBounds().width() * animScale[0]),
+                        Math.round(mTask.getBounds().height() * animScale[0]));
+                setWindowSurfaceScale(animScale[0] / Math.max(.01f, mWindowSurfaceScaleFactor));
+            }
             bounds.offsetTo(animXY[0], animXY[1]);
             final Point pos = new Point(bounds.left + bounds.width() / 2,
                     bounds.top + bounds.height() / 2);
@@ -783,6 +1147,7 @@ class TaskWindowSurfaceInfo {
             }
             mPopUpAnimationController.clearAnimPosition();
         }
+        if (isHyperOs()) mPopUpAnimationController.clearAnimPosition();
         cancelPopUpViewAnimation();
         mIsDragging = true;
         mDragStartX = x;
@@ -823,10 +1188,13 @@ class TaskWindowSurfaceInfo {
         if (mTask.mSurfaceControl != null && mTask.mSurfaceControl.isValid()) {
             t.setPosition(mTask.mSurfaceControl, newLeft, newTop)
              .setScale(mTask.mSurfaceControl, scale, scale);
-            t.apply();
         }
         final int scaledWidth = (int) (mTask.getBounds().width() * scale);
         final int scaledHeight = (int) (mTask.getBounds().height() * scale);
+        if (isHyperOs() && isPinned && mHyperOsMiniScale > 0f) {
+            mHyperOsMiniCenter.offset(newLeft + scaledWidth / 2 - mWindowCenterPosition.x,
+                    newTop + scaledHeight / 2 - mWindowCenterPosition.y);
+        }
         mWindowCenterPosition.set(newLeft + scaledWidth / 2, newTop + scaledHeight / 2);
         if (isPinned) {
             final Rect displayBound = new Rect();
@@ -834,8 +1202,19 @@ class TaskWindowSurfaceInfo {
                 mTask.mDisplayContent.getBounds(displayBound);
             }
             setPinnedWindowVerticalPosRatio(mWindowCenterPosition, displayBound, true);
-            PinnedWindowOverlayController.getInstance().updateOverlayPosition(mTask, newLeft, newTop,
-                    mTask.getBounds().width(), mTask.getBounds().height(), scale);
+            if (!isHyperOs()) {
+                PinnedWindowOverlayController.getInstance().updateOverlayPosition(mTask, newLeft, newTop,
+                        mTask.getBounds().width(), mTask.getBounds().height(), scale);
+            }
+        }
+        if (isHyperOs()) {
+            // Capture the updated center with this exact transaction. The decoration
+            // buffer and content movement are latched together by ViewRootImpl.
+            HyperOsWindowDecor.getInstance().applyTransaction(mTask, t);
+        } else {
+            t.apply();
+            t.close();
+            updateDecor();
         }
 
         if (DEBUG_POP_UP) {
@@ -884,6 +1263,15 @@ class TaskWindowSurfaceInfo {
             }
         }
 
+        if (isHyperOs()) {
+            constrainHyperOsCenter(displayBound);
+            final Rect target = getTaskWindowSurfaceBounds();
+            flingWindowToEdge(startPos, new Point(target.left, target.top), bounds.width(),
+                    bounds.height(), getWindowSurfaceRealScale(), xVelocity, yVelocity);
+            updateDecor();
+            return;
+        }
+
         final Rect boundaryGap = isPinned
                 ? WindowResizingAlgorithm.getPinnedBoundaryGapAfterMoving(
                         displayBound, surfaceBounds, xVelocity, yVelocity)
@@ -920,6 +1308,12 @@ class TaskWindowSurfaceInfo {
         if (mIsDockedToEdge) {
             return false;
         }
+        if (isHyperOs()) {
+            final int distance = Math.round(24 * mService.mContext.getResources()
+                    .getDisplayMetrics().density);
+            return surfaceBounds.left < displayBound.left - distance
+                    || surfaceBounds.right > displayBound.right + distance;
+        }
         final int threshold = (int) (displayBound.width() * SLIDE_TO_EDGE_THRESHOLD_RATIO);
         final boolean nearLeftEdge = surfaceBounds.left < threshold;
         final boolean nearRightEdge = surfaceBounds.right > displayBound.width() - threshold;
@@ -938,6 +1332,7 @@ class TaskWindowSurfaceInfo {
         mOriginalScaleBeforeDock = getWindowSurfaceScale();
         mOriginalCornerRadiusBeforeDock = getCornerRadius();
         mWindowCenterPosition.set(surfaceBounds.centerX(), surfaceBounds.centerY());
+        if (isHyperOs()) placeIndependentDockTab(displayBound);
         final Rect dock = getDockedBounds(displayBound);
         mWindowCenterPosition.set(dock.centerX(), dock.centerY());
         final int offscreenX = mIsDockedLeft
@@ -947,9 +1342,43 @@ class TaskWindowSurfaceInfo {
                 mTask.getBounds().width(), mTask.getBounds().height(),
                 mTask.getBounds().width(), mTask.getBounds().height(),
                 1f, 0f, mWindowSurfaceScale, mTask, this);
-        PinnedWindowOverlayController.getInstance().updateOverlayPosition(
-                mTask, dock.left, dock.top, dock.width(), dock.height(), 1f);
-        PinnedWindowOverlayController.getInstance().setDockedState(true);
+        if (isHyperOs()) {
+            updateDecor();
+        } else {
+            PinnedWindowOverlayController.getInstance().updateOverlayPosition(
+                    mTask, dock.left, dock.top, dock.width(), dock.height(), 1f);
+            PinnedWindowOverlayController.getInstance().setDockedState(true);
+        }
+    }
+
+    private void placeIndependentDockTab(Rect display) {
+        final java.util.ArrayList<Rect> occupied = new java.util.ArrayList<>();
+        mTask.mDisplayContent.forAllRootTasks((Task other) -> {
+            final TaskWindowSurfaceInfo info = other.mWindowContainerExt.getTaskWindowSurfaceInfo();
+            if (other != mTask && other.showToCurrentUser() && info != null
+                    && info.mIsDockedToEdge && info.mIsDockedLeft == mIsDockedLeft) {
+                occupied.add(info.getDockedBounds(display));
+            }
+        });
+        final int originalY = mWindowCenterPosition.y;
+        final int gap = Math.round(8 * mService.mContext.getResources().getDisplayMetrics().density);
+        final int step = dockedTouchHeight() + gap;
+        final int slots = Math.max(1, display.height() / step);
+        for (int i = 0; i <= slots * 2; i++) {
+            final int offset = ((i + 1) / 2) * step * (i % 2 == 0 ? -1 : 1);
+            mWindowCenterPosition.y = originalY + offset;
+            final Rect candidate = getDockedBounds(display);
+            candidate.inset(0, -gap / 2);
+            boolean overlaps = false;
+            for (Rect other : occupied) {
+                if (Rect.intersects(candidate, other)) {
+                    overlaps = true;
+                    break;
+                }
+            }
+            if (!overlaps) return;
+        }
+        mWindowCenterPosition.y = originalY;
     }
 
     void restoreFromDocked() {
@@ -981,9 +1410,13 @@ class TaskWindowSurfaceInfo {
                 mTask.getBounds().width(), mTask.getBounds().height(),
                 mTask.getBounds().width(), mTask.getBounds().height(),
                 0f, 1f, scale, mOriginalCornerRadiusBeforeDock, mTask, this);
-        PinnedWindowOverlayController.getInstance().setDockedState(false);
-        PinnedWindowOverlayController.getInstance().updateOverlayPosition(
-                mTask, left, top, mTask.getBounds().width(), mTask.getBounds().height(), scale);
+        if (isHyperOs()) {
+            updateDecor();
+        } else {
+            PinnedWindowOverlayController.getInstance().setDockedState(false);
+            PinnedWindowOverlayController.getInstance().updateOverlayPosition(
+                    mTask, left, top, mTask.getBounds().width(), mTask.getBounds().height(), scale);
+        }
         updateDockedForegroundState();
     }
 
@@ -1013,6 +1446,7 @@ class TaskWindowSurfaceInfo {
                 return;
             }
             final boolean background = docked && !settings.isEdgeDockForeground();
+            updateDecor();
             if (mDockedInBackground == background) return;
             mDockedInBackground = background;
 
@@ -1061,13 +1495,17 @@ class TaskWindowSurfaceInfo {
             mVelocityTracker = null;
         }
         if (mDragStartCenterPosition != null) {
+            if (isHyperOs() && mTask.getWindowConfiguration().isPinnedExtWindowMode()
+                    && mHyperOsMiniScale > 0f) {
+                mHyperOsMiniCenter.offset(mDragStartCenterPosition.x - mWindowCenterPosition.x,
+                        mDragStartCenterPosition.y - mWindowCenterPosition.y);
+            }
             mWindowCenterPosition.set(mDragStartCenterPosition.x, mDragStartCenterPosition.y);
         }
 
         final SurfaceControl.Transaction t = mService.mTransactionFactory.get();
         if (mTask.mSurfaceControl != null && mTask.mSurfaceControl.isValid()) {
             t.setPosition(mTask.mSurfaceControl, mDragStartLeft, mDragStartTop);
-            t.apply();
         }
         if (mTask.getWindowConfiguration().isPinnedExtWindowMode()) {
             final Rect displayBounds = new Rect();
@@ -1075,9 +1513,18 @@ class TaskWindowSurfaceInfo {
                 mTask.mDisplayContent.getBounds(displayBounds);
             }
             setPinnedWindowVerticalPosRatio(mWindowCenterPosition, displayBounds, true);
-            PinnedWindowOverlayController.getInstance().updateOverlayPosition(
-                    mTask, mDragStartLeft, mDragStartTop, mTask.getBounds().width(),
-                    mTask.getBounds().height(), getWindowSurfaceRealScale());
+            if (!isHyperOs()) {
+                PinnedWindowOverlayController.getInstance().updateOverlayPosition(
+                        mTask, mDragStartLeft, mDragStartTop, mTask.getBounds().width(),
+                        mTask.getBounds().height(), getWindowSurfaceRealScale());
+            }
+        }
+        if (isHyperOs()) {
+            HyperOsWindowDecor.getInstance().applyTransaction(mTask, t);
+        } else {
+            t.apply();
+            t.close();
+            updateDecor();
         }
         if (DEBUG_POP_UP) {
             Slog.d(TAG, "cancelMoving: restored to start position");

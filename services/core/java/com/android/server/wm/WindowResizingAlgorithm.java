@@ -16,6 +16,8 @@ import android.graphics.Rect;
 import android.util.Slog;
 import android.view.Surface;
 
+import com.android.internal.arkui.SmallWindowBounds;
+
 class WindowResizingAlgorithm {
 
     private static final String TAG = "WindowResizingAlgorithm";
@@ -45,6 +47,11 @@ class WindowResizingAlgorithm {
     }
 
     static float getDefaultMiniWindowScale(int orientation, boolean isPortrait) {
+        if (PopUpSettingsConfig.getInstance().isHyperOsMode()) {
+            return SmallWindowBounds.getHyperOsMiniWindowScale(
+                    orientation == ORIENTATION_LANDSCAPE, isPortrait,
+                    PopUpSettingsConfig.getInstance().getSizeMultiplier());
+        }
         final float scale;
         if (orientation == ORIENTATION_LANDSCAPE) {
             scale = isPortrait ? MINI_WINDOW_SCALE_LAND_DISPLAY_PORT : MINI_WINDOW_SCALE_LAND_DISPLAY_LAND;
@@ -52,6 +59,30 @@ class WindowResizingAlgorithm {
             scale = isPortrait ? MINI_WINDOW_SCALE_PORT_DISPLAY_PORT : MINI_WINDOW_SCALE_PORT_DISPLAY_LAND;
         }
         return Math.min(0.95f, scale * PopUpSettingsConfig.getInstance().getSizeMultiplier());
+    }
+
+    static Point getDefaultMiniWindowCenter(Rect displayBounds, Rect taskBounds,
+            int orientation) {
+        final Point center = new Point(displayBounds.centerX(), displayBounds.centerY());
+        if (!PopUpSettingsConfig.getInstance().isHyperOsMode() || taskBounds.isEmpty()
+                || displayBounds.isEmpty()) {
+            return center;
+        }
+        final float scale = getDefaultMiniWindowScale(orientation,
+                displayBounds.height() >= displayBounds.width());
+        final float factor = getPositionAndScaleFactorForTask(taskBounds, displayBounds,
+                center, scale, false, new Point());
+        center.y = displayBounds.top
+                + Math.round(displayBounds.height() * SmallWindowBounds.HYPER_OS_TOP_RATIO)
+                + Math.round(taskBounds.width() * scale * factor
+                        * SmallWindowBounds.HYPER_OS_HEADER_HEIGHT_RATIO)
+                + Math.round(taskBounds.height() * scale * factor / 2f);
+        return center;
+    }
+
+    private static float getDefaultAspectRatio() {
+        return PopUpSettingsConfig.getInstance().isHyperOsMode()
+                ? SmallWindowBounds.HYPER_OS_ASPECT_RATIO : POPUP_VIEW_DEFALUT_RATIO;
     }
 
     static final float PINNED_WINDOW_SCALE_LARGE_LAND = 0.517f;
@@ -199,14 +230,14 @@ class WindowResizingAlgorithm {
             if (w > h) {
                 ratio = w;
             } else {
-                ratio = disH / POPUP_VIEW_DEFALUT_RATIO;
+                ratio = disH / getDefaultAspectRatio();
             }
         } else {
             delta = y - center.y;
             if (w < h) {
                 ratio = h;
             } else {
-                ratio = disW / POPUP_VIEW_DEFALUT_RATIO;
+                ratio = disW / getDefaultAspectRatio();
             }
         }
         return (delta >= 0.0f ? delta : 0.0f) / (ratio / 2.0f);
@@ -218,12 +249,13 @@ class WindowResizingAlgorithm {
             final int w = outBounds.width();
             final int x = outBounds.left;
             final int y = outBounds.top;
+            final float defaultRatio = getDefaultAspectRatio();
             final float oriRatio = (float) Math.max(h, w) / Math.min(h, w);
-            if (Math.abs(oriRatio - POPUP_VIEW_DEFALUT_RATIO) > 0.01f) {
+            if (Math.abs(oriRatio - defaultRatio) > 0.01f) {
                 if (h > w) {
-                    outBounds.set(0, 0, w, (int) (w * POPUP_VIEW_DEFALUT_RATIO));
+                    outBounds.set(0, 0, w, (int) (w * defaultRatio));
                 } else {
-                    outBounds.set(0, 0, (int) (h * POPUP_VIEW_DEFALUT_RATIO), h);
+                    outBounds.set(0, 0, (int) (h * defaultRatio), h);
                 }
                 outBounds.offsetTo(x, y);
             }
