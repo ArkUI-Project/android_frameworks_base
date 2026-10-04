@@ -170,6 +170,10 @@ public class SystemSettingsValidators {
                 new DiscreteValueValidator(new String[]{"0", "1", "2", "3"}));
         VALIDATORS.put(System.POP_UP_DOUBLE_TAP_ACTION,
                 new DiscreteValueValidator(new String[]{"0", "1", "2", "3"}));
+        VALIDATORS.put(System.ARKUI_NAVIGATION_BAR_FOLLOW, BOOLEAN_VALIDATOR);
+        VALIDATORS.put(System.ARKUI_STATUS_BAR_FOLLOW, BOOLEAN_VALIDATOR);
+        VALIDATORS.put(System.ARKUI_NAVIGATION_BAR_FADE,
+                new InclusiveIntegerRangeValidator(200, 1200));
         VALIDATORS.put(System.ARKUI_SMALL_WINDOW_ENABLED, BOOLEAN_VALIDATOR);
         VALIDATORS.put(System.ARKUI_SMALL_WINDOW_MODE,
                 new DiscreteValueValidator(new String[]{"0", "1"}));

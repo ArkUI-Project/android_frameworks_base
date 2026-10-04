@@ -5399,6 +5399,25 @@ public final class Settings {
          */
         public static final String POP_UP_DOUBLE_TAP_ACTION = "arkui_small_window_double_tap";
 
+        /**
+         * Follow app transitions with an inset-free, transient gesture handle.
+         * @hide
+         */
+        @Readable
+        public static final String ARKUI_NAVIGATION_BAR_FOLLOW = "arkui_navigation_bar_follow";
+        /**
+         * Follow app transitions with the status bar content.
+         * @hide
+         */
+        @Readable
+        public static final String ARKUI_STATUS_BAR_FOLLOW = "arkui_status_bar_follow";
+        /**
+         * Gesture handle fade-out duration in milliseconds.
+         * @hide
+         */
+        @Readable
+        public static final String ARKUI_NAVIGATION_BAR_FADE = "arkui_navigation_bar_fade";
+
         /** Whether native small windows are enabled for this user. @hide */
         @Readable
         public static final String ARKUI_SMALL_WINDOW_ENABLED = "arkui_small_window_enabled";

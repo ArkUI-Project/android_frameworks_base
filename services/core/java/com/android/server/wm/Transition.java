@@ -221,6 +221,7 @@ class Transition implements BLASTSyncEngine.TransactionReadyListener {
 
     /** Only use for clean-up after binder death! */
     private SurfaceControl.Transaction mStartTransaction = null;
+    private SystemBarFollowController.Session mSystemBarFollow;
     private SurfaceControl.Transaction mFinishTransaction = null;
 
     /** Used for failsafe clean-up to prevent leaks due to misbehaving player impls. */
@@ -1431,6 +1432,10 @@ class Transition implements BLASTSyncEngine.TransactionReadyListener {
             mCleanupTransaction.apply();
             mCleanupTransaction = null;
         }
+        if (mSystemBarFollow != null) {
+            mSystemBarFollow.finish();
+            mSystemBarFollow = null;
+        }
         if (mState < STATE_PLAYING) {
             throw new IllegalStateException("Can't finish a non-playing transition " + mSyncId);
         }
@@ -2114,6 +2119,8 @@ class Transition implements BLASTSyncEngine.TransactionReadyListener {
         buildFinishTransaction(mFinishTransaction, info, participantDisplays);
         mCleanupTransaction = mWmService.mTransactionFactory.get();
         buildCleanupTransaction(mCleanupTransaction, info);
+        mSystemBarFollow = mWmService.mSystemBarFollowController.start(info,
+                transaction, mFinishTransaction, mCleanupTransaction);
         if (mController.getTransitionPlayer() != null && mIsPlayerEnabled) {
             mController.dispatchLegacyAppTransitionStarting(participantDisplays,
                     mStatusBarTransitionDelay);

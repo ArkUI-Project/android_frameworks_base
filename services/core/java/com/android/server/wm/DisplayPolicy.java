@@ -3340,6 +3340,9 @@ public class DisplayPolicy {
      * @return Whether we should attach navigation bar to the app during transition.
      */
     boolean shouldAttachNavBarToAppDuringTransition() {
+        if (mDisplayContent.getDisplayId() == android.view.Display.DEFAULT_DISPLAY
+                && com.android.internal.arkui.SystemBarFollowSettings.navigationEnabled(
+                mContext, mDisplayContent.mWmService.mCurrentUserId)) return false;
         return mShouldAttachNavBarToAppDuringTransition && mNavigationBar != null;
     }
 

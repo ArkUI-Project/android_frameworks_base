@@ -47,6 +47,13 @@ public class NavigationHandle extends View implements ButtonInterface {
     private final float mShrinkWidthForAnimation;
     private boolean mRequiresInvalidate;
     private boolean mShrink;
+    protected boolean mFollowAnimationOnly;
+
+    public void setFollowAnimationOnly(boolean enabled) {
+        if (mFollowAnimationOnly == enabled) return;
+        mFollowAnimationOnly = enabled;
+        invalidate();
+    }
 
     private ObjectAnimator mPulseAnimator = null;
     private float mPulseAnimationProgress;
@@ -102,6 +109,7 @@ public class NavigationHandle extends View implements ButtonInterface {
     @Override
     protected void onDraw(Canvas canvas) {
         super.onDraw(canvas);
+        if (mFollowAnimationOnly) return;
 
         // Draw that bar
         int navHeight = getHeight();

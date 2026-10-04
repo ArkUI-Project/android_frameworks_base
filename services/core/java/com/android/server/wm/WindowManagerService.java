@@ -1153,6 +1153,7 @@ public class WindowManagerService extends IWindowManager.Stub
 
     final WindowAnimator mAnimator;
     SurfaceAnimationRunner mSurfaceAnimationRunner;
+    final SystemBarFollowController mSystemBarFollowController = new SystemBarFollowController(this);
 
     /**
      * Keeps track of which animations got transferred to which animators. Entries will get cleaned
@@ -5946,6 +5947,7 @@ public class WindowManagerService extends IWindowManager.Stub
 
     public void systemReady() {
         mSystemReady = true;
+        mSystemBarFollowController.systemReady();
         mPolicy.systemReady();
         mRoot.forAllDisplayPolicies(DisplayPolicy::systemReady);
         mSnapshotController.systemReady();

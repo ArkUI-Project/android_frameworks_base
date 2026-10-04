@@ -294,6 +294,7 @@ public class NavigationBar extends ViewController<NavigationBarView> implements 
     private boolean mShowOrientedHandleForImmersiveMode;
     private final DeadZone mDeadZone;
     private boolean mImeVisible;
+    private android.database.ContentObserver mSystemBarFollowObserver;
     private final Rect mSamplingBounds = new Rect();
     private final Binder mInsetsSourceOwner = new Binder();
     private final NavBarButtonClickLogger mNavBarButtonClickLogger;
@@ -803,6 +804,16 @@ public class NavigationBar extends ViewController<NavigationBarView> implements 
 
     @Override
     public void onViewAttached() {
+        mSystemBarFollowObserver = new android.database.ContentObserver(mHandler) {
+            @Override public void onChange(boolean selfChange) {
+                updateSystemBarFollow();
+                repositionNavigationBar(mCurrentRotation);
+            }
+        };
+        mContext.getContentResolver().registerContentObserver(
+                android.provider.Settings.System.getUriFor(
+                        android.provider.Settings.System.ARKUI_NAVIGATION_BAR_FOLLOW),
+                false, mSystemBarFollowObserver, android.os.UserHandle.USER_ALL);
         final Display display = mView.getDisplay();
         mView.setComponents(mRecentsOptional);
         if (mCentralSurfacesOptionalLazy.get().isPresent()) {
@@ -870,6 +881,10 @@ public class NavigationBar extends ViewController<NavigationBarView> implements 
 
     @Override
     public void onViewDetached() {
+        if (mSystemBarFollowObserver != null) {
+            mContext.getContentResolver().unregisterContentObserver(mSystemBarFollowObserver);
+            mSystemBarFollowObserver = null;
+        }
         mView.setUpdateActiveTouchRegionsCallback(null);
         getBarTransitions().destroy();
         mLauncherProxyService.removeCallback(mLauncherProxyListener);
@@ -943,6 +958,7 @@ public class NavigationBar extends ViewController<NavigationBarView> implements 
         }
 
         mOrientationHandle = new QuickswitchOrientedNavHandle(mContext);
+        mOrientationHandle.setFollowAnimationOnly(isSystemBarFollowEnabled());
         mOrientationHandle.setId(R.id.secondary_home_handle);
 
         getBarTransitions().addDarkIntensityListener(mOrientationHandleIntensityListener);
@@ -1846,6 +1862,8 @@ public class NavigationBar extends ViewController<NavigationBarView> implements 
         if (insetsHeight != -1 && !mEdgeBackGestureHandler.isButtonForcedVisible()) {
             navBarProvider.setInsetsSize(Insets.of(0, 0, 0, insetsHeight));
         }
+        // Keep the navigation window and mandatory gesture region, without reserving app space.
+        if (isSystemBarFollowEnabled()) navBarProvider.setInsetsSize(Insets.NONE);
         final boolean needsScrim = userContext.getResources().getBoolean(
                 com.android.internal.R.bool.config_navBarNeedsScrim);
         navBarProvider.setFlags(needsScrim ? 0 : FLAG_SUPPRESS_SCRIM, FLAG_SUPPRESS_SCRIM);
@@ -1897,6 +1915,8 @@ public class NavigationBar extends ViewController<NavigationBarView> implements 
                 public void onUserChanged(int newUser, @NonNull Context userContext) {
                     // The accessibility settings may be different for the new user
                     updateAccessibilityStateFlags();
+                    updateSystemBarFollow();
+                    repositionNavigationBar(mCurrentRotation);
                 }
             };
 
@@ -2027,7 +2047,7 @@ public class NavigationBar extends ViewController<NavigationBarView> implements 
     }
 
     public void setNavigationBarLumaSamplingEnabled(boolean enable) {
-        if (enable) {
+        if (enable && !isSystemBarFollowEnabled()) {
             mRegionSamplingHelper.start(mSamplingBounds);
         } else {
             mRegionSamplingHelper.stop();
@@ -2036,11 +2056,31 @@ public class NavigationBar extends ViewController<NavigationBarView> implements 
 
     private void setNavBarMode(int mode) {
         mView.setNavBarMode(mode, mNavigationModeController.getImeDrawsImeNavBar());
-        if (isGesturalMode(mode)) {
+        updateSystemBarFollow();
+        if (isGesturalMode(mode) && !isSystemBarFollowEnabled()) {
             mRegionSamplingHelper.start(mSamplingBounds);
         } else {
             mRegionSamplingHelper.stop();
         }
+    }
+
+    private boolean isSystemBarFollowEnabled() {
+        return mContext.getDisplayId() == Display.DEFAULT_DISPLAY && isGesturalMode(mNavBarMode)
+                && com.android.internal.arkui.SystemBarFollowSettings.navigationEnabled(
+                        mUserTracker.getUserContext());
+    }
+
+    private void updateSystemBarFollow() {
+        boolean follow = isSystemBarFollowEnabled();
+        for (View view : mView.getHomeHandle().getViews()) {
+            if (view instanceof com.android.systemui.navigationbar.gestural.NavigationHandle handle) {
+                handle.setFollowAnimationOnly(follow);
+            }
+        }
+        if (mOrientationHandle != null) mOrientationHandle.setFollowAnimationOnly(follow);
+        getBarTransitions().setBackgroundOverrideAlpha(follow ? 0f : 1f);
+        if (follow) mRegionSamplingHelper.stop();
+        else if (isGesturalMode(mNavBarMode)) mRegionSamplingHelper.start(mSamplingBounds);
     }
 
     void onBarTransition(int newMode) {
@@ -2050,7 +2090,7 @@ public class NavigationBar extends ViewController<NavigationBarView> implements 
             mRegionSamplingHelper.stop();
             getBarTransitions().getLightTransitionsController().setIconsDark(
                     false /* dark */, true /* animate */);
-        } else {
+        } else if (!isSystemBarFollowEnabled()) {
             mRegionSamplingHelper.start(mSamplingBounds);
         }
     }

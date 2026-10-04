@@ -40,6 +40,7 @@ public class QuickswitchOrientedNavHandle extends NavigationHandle {
 
     @Override
     protected void onDraw(Canvas canvas) {
+        if (mFollowAnimationOnly) return;
         canvas.drawRoundRect(computeHomeHandleBounds(), mRadius, mRadius, mPaint);
     }
 

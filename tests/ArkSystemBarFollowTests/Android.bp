@@ -1,0 +1,10 @@
+// Copyright (C) 2026 The ArkUI Project; SPDX-License-Identifier: Apache-2.0
+android_test {
+    name: "ArkSystemBarFollowTests",
+    srcs: ["src/**/*.java"],
+    platform_apis: true,
+    certificate: "platform",
+    target_sdk_version: "28",
+    static_libs: ["androidx.test.runner", "androidx.test.rules"],
+    test_suites: ["device-tests"],
+}
