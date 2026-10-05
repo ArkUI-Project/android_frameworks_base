@@ -55,6 +55,19 @@
     <string name="minutes">%1$d minutes</string>
     <string name="playing">PLAY YOUR WAY</string>
     <string name="session">Game tools</string>
+    <string name="game_center">Game center</string>
+    <string name="in_game">Game in progress</string>
+    <string name="quick_tools">Quick tools</string>
+    <string name="memory_summary">Clear cached background apps</string>
+    <string name="guard_card_summary">Block edge touches</string>
+    <string name="brightness_card_summary">Applies to this game</string>
+    <string name="memory_status">%1$s memory available</string>
+    <string name="battery_status">Battery %1$d%%</string>
+    <string name="brightness_value">%1$d%%</string>
+    <plurals name="game_count">
+        <item quantity="one">%1$d game</item>
+        <item quantity="other">%1$d games</item>
+    </plurals>
     <string name="touch_hint">Record touches · %1$d / 30</string>
     <string name="stop">Stop</string>
     <string name="orientation_changed">Combo stopped: game, orientation or screen changed</string>

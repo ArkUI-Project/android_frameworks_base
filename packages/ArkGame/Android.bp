@@ -13,6 +13,6 @@ android_app {
     system_ext_specific: true,
     static_libs: ["ArkGameProtocol", "SettingsLibCollapsingToolbarBaseActivity",
         "SettingsLibSettingsTheme", "SettingsLibMainSwitchPreference", "SettingsLibAppPreference",
-        "SettingsLibTopIntroPreference", "androidx.preference_preference",
+        "SettingsLibTopIntroPreference", "SettingsLibSliderPreference", "androidx.preference_preference",
         "androidx.dynamicanimation_dynamicanimation"],
 }

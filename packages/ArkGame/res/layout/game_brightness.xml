@@ -1,0 +1,28 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Copyright (C) 2026 The ArkUI Project; SPDX-License-Identifier: Apache-2.0 -->
+<com.google.android.material.slider.Slider
+    xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:app="http://schemas.android.com/apk/res-auto"
+    android:id="@+id/game_brightness_slider"
+    style="@style/SettingslibSliderStyle.Expressive"
+    android:layout_width="match_parent"
+    android:layout_height="wrap_content"
+    android:minHeight="48dp"
+    android:contentDescription="@string/brightness"
+    android:theme="@style/Theme.MaterialComponents.DayNight"
+    android:valueFrom="5"
+    android:valueTo="100"
+    android:stepSize="1"
+    android:value="50"
+    app:labelBehavior="gone"
+    app:tickVisible="false"
+    app:trackHeight="@dimen/settingslib_expressive_slider_track_height"
+    app:trackInsideCornerSize="@dimen/settingslib_expressive_slider_track_inside_corner_size"
+    app:trackStopIndicatorSize="@dimen/settingslib_expressive_slider_track_stop_indicator_size"
+    app:thumbWidth="@dimen/settingslib_expressive_slider_thumb_width"
+    app:thumbHeight="@dimen/settingslib_expressive_slider_thumb_height"
+    app:thumbElevation="@dimen/settingslib_expressive_slider_thumb_elevation"
+    app:thumbStrokeWidth="@dimen/settingslib_expressive_slider_thumb_stroke_width"
+    app:thumbTrackGapSize="@dimen/settingslib_expressive_slider_thumb_track_gap_size"
+    app:tickRadiusActive="@dimen/settingslib_expressive_slider_tick_radius"
+    app:tickRadiusInactive="@dimen/settingslib_expressive_slider_tick_radius" />

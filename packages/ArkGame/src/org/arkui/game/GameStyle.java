@@ -5,10 +5,17 @@ import android.content.res.ColorStateList;
 import android.graphics.Color;
 import android.graphics.drawable.GradientDrawable;
 import android.graphics.drawable.RippleDrawable;
+import android.text.TextUtils;
+import android.util.TypedValue;
 import android.view.Gravity;
 import android.view.View;
+import android.view.ViewGroup;
+import android.view.accessibility.AccessibilityNodeInfo;
+import android.widget.Button;
+import android.widget.ImageView;
 import android.widget.LinearLayout;
 import android.widget.TextView;
+import com.android.settingslib.widget.theme.R;
 final class GameStyle {
     static int dp(Context c, float n) { return Math.round(n * c.getResources().getDisplayMetrics().density); }
     static int surface(Context c) { return c.getColor(com.android.internal.R.color.materialColorSurfaceContainerHigh); }
@@ -16,16 +23,152 @@ final class GameStyle {
     static int accent(Context c) { return c.getColor(com.android.internal.R.color.materialColorPrimaryContainer); }
     static GradientDrawable shape(int color, float radius) { var d = new GradientDrawable(); d.setColor(color); d.setCornerRadius(radius); return d; }
     static TextView text(Context c, CharSequence label, int sp) {
-        var v = new TextView(c); v.setTextAppearance(com.android.settingslib.widget.theme.R.style.TextAppearance_SettingsLib_BodyMedium);
-        v.setTextSize(sp); v.setTextColor(ink(c)); v.setText(label); return v;
+        int appearance = sp >= 32 ? R.style.TextAppearance_SettingsLib_HeadlineLarge
+                : sp >= 28 ? R.style.TextAppearance_SettingsLib_HeadlineMedium
+                : sp >= 24 ? R.style.TextAppearance_SettingsLib_HeadlineSmall
+                : sp >= 20 ? R.style.TextAppearance_SettingsLib_TitleLarge
+                : sp >= 16 ? R.style.TextAppearance_SettingsLib_BodyLarge
+                : sp >= 14 ? R.style.TextAppearance_SettingsLib_BodyMedium
+                : R.style.TextAppearance_SettingsLib_BodySmall;
+        return styledText(c, label, sp, appearance);
+    }
+    static TextView heading(Context c, CharSequence label, int sp) {
+        int appearance = sp >= 32 ? R.style.TextAppearance_SettingsLib_HeadlineLarge_Emphasized
+                : sp >= 28 ? R.style.TextAppearance_SettingsLib_HeadlineMedium_Emphasized
+                : sp >= 24 ? R.style.TextAppearance_SettingsLib_HeadlineSmall_Emphasized
+                : sp >= 20 ? R.style.TextAppearance_SettingsLib_TitleLarge_Emphasized
+                : sp >= 16 ? R.style.TextAppearance_SettingsLib_TitleMedium_Emphasized
+                : R.style.TextAppearance_SettingsLib_TitleSmall_Emphasized;
+        var v = styledText(c, label, sp, appearance);
+        v.setAccessibilityHeading(true);
+        return v;
+    }
+    private static TextView styledText(Context c, CharSequence label, int sp, int appearance) {
+        var v = new TextView(c);
+        v.setTextAppearance(appearance);
+        v.setTextSize(sp);
+        int lineHeight = sp + (sp >= 16 ? 8 : sp >= 14 ? 6 : 4);
+        v.setLineHeight(Math.max(v.getPaint().getFontMetricsInt(null), Math.round(
+                TypedValue.applyDimension(TypedValue.COMPLEX_UNIT_SP, lineHeight,
+                        c.getResources().getDisplayMetrics()))));
+        v.setFallbackLineSpacing(true);
+        v.setTextColor(ink(c));
+        v.setText(label);
+        return v;
+    }
+    private static int buttonInk(Context c, boolean selected) {
+        return selected ? c.getColor(com.android.internal.R.color.materialColorOnPrimaryContainer)
+                : ink(c);
+    }
+    private static RippleDrawable buttonBackground(Context c, boolean selected, float radius) {
+        int color = selected ? accent(c)
+                : c.getColor(com.android.internal.R.color.materialColorSurfaceContainerHighest);
+        return new RippleDrawable(ColorStateList.valueOf(
+                (buttonInk(c, selected) & 0xffffff) | 0x24000000),
+                shape(color, dp(c, radius)), shape(Color.WHITE, dp(c, radius)));
+    }
+    private static void buttonSemantics(View v, CharSequence description, boolean selected,
+            Runnable action) {
+        v.setContentDescription(description);
+        v.setSelected(selected);
+        v.setFocusable(true);
+        v.setImportantForAccessibility(View.IMPORTANT_FOR_ACCESSIBILITY_YES);
+        v.setOnClickListener(w -> action.run());
+        v.setAccessibilityDelegate(new View.AccessibilityDelegate() {
+            @Override public void onInitializeAccessibilityNodeInfo(View host,
+                    AccessibilityNodeInfo info) {
+                super.onInitializeAccessibilityNodeInfo(host, info);
+                info.setClassName(Button.class.getName());
+                info.setSelected(host.isSelected());
+            }
+        });
     }
     static TextView button(Context c, CharSequence label, boolean selected, Runnable action) {
-        var v = text(c, label, 14); v.setGravity(Gravity.CENTER); v.setMinHeight(dp(c,56));
+        var v = styledText(c, label, 14, R.style.TextAppearance_SettingsLib_LabelLarge);
+        v.setGravity(Gravity.CENTER); v.setMinHeight(dp(c,56));
         v.setPadding(dp(c,10),dp(c,10),dp(c,10),dp(c,10));
-        int color = selected ? accent(c) : c.getColor(com.android.internal.R.color.materialColorSurfaceContainerHighest);
-        v.setBackground(new RippleDrawable(ColorStateList.valueOf((ink(c)&0xffffff)|0x24000000), shape(color, dp(c,selected?28:18)), shape(Color.WHITE,dp(c,28))));
-        if (selected) v.setTextColor(c.getColor(com.android.internal.R.color.materialColorOnPrimaryContainer));
-        v.setSelected(selected); v.setFocusable(true); v.setOnClickListener(w -> action.run());
+        v.setBackground(buttonBackground(c, selected, selected ? 28 : 18));
+        v.setTextColor(buttonInk(c, selected));
+        buttonSemantics(v, label, selected, action);
+        return v;
+    }
+    static LinearLayout featureCard(Context c, int label, int summary, boolean selected,
+            Runnable action) {
+        return featureCard(c, label, summary, selected, action, false);
+    }
+    static LinearLayout featureCard(Context c, int label, int summary, boolean selected,
+            Runnable action, boolean compact) {
+        var card = new LinearLayout(c);
+        card.setOrientation(LinearLayout.HORIZONTAL);
+        card.setGravity(Gravity.CENTER_VERTICAL);
+        card.setMinimumHeight(dp(c, compact ? 56 : 88));
+        int padding = dp(c, compact ? 8 : 12);
+        card.setPadding(padding, padding, padding, padding);
+        card.setBackground(buttonBackground(c, selected, 24));
+        card.setDescendantFocusability(ViewGroup.FOCUS_BLOCK_DESCENDANTS);
+
+        var copy = column(c, 0);
+        copy.setImportantForAccessibility(View.IMPORTANT_FOR_ACCESSIBILITY_NO_HIDE_DESCENDANTS);
+        var title = heading(c, c.getString(label), compact ? 14 : 16);
+        title.setTextColor(buttonInk(c, selected));
+        title.setMaxLines(compact ? 1 : 2);
+        title.setEllipsize(TextUtils.TruncateAt.END);
+        title.setImportantForAccessibility(View.IMPORTANT_FOR_ACCESSIBILITY_NO);
+        copy.addView(title, new LinearLayout.LayoutParams(-1, -2));
+        if (summary != 0) {
+            var detail = text(c, c.getString(summary), compact ? 11 : 12);
+            detail.setTextColor(buttonInk(c, selected));
+            detail.setMaxLines(compact ? 1 : 2);
+            detail.setEllipsize(TextUtils.TruncateAt.END);
+            detail.setImportantForAccessibility(View.IMPORTANT_FOR_ACCESSIBILITY_NO);
+            var detailParams = new LinearLayout.LayoutParams(-1, -2);
+            detailParams.topMargin = dp(c, compact ? 2 : 4);
+            copy.addView(detail, detailParams);
+        }
+        var copyParams = new LinearLayout.LayoutParams(0, -2, 1);
+        copyParams.setMarginEnd(dp(c, compact ? 8 : 12));
+        card.addView(copy, copyParams);
+        int iconSize = compact ? 24 : 28;
+        var icon = new ImageView(c);
+        icon.setImageDrawable(new ToolIcon(c, label, selected, iconSize));
+        icon.setImportantForAccessibility(View.IMPORTANT_FOR_ACCESSIBILITY_NO);
+        card.addView(icon, new LinearLayout.LayoutParams(dp(c, iconSize), dp(c, iconSize)));
+        buttonSemantics(card, summary == 0 ? c.getString(label)
+                : c.getString(label) + ", " + c.getString(summary), selected, action);
+        return card;
+    }
+    static TextView shortcut(Context c, int label, boolean selected, Runnable action) {
+        return shortcut(c, label, selected, action, false);
+    }
+    static TextView shortcut(Context c, int label, boolean selected, Runnable action,
+            boolean compact) {
+        var v = styledText(c, c.getString(label), compact ? 11 : 12,
+                R.style.TextAppearance_SettingsLib_LabelMedium);
+        v.setGravity(Gravity.CENTER);
+        v.setMinHeight(dp(c, compact ? 56 : 80));
+        v.setMinWidth(dp(c, compact ? 48 : 56));
+        int horizontalPadding = dp(c, compact ? 4 : 8);
+        int verticalPadding = dp(c, compact ? 6 : 12);
+        v.setPadding(horizontalPadding, verticalPadding, horizontalPadding, verticalPadding);
+        v.setMaxLines(compact ? 1 : 2);
+        v.setEllipsize(TextUtils.TruncateAt.END);
+        v.setCompoundDrawables(null, new ToolIcon(c, label, selected, compact ? 24 : 28),
+                null, null);
+        v.setCompoundDrawablePadding(dp(c, compact ? 4 : 8));
+        v.setTextColor(buttonInk(c, selected));
+        v.setBackground(buttonBackground(c, selected, 24));
+        buttonSemantics(v, c.getString(label), selected, action);
+        return v;
+    }
+    static ImageView iconButton(Context c, int label, boolean selected, Runnable action) {
+        var v = new ImageView(c);
+        v.setMinimumWidth(dp(c, 56));
+        v.setMinimumHeight(dp(c, 56));
+        v.setPadding(dp(c, 14), dp(c, 14), dp(c, 14), dp(c, 14));
+        v.setScaleType(ImageView.ScaleType.CENTER);
+        v.setImageDrawable(new ToolIcon(c, label, selected, 28));
+        v.setBackground(buttonBackground(c, selected, 24));
+        buttonSemantics(v, c.getString(label), selected, action);
         return v;
     }
     static LinearLayout column(Context c, int padding) {

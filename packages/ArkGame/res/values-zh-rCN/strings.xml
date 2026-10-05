@@ -55,6 +55,18 @@
     <string name="minutes">%1$d 分钟</string>
     <string name="playing">尽兴玩，专注赢</string>
     <string name="session">游戏工具</string>
+    <string name="game_center">游戏中心</string>
+    <string name="in_game">游戏进行中</string>
+    <string name="quick_tools">快捷工具</string>
+    <string name="memory_summary">清理后台缓存应用</string>
+    <string name="guard_card_summary">屏蔽边缘触摸</string>
+    <string name="brightness_card_summary">当前游戏生效</string>
+    <string name="memory_status">可用内存 %1$s</string>
+    <string name="battery_status">电量 %1$d%%</string>
+    <string name="brightness_value">%1$d%%</string>
+    <plurals name="game_count">
+        <item quantity="other">%1$d 款游戏</item>
+    </plurals>
     <string name="touch_hint">录制触控 · %1$d / 30</string>
     <string name="stop">停止</string>
     <string name="orientation_changed">游戏、屏幕方向或锁屏状态改变，连招已停止</string>
