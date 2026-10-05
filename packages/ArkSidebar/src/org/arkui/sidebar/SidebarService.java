@@ -93,7 +93,8 @@ public final class SidebarService extends Service implements SharedPreferences.O
         }
     };
     private String[] recent = new String[0];
-    private boolean available, destroyed;
+    private boolean available, destroyed, recognizing;
+    private final Runnable recognitionTimeout = this::finishRecognitionCapture;
     private SidebarPanel panel;
     private Operation pendingOperation;
     private int loadGeneration;
@@ -121,6 +122,7 @@ public final class SidebarService extends Service implements SharedPreferences.O
                 recent = packages == null ? new String[0] : packages.clone();
                 if (changed) {
                     pendingOperation = null;
+                    recognizing = false; main.removeCallbacks(recognitionTimeout);
                     hidePanel(); refreshHandles(); notifyConfiguration();
                 }
             });
@@ -129,6 +131,9 @@ public final class SidebarService extends Service implements SharedPreferences.O
             main.post(() -> {
                 if (!destroyed && prefs.get(MODE, HANDLE, 0, 2) != HANDLE) showPanel(left, y);
             });
+        }
+        @Override public void recognitionCaptureFinished() {
+            main.post(SidebarService.this::finishRecognitionCapture);
         }
     };
     private final BroadcastReceiver packages = new BroadcastReceiver() {
@@ -185,7 +190,7 @@ public final class SidebarService extends Service implements SharedPreferences.O
     private void notifyConfiguration() {
         if (host == null) return;
         Bundle configuration = prefs.configuration();
-        configuration.putInt(READY, canShow() && panel == null ? 1 : 0);
+        configuration.putInt(READY, canShow() && panel == null && !recognizing ? 1 : 0);
         if (lastConfiguration != null) {
             boolean changed = false;
             for (String key : configuration.keySet()) {
@@ -276,7 +281,7 @@ public final class SidebarService extends Service implements SharedPreferences.O
     }
 
     private void refreshHandles() {
-        boolean visible = canShow() && panel == null
+        boolean visible = canShow() && panel == null && !recognizing
                 && prefs.get(MODE, HANDLE, 0, 2) != BACK_HOLD;
         int side = prefs.get(SIDE, 0, 0, 2);
         int height = prefs.get(HANDLE_HEIGHT, 68, 36, 160);
@@ -529,7 +534,7 @@ public final class SidebarService extends Service implements SharedPreferences.O
         showPanel(left,y,false);
     }
     private void showPanel(boolean left, float y, boolean appsOnly) {
-        if (!canShow() || panel != null) return;
+        if (!canShow() || panel != null || recognizing) return;
         if (!appsOnly && gameActive && foreground.equals(gameForeground)) {
             sendBroadcast(new Intent(GameProtocol.OPEN).setPackage(GameProtocol.PACKAGE)
                     .putExtra("left", left), GameProtocol.PERMISSION);
@@ -545,6 +550,12 @@ public final class SidebarService extends Service implements SharedPreferences.O
                     public void edit() {
                         afterClose(() -> { if (host != null) host.launchApplication(SETTINGS, false); });
                     }
+                    public void recognize() {
+                        recognizing = true;
+                        main.postDelayed(recognitionTimeout, 7000);
+                        refreshHandles(); notifyConfiguration();
+                        afterClose(() -> { if (host != null) host.recognizeScreen(); });
+                    }
                 }, () -> {
                     if (panel == created[0]) panel = null;
                     refreshHandles(); notifyConfiguration();
@@ -557,6 +568,11 @@ public final class SidebarService extends Service implements SharedPreferences.O
     }
 
     private interface Operation { void run() throws RemoteException; }
+    private void finishRecognitionCapture() {
+        if (!recognizing) return;
+        recognizing = false; main.removeCallbacks(recognitionTimeout);
+        refreshHandles(); notifyConfiguration();
+    }
     private void afterClose(Operation action) {
         pendingOperation = action;
         if (panel == null) main.post(this::runPendingOperation);
@@ -567,6 +583,7 @@ public final class SidebarService extends Service implements SharedPreferences.O
         if (action == null || !canShow()) return;
         try { action.run(); }
         catch (RemoteException | SecurityException | android.content.ActivityNotFoundException e) {
+            finishRecognitionCapture();
             Toast.makeText(this, R.string.unavailable, Toast.LENGTH_SHORT).show();
         }
     }
@@ -576,6 +593,7 @@ public final class SidebarService extends Service implements SharedPreferences.O
     }
     private void hideAll() {
         pendingOperation = null;
+        recognizing = false; main.removeCallbacks(recognitionTimeout);
         hidePanel();
         for (View handle : handles) windows.removeViewImmediate(handle);
         handles.clear();

@@ -43,6 +43,7 @@ final class SidebarPanel {
     interface Actions {
         void launch(AppCatalog.App app, boolean smallWindow);
         void edit();
+        void recognize();
     }
     private final Context context;
     private final SidebarPreferences prefs;
@@ -56,6 +57,7 @@ final class SidebarPanel {
     private final FrameLayout root;
     private final LinearLayout rail, drawer;
     private final Glyph gridButton;
+    private final LinearLayout recognitionButton;
     private EditText appSearch;
     private RecyclerView appGrid;
     private Insets insets = Insets.NONE;
@@ -132,8 +134,27 @@ final class SidebarPanel {
         LinearLayout.LayoutParams dlp = new LinearLayout.LayoutParams(dp(c, 26), dp(c, 1));
         dlp.topMargin = dp(c, 5); dlp.bottomMargin = dp(c, 5);
         rail.addView(divider, dlp);
-        gridButton = new Glyph(c, Glyph.GRID, c.getString(R.string.all_apps));
+        recognitionButton = new LinearLayout(c);
+        recognitionButton.setOrientation(LinearLayout.VERTICAL);
+        recognitionButton.setGravity(Gravity.CENTER);
+        recognitionButton.setFocusable(true);
+        recognitionButton.setContentDescription(c.getString(R.string.recognize_screen));
+        recognitionButton.setBackground(buttonBackground(c, c.getColor(
+                com.android.internal.R.color.materialColorPrimaryContainer), dp(c, 18)));
+        Glyph recognize = new Glyph(c, Glyph.RECOGNIZE, c.getString(R.string.recognize_screen));
+        recognize.setFocusable(false);
+        recognize.setImportantForAccessibility(View.IMPORTANT_FOR_ACCESSIBILITY_NO);
+        recognitionButton.addView(recognize, new LinearLayout.LayoutParams(dp(c, 28), dp(c, 28)));
+        TextView recognitionLabel = text(c, c.getString(R.string.recognize), 11,
+                c.getColor(com.android.internal.R.color.materialColorOnPrimaryContainer));
+        recognitionLabel.setGravity(Gravity.CENTER);
+        recognitionButton.addView(recognitionLabel, new LinearLayout.LayoutParams(-1, -2));
+        recognitionButton.setOnClickListener(v -> { close(); actions.recognize(); });
         int buttonSize = railWidth - rail.getPaddingLeft() - rail.getPaddingRight();
+        LinearLayout.LayoutParams recognitionBounds = new LinearLayout.LayoutParams(buttonSize, dp(c, 56));
+        recognitionBounds.bottomMargin = dp(c, 6);
+        rail.addView(recognitionButton, recognitionBounds);
+        gridButton = new Glyph(c, Glyph.GRID, c.getString(R.string.all_apps));
         gridButton.setBackground(buttonBackground(c, secondaryContainer(c), buttonSize / 2f));
         gridButton.setOnClickListener(v -> { if (expanded) collapse(); else showApps(); });
         rail.addView(gridButton, new LinearLayout.LayoutParams(buttonSize, buttonSize));
@@ -190,7 +211,8 @@ final class SidebarPanel {
         panelHeight = Math.min(dp(context, 490), availableHeight - dp(context, 16));
         int contentHeight = Math.max(1, Math.min(7, pinned.size())) * (iconSize + dp(context, 10))
                 + rail.getPaddingTop() + rail.getPaddingBottom()
-                + gridButton.getLayoutParams().height + dp(context, 11);
+                + gridButton.getLayoutParams().height + recognitionButton.getLayoutParams().height
+                + dp(context, 17);
         panelHeight = Math.min(panelHeight, contentHeight);
         int margin = dp(context, 10);
         int top = Math.max(insets.top + dp(context, 8),

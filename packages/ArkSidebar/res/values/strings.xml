@@ -39,6 +39,8 @@
     <string name="fullscreen">Full screen</string>
     <string name="excluded">Hide sidebar in selected apps</string>
     <string name="all_apps">All small-window apps</string>
+    <string name="recognize">Recognize</string>
+    <string name="recognize_screen">Recognize screen</string>
     <string name="search">Search apps</string>
     <string name="edit">Edit sidebar apps</string>
     <string name="done">Done</string>

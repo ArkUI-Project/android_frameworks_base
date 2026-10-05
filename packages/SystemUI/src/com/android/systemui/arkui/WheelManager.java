@@ -19,6 +19,7 @@ import android.content.ServiceConnection;
 import android.content.pm.LauncherActivityInfo;
 import android.content.pm.LauncherApps;
 import android.content.pm.PackageManager;
+import android.content.pm.UserInfo;
 import android.database.ContentObserver;
 import android.hardware.input.InputManager;
 import android.os.Bundle;
@@ -63,6 +64,7 @@ import java.util.Arrays;
 import java.util.List;
 import java.util.Optional;
 import java.util.concurrent.Executor;
+import java.util.function.BooleanSupplier;
 import javax.inject.Inject;
 
 /** Validates the standalone wheel's narrow, current-user-only launcher/action protocol. */
@@ -85,6 +87,13 @@ public final class WheelManager implements CoreStartable {
     private String foreground = "";
     private String[] recent = new String[0];
     private Bundle lastEnvironment;
+    private ServiceConnection recognitionConnection;
+    private Messenger recognitionService;
+    private boolean recognitionBound;
+    private int recognitionGeneration, recognitionTaskId = -1, recognitionTaskUser = -1;
+    private ComponentName recognitionActivity;
+    private Runnable recognitionCaptureFinished;
+    private final Runnable recognitionTimeout = this::closeSidebarRecognition;
     private final Runnable retry = this::bind;
     private final Runnable refresh = this::queryTasks;
 
@@ -98,30 +107,47 @@ public final class WheelManager implements CoreStartable {
     @Override public void start() {
         if (UserHandle.myUserId() != UserHandle.USER_SYSTEM) return;
         users.addCallback(new UserTracker.Callback() {
-            @Override public void onUserChanged(int id, @NonNull Context user) { unbind(); bind(); }
+            @Override public void onUserChanged(int id, @NonNull Context user) {
+                closeSidebarRecognition(); unbind(); bind();
+            }
         }, main::post);
         keyguard.addCallback(new KeyguardStateController.Callback() {
-            @Override public void onKeyguardShowingChanged() { main.post(WheelManager.this::environment); }
+            @Override public void onKeyguardShowingChanged() {
+                main.post(() -> { if (!allowed()) closeSidebarRecognition(); environment(); });
+            }
         });
         TaskStackChangeListeners.getInstance().registerTaskStackListener(new TaskStackChangeListener() {
-            @Override public void onTaskStackChanged() { main.post(WheelManager.this::scheduleQuery); }
-            @Override public void onLockTaskModeChanged(int mode) { main.post(WheelManager.this::environment); }
-            @Override public void onTaskDisplayChanged(int taskId,int displayId) { main.post(WheelManager.this::scheduleQuery); }
+            @Override public void onTaskStackChanged() {
+                main.post(() -> { checkRecognitionForeground(); scheduleQuery(); });
+            }
+            @Override public void onLockTaskModeChanged(int mode) {
+                main.post(() -> { if (!allowed()) closeSidebarRecognition(); environment(); });
+            }
+            @Override public void onTaskDisplayChanged(int taskId,int displayId) {
+                main.post(() -> { checkRecognitionForeground(); scheduleQuery(); });
+            }
         });
         IntentFilter state = new IntentFilter(); state.addAction(Intent.ACTION_USER_UNLOCKED);
         state.addAction(Intent.ACTION_SCREEN_ON); state.addAction(Intent.ACTION_SCREEN_OFF); state.addAction(Intent.ACTION_USER_PRESENT);
         context.registerReceiver(new BroadcastReceiver() {
-            @Override public void onReceive(Context c, Intent i) { if (!bound) bind(); environment(); }
+            @Override public void onReceive(Context c, Intent i) {
+                if (!allowed()) closeSidebarRecognition();
+                if (!bound) bind(); environment();
+            }
         }, state, null, main, Context.RECEIVER_NOT_EXPORTED);
         IntentFilter packages = new IntentFilter(Intent.ACTION_PACKAGE_ADDED);
         packages.addAction(Intent.ACTION_PACKAGE_REPLACED); packages.addAction(Intent.ACTION_PACKAGE_REMOVED); packages.addDataScheme("package");
         context.registerReceiver(new BroadcastReceiver() {
             @Override public void onReceive(Context c, Intent i) {
-                if (i.getData() != null && PACKAGE.equals(i.getData().getSchemeSpecificPart())) reconnect();
+                if (i.getData() != null && PACKAGE.equals(i.getData().getSchemeSpecificPart())) {
+                    closeSidebarRecognition(); reconnect();
+                }
             }
         }, packages, null, main, Context.RECEIVER_NOT_EXPORTED);
         context.getContentResolver().registerContentObserver(Settings.Secure.getUriFor(Settings.Secure.USER_SETUP_COMPLETE), false,
-                new ContentObserver(main) { @Override public void onChange(boolean self) { environment(); } }, UserHandle.USER_ALL);
+                new ContentObserver(main) { @Override public void onChange(boolean self) {
+                    if (!allowed()) closeSidebarRecognition(); environment();
+                } }, UserHandle.USER_ALL);
         bind();
     }
     private boolean allowed() {
@@ -149,6 +175,7 @@ public final class WheelManager implements CoreStartable {
                 Messenger host = new Messenger(new Handler(main.getLooper(), message -> receive(message, uid, token)));
                 Message attach = Message.obtain(null, ATTACH); attach.replyTo = host;
                 try { service.send(attach); } catch (RemoteException e) { reconnect(); }
+                if (recognitionBound) recognitionVisibility(true);
             }
             @Override public void onServiceDisconnected(ComponentName name) {
                 if (token == generation) { service = null; enabled = false; lastEnvironment = null; ++stateGeneration; }
@@ -278,30 +305,7 @@ public final class WheelManager implements CoreStartable {
         main.postDelayed(() -> {
             if (token != generation || !enabled || !allowed()) return;
             background.execute(() -> {
-                Bitmap captured = null;
-                try {
-                    if (!users.getUserContext().getSystemService(DevicePolicyManager.class).getScreenCaptureDisabled(null)) {
-                        var args = new ScreenCaptureInternal.CaptureArgs.Builder<>()
-                                .setSecureContentPolicy(ScreenCapture.ScreenCaptureParams.SECURE_CONTENT_POLICY_THROW_EXCEPTION)
-                                .setProtectedContentPolicy(ScreenCapture.ScreenCaptureParams.PROTECTED_CONTENT_POLICY_REDACT).build();
-                        var listener = ScreenCaptureInternal.createSyncCaptureListener();
-                        WindowManagerGlobal.getWindowManagerService().captureDisplay(Display.DEFAULT_DISPLAY, args, listener);
-                        var buffer = listener.getBuffer();
-                        if (buffer != null) {
-                            try {
-                                if (!buffer.containsSecureLayers()) {
-                                    Bitmap hardware = buffer.asBitmap();
-                                    if (hardware != null) {
-                                        Bitmap copy = hardware.copy(Bitmap.Config.ARGB_8888, false);
-                                        hardware.recycle();
-                                        if (copy != null) { captured = copy.asShared(); if (captured != copy) copy.recycle(); }
-                                    }
-                                }
-                            } finally { if (buffer.getHardwareBuffer() != null) buffer.getHardwareBuffer().close(); }
-                        }
-                    }
-                } catch (RuntimeException | RemoteException e) { Log.w("ArkWheel", "Cannot capture recognition screen", e); }
-                Bitmap result = captured;
+                Bitmap result = captureScreen(user, user);
                 main.post(() -> {
                     try {
                         if (token != generation || user != users.getUserId() || !enabled || !allowed()
@@ -314,6 +318,158 @@ public final class WheelManager implements CoreStartable {
                 });
             });
         }, 100);
+    }
+
+    /** The sidebar supplies a validated current-user request after its closing animation. */
+    public void recognizeFromSidebar(String source, BooleanSupplier valid, Runnable captureFinished) {
+        closeSidebarRecognition();
+        recognitionCaptureFinished = captureFinished;
+        if (!allowed() || !valid.getAsBoolean()) { closeSidebarRecognition(); return; }
+        int user = users.getUserId(), token = ++recognitionGeneration;
+        List<UserInfo> profiles = users.getUserProfiles();
+        final int uid;
+        try {
+            uid = context.getPackageManager().getPackageUidAsUser(PACKAGE, user);
+            if (context.getPackageManager().checkSignatures(context.getPackageName(), PACKAGE)
+                    != PackageManager.SIGNATURE_MATCH) { closeSidebarRecognition(); return; }
+        } catch (PackageManager.NameNotFoundException e) { closeSidebarRecognition(); return; }
+        recognitionConnection = new ServiceConnection() {
+            @Override public void onServiceConnected(ComponentName name, IBinder binder) {
+                if (token != recognitionGeneration || user != users.getUserId()) return;
+                recognitionService = new Messenger(binder);
+                // Leave a compositor frame after the sidebar's final window/handle removal.
+                main.postDelayed(() -> {
+                    if (token != recognitionGeneration || !allowed() || !valid.getAsBoolean()) {
+                        if (token == recognitionGeneration) closeSidebarRecognition(); return;
+                    }
+                    background.execute(() -> {
+                        ActivityManager.RunningTaskInfo top = recognitionTopTask();
+                        boolean owned = top != null && top.topActivity != null
+                                && source.equals(top.topActivity.getPackageName())
+                                && (top.userId == user || profiles.stream().anyMatch(profile ->
+                                        profile.id == top.userId && profile.isEnabled()
+                                                && (profile.isAppTwinProfile() || profile.isCloneProfile())));
+                        Bitmap bitmap = owned ? captureScreen(user, top.userId) : null;
+                        ActivityManager.RunningTaskInfo after = recognitionTopTask();
+                        boolean unchanged = owned && after != null && after.taskId == top.taskId
+                                && after.userId == top.userId && top.topActivity.equals(after.topActivity);
+                        main.post(() -> {
+                            try {
+                                if (token != recognitionGeneration) return;
+                                if (user != users.getUserId() || !allowed() || !valid.getAsBoolean()
+                                        || !unchanged || recognitionService == null) {
+                                    closeSidebarRecognition(); return;
+                                }
+                                // A task-change callback may have arrived before capture established
+                                // its task identity. Verify again at the actual bitmap handoff.
+                                ActivityManager.RunningTaskInfo current = recognitionTopTask();
+                                if (current == null || current.taskId != top.taskId
+                                        || current.userId != top.userId
+                                        || !top.topActivity.equals(current.topActivity)) {
+                                    closeSidebarRecognition(); return;
+                                }
+                                recognitionTaskId = top.taskId; recognitionTaskUser = top.userId;
+                                recognitionActivity = top.topActivity;
+                                Message reply = Message.obtain(null, CAPTURE_RESULT);
+                                Bundle data = new Bundle(); data.putParcelable(BITMAP, bitmap); reply.setData(data);
+                                reply.replyTo = new Messenger(new Handler(main.getLooper(), message -> {
+                                    if (message.sendingUid == uid && token == recognitionGeneration
+                                            && message.what == RECOGNITION_CLOSED) closeSidebarRecognition();
+                                    return true;
+                                }));
+                                recognitionService.send(reply);
+                                main.removeCallbacks(recognitionTimeout); finishSidebarCapture();
+                            } catch (RemoteException e) {
+                                Log.w("ArkWheel", "Sidebar recognition receiver disconnected", e);
+                                closeSidebarRecognition();
+                            } finally { if (bitmap != null) bitmap.recycle(); }
+                        });
+                    });
+                }, 100);
+            }
+            @Override public void onServiceDisconnected(ComponentName name) {
+                if (token == recognitionGeneration) closeSidebarRecognition();
+            }
+            @Override public void onBindingDied(ComponentName name) {
+                if (token == recognitionGeneration) closeSidebarRecognition();
+            }
+            @Override public void onNullBinding(ComponentName name) {
+                if (token == recognitionGeneration) closeSidebarRecognition();
+            }
+        };
+        try {
+            recognitionBound = context.bindServiceAsUser(new Intent().setComponent(RECOGNITION_SERVICE),
+                    recognitionConnection, Context.BIND_AUTO_CREATE, main, UserHandle.of(user));
+        } catch (SecurityException e) { Log.w("ArkWheel", "Cannot bind sidebar recognition", e); }
+        if (recognitionBound) {
+            recognitionVisibility(true); main.postDelayed(recognitionTimeout, 6000);
+        } else closeSidebarRecognition();
+    }
+
+    private ActivityManager.RunningTaskInfo recognitionTopTask() {
+        try {
+            var tasks = ActivityTaskManager.getInstance().getTasks(1, false, false, Display.DEFAULT_DISPLAY);
+            return tasks.isEmpty() ? null : tasks.get(0);
+        } catch (RuntimeException e) { return null; }
+    }
+    private void checkRecognitionForeground() {
+        if (!recognitionBound || recognitionTaskId < 0) return;
+        int token = recognitionGeneration, task = recognitionTaskId, user = recognitionTaskUser;
+        ComponentName activity = recognitionActivity;
+        background.execute(() -> {
+            ActivityManager.RunningTaskInfo top = recognitionTopTask();
+            if (top == null || top.taskId != task || top.userId != user
+                    || !activity.equals(top.topActivity)) main.post(() -> {
+                if (token == recognitionGeneration) closeSidebarRecognition();
+            });
+        });
+    }
+    private void finishSidebarCapture() {
+        Runnable finished = recognitionCaptureFinished; recognitionCaptureFinished = null;
+        if (finished != null) finished.run();
+    }
+    private void closeSidebarRecognition() {
+        ++recognitionGeneration; main.removeCallbacks(recognitionTimeout);
+        recognitionService = null; recognitionTaskId = -1; recognitionTaskUser = -1;
+        recognitionActivity = null;
+        if (recognitionBound) context.unbindService(recognitionConnection);
+        recognitionBound = false; recognitionConnection = null; finishSidebarCapture();
+        recognitionVisibility(false);
+    }
+    private void recognitionVisibility(boolean visible) {
+        if (service == null) return;
+        Message message = Message.obtain(null, RECOGNITION_VISIBILITY); message.arg1 = visible ? 1 : 0;
+        try { service.send(message); }
+        catch (RemoteException e) { Log.w("ArkWheel", "Cannot update recognition visibility", e); }
+    }
+    private Bitmap captureScreen(int parentUser, int foregroundUser) {
+        try {
+            for (int user : new int[] { parentUser, foregroundUser }) {
+                if (context.createContextAsUser(UserHandle.of(user), 0)
+                        .getSystemService(DevicePolicyManager.class).getScreenCaptureDisabled(null)) return null;
+            }
+            var args = new ScreenCaptureInternal.CaptureArgs.Builder<>()
+                    .setSecureContentPolicy(ScreenCapture.ScreenCaptureParams.SECURE_CONTENT_POLICY_THROW_EXCEPTION)
+                    .setProtectedContentPolicy(ScreenCapture.ScreenCaptureParams.PROTECTED_CONTENT_POLICY_REDACT).build();
+            var listener = ScreenCaptureInternal.createSyncCaptureListener();
+            WindowManagerGlobal.getWindowManagerService().captureDisplay(Display.DEFAULT_DISPLAY, args, listener);
+            var buffer = listener.getBuffer();
+            if (buffer == null) return null;
+            try {
+                if (buffer.containsSecureLayers()) return null;
+                Bitmap hardware = buffer.asBitmap();
+                if (hardware == null) return null;
+                Bitmap copy;
+                try { copy = hardware.copy(Bitmap.Config.ARGB_8888, false); }
+                finally { hardware.recycle(); }
+                if (copy == null) return null;
+                Bitmap shared = null;
+                try { shared = copy.asShared(); return shared; }
+                finally { if (shared != copy) copy.recycle(); }
+            } finally { if (buffer.getHardwareBuffer() != null) buffer.getHardwareBuffer().close(); }
+        } catch (RuntimeException | RemoteException e) {
+            Log.w("ArkWheel", "Cannot capture recognition screen", e); return null;
+        }
     }
     private void key(int code) {
         long now = SystemClock.uptimeMillis();

@@ -8,4 +8,5 @@ interface IArkSidebar {
     oneway void attachHost(IArkSidebarHost host);
     oneway void updateEnvironment(boolean available, String foreground, in String[] recent);
     oneway void openFromGesture(boolean left, float y);
+    oneway void recognitionCaptureFinished();
 }

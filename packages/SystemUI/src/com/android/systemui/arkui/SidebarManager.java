@@ -65,6 +65,7 @@ public final class SidebarManager implements CoreStartable {
     private final Executor background;
     private final KeyguardStateController keyguard;
     private final GameBridge game;
+    private final WheelManager wheel;
     private volatile IArkSidebar service;
     private volatile Bundle configuration = Bundle.EMPTY;
     private volatile boolean available;
@@ -84,10 +85,12 @@ public final class SidebarManager implements CoreStartable {
     private String[] lastRecent;
 
     @Inject public SidebarManager(Context context, UserTracker users, @Main Handler handler,
-            @Background Executor background, KeyguardStateController keyguard, GameBridge game) {
+            @Background Executor background, KeyguardStateController keyguard, GameBridge game,
+            WheelManager wheel) {
         this.context = context; this.users = users; main = handler;
         this.background = background; this.keyguard = keyguard;
         this.game = game;
+        this.wheel = wheel;
     }
 
     @Override public void start() {
@@ -230,6 +233,24 @@ public final class SidebarManager implements CoreStartable {
             @Override public void launchApplication(ComponentName component, boolean small) {
                 checkCaller();
                 main.post(() -> { if (token == generation && environmentAllowed()) launch(component, small); });
+            }
+            @Override public void recognizeScreen() {
+                checkCaller();
+                main.post(() -> {
+                    IArkSidebar requester = service;
+                    Runnable finished = () -> {
+                        if (token == generation && requester != null) try {
+                            requester.recognitionCaptureFinished();
+                        } catch (RemoteException ignored) { }
+                    };
+                    String source = foreground;
+                    if (token != generation || !available || !environmentAllowed()) {
+                        finished.run(); return;
+                    }
+                    wheel.recognizeFromSidebar(source,
+                            () -> token == generation && available && environmentAllowed()
+                                    && source.equals(foreground), finished);
+                });
             }
         };
     }

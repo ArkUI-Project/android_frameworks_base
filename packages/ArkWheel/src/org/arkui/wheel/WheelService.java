@@ -61,7 +61,7 @@ public final class WheelService extends Service implements SharedPreferences.OnS
     private Context themed;
     private WheelPanel panel;
     private RecognitionPanel recognition;
-    private boolean capturing;
+    private boolean capturing, externalRecognition;
     private int captureId;
     private final Runnable captureTimeout = () -> { capturing = false; refresh(); };
     private List<WheelCatalog.Item> apps = List.of();
@@ -112,6 +112,10 @@ public final class WheelService extends Service implements SharedPreferences.OnS
                 try { host.getBinder().linkToDeath(death, 0); configuration(); }
                 catch (RemoteException e) { detach(); }
             }
+        } else if (message.what == WheelProtocol.RECOGNITION_VISIBILITY && host != null) {
+            externalRecognition = message.arg1 == 1;
+            if (externalRecognition) hide();
+            refresh();
         } else if (message.what == WheelProtocol.CAPTURE_RESULT && host != null) {
             Bundle data = message.getData();
             Bitmap bitmap = data.getParcelable(WheelProtocol.BITMAP, Bitmap.class);
@@ -144,7 +148,7 @@ public final class WheelService extends Service implements SharedPreferences.OnS
     }
     private void detach() {
         if (host != null && death != null) host.getBinder().unlinkToDeath(death, 0);
-        host = null; death = null;
+        host = null; death = null; externalRecognition = false;
     }
     private void send(int what, Bundle data) {
         if (host == null) return;
@@ -186,7 +190,7 @@ public final class WheelService extends Service implements SharedPreferences.OnS
         });
     }
     private boolean canShow() {
-        return !destroyed && host != null && allowed && loaded && prefs.enabled()
+        return !destroyed && !externalRecognition && host != null && allowed && loaded && prefs.enabled()
                 && !excluded.contains(foreground)
                 && getSystemService(PowerManager.class).isInteractive()
                 && !getSystemService(KeyguardManager.class).isKeyguardLocked()

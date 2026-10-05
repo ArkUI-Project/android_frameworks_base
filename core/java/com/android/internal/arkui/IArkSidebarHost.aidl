@@ -7,4 +7,5 @@ import android.content.ComponentName;
 oneway interface IArkSidebarHost {
     void configurationChanged(in Bundle configuration);
     void launchApplication(in ComponentName component, boolean smallWindow);
+    void recognizeScreen();
 }

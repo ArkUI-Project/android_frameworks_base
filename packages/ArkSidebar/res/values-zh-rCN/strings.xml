@@ -39,6 +39,8 @@
     <string name="fullscreen">全屏</string>
     <string name="excluded">在指定应用中隐藏侧边栏</string>
     <string name="all_apps">全部小窗应用</string>
+    <string name="recognize">识图</string>
+    <string name="recognize_screen">屏幕识图</string>
     <string name="search">搜索应用</string>
     <string name="edit">编辑侧边栏应用</string>
     <string name="done">完成</string>
