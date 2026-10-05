@@ -181,6 +181,8 @@ public final class TransitionInfo implements Parcelable {
     public static final int FLAG_LAUNCH_POP_UP_VIEW_FROM_RECENTS = FLAG_FIRST_CUSTOM << 2;
     public static final int FLAG_EXIT_POP_UP_VIEW_BY_DRAG = FLAG_FIRST_CUSTOM << 3;
     public static final int FLAG_EXIT_POP_UP_VIEW_DISPLAY_ROTATION = FLAG_FIRST_CUSTOM << 4;
+    /** A real status bar follows its parent app; animation owners must fit it into the app crop. */
+    public static final int FLAG_ARKUI_STATUS_BAR_FOLLOW = FLAG_FIRST_CUSTOM << 5;
     public static final int FLAG_POP_UP_VIEW = FLAG_SCHEDULE_POP_UP_VIEW |
                                                FLAG_LAUNCH_POP_UP_VIEW_FROM_RECENTS |
                                                FLAG_EXIT_POP_UP_VIEW_BY_DRAG;
@@ -224,6 +226,7 @@ public final class TransitionInfo implements Parcelable {
             FLAG_LAUNCH_POP_UP_VIEW_FROM_RECENTS,
             FLAG_EXIT_POP_UP_VIEW_BY_DRAG,
             FLAG_EXIT_POP_UP_VIEW_DISPLAY_ROTATION,
+            FLAG_ARKUI_STATUS_BAR_FOLLOW,
             FLAG_POP_UP_VIEW
     })
     public @interface ChangeFlags {}
@@ -545,6 +548,9 @@ public final class TransitionInfo implements Parcelable {
         if ((flags & FLAG_IS_TASK_DISPLAY_AREA) != 0) {
             sb.append(sb.length() == 0 ? "" : "|").append("FLAG_IS_TASK_DISPLAY_AREA");
         }
+        if ((flags & FLAG_ARKUI_STATUS_BAR_FOLLOW) != 0) {
+            sb.append(sb.length() == 0 ? "" : "|").append("ARKUI_STATUS_BAR_FOLLOW");
+        }
         if ((flags & FLAG_SCHEDULE_POP_UP_VIEW) != 0) {
             sb.append(sb.length() == 0 ? "" : "|").append("SCHEDULE_POP_UP_VIEW");
         }
@@ -606,6 +612,11 @@ public final class TransitionInfo implements Parcelable {
             if (c.mSnapshot != null) {
                 c.mSnapshot.release();
                 c.mSnapshot = null;
+            }
+            if (c.hasFlags(FLAG_ARKUI_STATUS_BAR_FOLLOW)) {
+                // This is a second handle to an animation-only container, rather than a real
+                // window's persistent leash. Release it even when task leashes are retained.
+                c.getLeash().release();
             }
         }
         for (int i = 0; i < mRoots.size(); ++i) {

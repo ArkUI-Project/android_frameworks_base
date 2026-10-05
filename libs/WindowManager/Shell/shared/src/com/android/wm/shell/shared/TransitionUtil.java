@@ -23,6 +23,7 @@ import static android.view.RemoteAnimationTarget.MODE_OPENING;
 import static android.view.WindowManager.LayoutParams.INVALID_WINDOW_TYPE;
 import static android.view.WindowManager.LayoutParams.LAST_SYSTEM_WINDOW;
 import static android.view.WindowManager.LayoutParams.TYPE_DOCK_DIVIDER;
+import static android.view.WindowManager.LayoutParams.TYPE_STATUS_BAR;
 import static android.view.WindowManager.TRANSIT_CHANGE;
 import static android.view.WindowManager.TRANSIT_CLOSE;
 import static android.view.WindowManager.TRANSIT_KEYGUARD_GOING_AWAY;
@@ -31,6 +32,7 @@ import static android.view.WindowManager.TRANSIT_OPEN;
 import static android.view.WindowManager.TRANSIT_TO_BACK;
 import static android.view.WindowManager.TRANSIT_TO_FRONT;
 import static android.window.TransitionInfo.FLAG_FIRST_CUSTOM;
+import static android.window.TransitionInfo.FLAG_ARKUI_STATUS_BAR_FOLLOW;
 import static android.window.TransitionInfo.FLAG_IN_TASK_WITH_EMBEDDED_ACTIVITY;
 import static android.window.TransitionInfo.FLAG_IS_DISPLAY;
 import static android.window.TransitionInfo.FLAG_IS_WALLPAPER;
@@ -339,6 +341,19 @@ public class TransitionUtil {
     public static RemoteAnimationTarget newTarget(TransitionInfo.Change change, int order,
             boolean forceTranslucent, TransitionInfo info, SurfaceControl.Transaction t,
             @Nullable ArrayMap<SurfaceControl, SurfaceControl> leashMap) {
+        if (change.hasFlags(FLAG_ARKUI_STATUS_BAR_FOLLOW)) {
+            // WM already placed the real bar under its app. An extra leash at the transition
+            // root would lose that relationship and restore a second fixed-looking bar.
+            final TransitionInfo.Change parent = change.getParent() == null ? null
+                    : info.getChange(change.getParent());
+            final ActivityManager.RunningTaskInfo owner = parent == null ? null
+                    : parent.getTaskInfo();
+            final Rect source = new Rect(change.getEndAbsBounds());
+            return new RemoteAnimationTarget(owner == null ? INVALID_TASK_ID : owner.taskId,
+                    MODE_CHANGING, change.getLeash(), true, null, new Rect(), order, null,
+                    source, source, new WindowConfiguration(), true, null,
+                    new Rect(change.getStartAbsBounds()), null, false, TYPE_STATUS_BAR);
+        }
         final SurfaceControl leash = createLeash(info, change, order, t);
         if (leashMap != null) {
             leashMap.put(change.getLeash(), leash);

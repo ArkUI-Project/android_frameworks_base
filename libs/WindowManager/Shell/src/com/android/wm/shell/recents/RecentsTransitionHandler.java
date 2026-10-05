@@ -904,7 +904,11 @@ public class RecentsTransitionHandler implements Transitions.TransitionHandler,
             for (int i = 0; i < info.getChanges().size(); ++i) {
                 final TransitionInfo.Change change = info.getChanges().get(i);
                 final ActivityManager.RunningTaskInfo taskInfo = change.getTaskInfo();
-                if (TransitionUtil.isWallpaper(change)) {
+                if (change.hasFlags(TransitionInfo.FLAG_ARKUI_STATUS_BAR_FOLLOW)) {
+                    // Recents' binder has app/wallpaper arrays only. Launcher separates this
+                    // TYPE_STATUS_BAR target into nonApps before exposing the real task list.
+                    apps.add(TransitionUtil.newTarget(change, belowLayers - i, info, t, null));
+                } else if (TransitionUtil.isWallpaper(change)) {
                     final RemoteAnimationTarget target = TransitionUtil.newTarget(change,
                             // wallpapers go into the "below" layer space
                             belowLayers - i, info, t, mLeashMap);
