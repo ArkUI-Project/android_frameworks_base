@@ -63,6 +63,7 @@ public final class SidebarManager implements CoreStartable {
     private final Handler main;
     private final Executor background;
     private final KeyguardStateController keyguard;
+    private final GameBridge game;
     private volatile IArkSidebar service;
     private volatile Bundle configuration = Bundle.EMPTY;
     private volatile boolean available;
@@ -81,13 +82,15 @@ public final class SidebarManager implements CoreStartable {
     private String[] lastRecent;
 
     @Inject public SidebarManager(Context context, UserTracker users, @Main Handler handler,
-            @Background Executor background, KeyguardStateController keyguard) {
+            @Background Executor background, KeyguardStateController keyguard, GameBridge game) {
         this.context = context; this.users = users; main = handler;
         this.background = background; this.keyguard = keyguard;
+        this.game = game;
     }
 
     @Override public void start() {
         if (UserHandle.myUserId() != UserHandle.USER_SYSTEM) return;
+        game.start();
         users.addCallback(new UserTracker.Callback() {
             @Override public void onUserChanged(int id, @NonNull Context userContext) {
                 unbind(); foreground = ""; foregroundUserMatches = false;
@@ -104,6 +107,8 @@ public final class SidebarManager implements CoreStartable {
                 }
             }
             @Override public void onLockTaskModeChanged(int mode) { main.post(SidebarManager.this::sendEnvironment); }
+            @Override public void onTaskDisplayChanged(int taskId,int displayId) { main.post(SidebarManager.this::requestTaskRefresh); }
+            @Override public void onTaskFocusChanged(int taskId,boolean focused) { main.post(SidebarManager.this::requestTaskRefresh); }
         });
         IntentFilter state = new IntentFilter();
         state.addAction(Intent.ACTION_USER_UNLOCKED); state.addAction(Intent.ACTION_SCREEN_OFF);
@@ -247,7 +252,8 @@ public final class SidebarManager implements CoreStartable {
             boolean userMatches = false;
             List<String> list = new ArrayList<>();
             try {
-                ActivityManager.RunningTaskInfo top = ActivityManagerWrapper.getInstance().getRunningTask();
+                var tasks=ActivityTaskManager.getInstance().getTasks(1,false,false,Display.DEFAULT_DISPLAY);
+                ActivityManager.RunningTaskInfo top = tasks.isEmpty()?null:tasks.get(0);
                 userMatches = top != null && top.userId == user
                         && top.displayId == Display.DEFAULT_DISPLAY && top.topActivity != null;
                 if (userMatches) pkg = top.topActivity.getPackageName();
@@ -281,6 +287,7 @@ public final class SidebarManager implements CoreStartable {
         IArkSidebar target = service;
         available = target != null && configuration.getInt(ENABLED, 0) == 1
                 && foregroundUserMatches && environmentAllowed();
+        game.environment(available, foreground);
         if (target == null || (target == lastEnvironmentTarget && available == lastAvailable
                 && foreground.equals(lastForeground) && Arrays.equals(recent, lastRecent))) return;
         try {

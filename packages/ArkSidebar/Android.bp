@@ -16,6 +16,7 @@ android_app {
     certificate: "platform",
     system_ext_specific: true,
     static_libs: [
+        "ArkGameProtocol",
         "SettingsLibCollapsingToolbarBaseActivity",
         "SettingsLibSettingsTheme",
         "SettingsLibMainSwitchPreference",

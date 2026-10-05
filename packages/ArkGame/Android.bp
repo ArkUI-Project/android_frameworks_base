@@ -1,0 +1,18 @@
+// Copyright (C) 2026 The ArkUI Project; SPDX-License-Identifier: Apache-2.0
+package { default_applicable_licenses: ["Android-Apache-2.0"], }
+java_library {
+    name: "ArkGameProtocol",
+    srcs: ["protocol/**/*.java"],
+}
+android_app {
+    name: "ArkGame",
+    defaults: ["platform_app_defaults"],
+    srcs: ["src/**/*.java"],
+    platform_apis: true,
+    certificate: "platform",
+    system_ext_specific: true,
+    static_libs: ["ArkGameProtocol", "SettingsLibCollapsingToolbarBaseActivity",
+        "SettingsLibSettingsTheme", "SettingsLibMainSwitchPreference", "SettingsLibAppPreference",
+        "SettingsLibTopIntroPreference", "androidx.preference_preference",
+        "androidx.dynamicanimation_dynamicanimation"],
+}

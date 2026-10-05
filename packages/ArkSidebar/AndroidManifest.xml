@@ -9,6 +9,7 @@
          the foreground user's service and validates a narrow launcher protocol. -->
     <uses-permission android:name="android.permission.SYSTEM_APPLICATION_OVERLAY" />
     <uses-permission android:name="android.permission.VIBRATE" />
+    <uses-permission android:name="org.arkui.game.permission.CONTROL_GAME" />
     <queries>
         <intent>
             <action android:name="android.intent.action.MAIN" />

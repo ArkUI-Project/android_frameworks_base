@@ -52,6 +52,7 @@ import java.util.List;
 import java.util.Set;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
+import org.arkui.game.protocol.GameProtocol;
 
 /** Bound only by the foreground user's SystemUI; never runs a persistent or cross-user process. */
 public final class SidebarService extends Service implements SharedPreferences.OnSharedPreferenceChangeListener {
@@ -67,6 +68,30 @@ public final class SidebarService extends Service implements SharedPreferences.O
     private List<AppCatalog.App> apps = new ArrayList<>();
     private Set<String> excludedApps = Set.of();
     private String foreground = "";
+    private String gameForeground = "";
+    private boolean gameActive;
+    private Configuration overlayConfiguration;
+    private final android.content.ComponentCallbacks windowChanges=new android.content.ComponentCallbacks() {
+        @Override public void onConfigurationChanged(Configuration config) {
+            int changed=overlayConfiguration.updateFrom(config);
+            if (destroyed || (changed & (ActivityInfo.CONFIG_ORIENTATION|ActivityInfo.CONFIG_SCREEN_SIZE
+                    |ActivityInfo.CONFIG_DENSITY|ActivityInfo.CONFIG_UI_MODE|ActivityInfo.CONFIG_LOCALE
+                    |ActivityInfo.CONFIG_LAYOUT_DIRECTION))==0) return;
+            // WindowContext receives display geometry after the Service's configuration callback.
+            hideAll(); refreshHandles(); notifyConfiguration();
+        }
+        @Override public void onLowMemory() { }
+    };
+    private final BroadcastReceiver gameState = new BroadcastReceiver() {
+        @Override public void onReceive(Context c, Intent i) {
+            if (GameProtocol.OPEN_APPS.equals(i.getAction())) {
+                showPanel(i.getBooleanExtra("left",true),windows.getCurrentWindowMetrics().getBounds().height()*.4f,true);
+                return;
+            }
+            gameActive = i.getBooleanExtra("active", false);
+            gameForeground = i.getStringExtra("package");
+        }
+    };
     private String[] recent = new String[0];
     private boolean available, destroyed;
     private SidebarPanel panel;
@@ -131,6 +156,11 @@ public final class SidebarService extends Service implements SharedPreferences.O
                 WindowManager.LayoutParams.TYPE_APPLICATION_OVERLAY, null), R.style.SidebarTheme);
         windows = windowContext.getSystemService(WindowManager.class);
         prefs = new SidebarPreferences(this);
+        overlayConfiguration=new Configuration(windowContext.getResources().getConfiguration());
+        windowContext.registerComponentCallbacks(windowChanges);
+        IntentFilter gameFilter=new IntentFilter(GameProtocol.SIDEBAR_STATE); gameFilter.addAction(GameProtocol.OPEN_APPS);
+        registerReceiver(gameState, gameFilter,
+                GameProtocol.PERMISSION, main, Context.RECEIVER_EXPORTED);
         excludedApps = Set.copyOf(prefs.list(EXCLUDED));
         catalogConfiguration = new Configuration(getResources().getConfiguration());
         prefs.store.registerOnSharedPreferenceChangeListener(this);
@@ -496,7 +526,15 @@ public final class SidebarService extends Service implements SharedPreferences.O
     }
 
     private void showPanel(boolean left, float y) {
+        showPanel(left,y,false);
+    }
+    private void showPanel(boolean left, float y, boolean appsOnly) {
         if (!canShow() || panel != null) return;
+        if (!appsOnly && gameActive && foreground.equals(gameForeground)) {
+            sendBroadcast(new Intent(GameProtocol.OPEN).setPackage(GameProtocol.PACKAGE)
+                    .putExtra("left", left), GameProtocol.PERMISSION);
+            return;
+        }
         final SidebarPanel[] created = new SidebarPanel[1];
         created[0] = new SidebarPanel(windowContext, prefs, apps,
                 AppCatalog.rail(apps, prefs, recent), left, y,
@@ -551,8 +589,10 @@ public final class SidebarService extends Service implements SharedPreferences.O
     }
     @Override public void onDestroy() {
         destroyed = true; hideAll(); detachHost();
+        windowContext.unregisterComponentCallbacks(windowChanges);
         prefs.store.unregisterOnSharedPreferenceChangeListener(this);
         unregisterReceiver(packages); unregisterReceiver(screen);
+        unregisterReceiver(gameState);
         loader.shutdownNow(); main.removeCallbacksAndMessages(null);
         super.onDestroy();
     }

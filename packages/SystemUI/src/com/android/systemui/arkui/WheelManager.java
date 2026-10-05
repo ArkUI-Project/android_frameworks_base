@@ -106,6 +106,7 @@ public final class WheelManager implements CoreStartable {
         TaskStackChangeListeners.getInstance().registerTaskStackListener(new TaskStackChangeListener() {
             @Override public void onTaskStackChanged() { main.post(WheelManager.this::scheduleQuery); }
             @Override public void onLockTaskModeChanged(int mode) { main.post(WheelManager.this::environment); }
+            @Override public void onTaskDisplayChanged(int taskId,int displayId) { main.post(WheelManager.this::scheduleQuery); }
         });
         IntentFilter state = new IntentFilter(); state.addAction(Intent.ACTION_USER_UNLOCKED);
         state.addAction(Intent.ACTION_SCREEN_ON); state.addAction(Intent.ACTION_SCREEN_OFF); state.addAction(Intent.ACTION_USER_PRESENT);
@@ -204,7 +205,8 @@ public final class WheelManager implements CoreStartable {
         background.execute(() -> {
             boolean matches = false; String pkg = ""; List<String> packages = new ArrayList<>();
             try {
-                ActivityManager.RunningTaskInfo top = ActivityManagerWrapper.getInstance().getRunningTask();
+                var tasks=ActivityTaskManager.getInstance().getTasks(1,false,false,Display.DEFAULT_DISPLAY);
+                ActivityManager.RunningTaskInfo top = tasks.isEmpty()?null:tasks.get(0);
                 matches = top != null && top.userId == user && top.displayId == Display.DEFAULT_DISPLAY && top.topActivity != null;
                 if (matches) pkg = top.topActivity.getPackageName();
                 for (ActivityManager.RecentTaskInfo task : ActivityTaskManager.getInstance().getRecentTasks(12, ActivityManager.RECENT_IGNORE_UNAVAILABLE, user)) {
