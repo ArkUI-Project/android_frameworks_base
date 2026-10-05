@@ -9,6 +9,9 @@ import android.content.pm.ApplicationInfo;
 import android.content.pm.LauncherActivityInfo;
 import android.content.pm.LauncherApps;
 import android.graphics.drawable.Drawable;
+import android.graphics.drawable.GradientDrawable;
+import android.graphics.drawable.InsetDrawable;
+import android.graphics.drawable.LayerDrawable;
 import android.os.Process;
 
 import java.text.Collator;
@@ -21,15 +24,29 @@ final class AppCatalog {
         final ComponentName component;
         final String label;
         final Drawable icon;
+        final boolean recognition;
         private final String key, packageName, searchLabel, searchPackage;
         App(LauncherActivityInfo info, int density) {
             component = info.getComponentName();
             label = info.getLabel().toString();
             icon = info.getBadgedIcon(density);
+            recognition = false;
             key = component.flattenToString();
             packageName = component.getPackageName();
             searchLabel = label.toLowerCase(Locale.getDefault());
             searchPackage = packageName.toLowerCase(Locale.ROOT);
+        }
+        App(Context context) {
+            // This stable catalog identity is persisted like an installed app, but is
+            // dispatched locally rather than sent to LauncherApps as an activity.
+            component = new ComponentName(PACKAGE, PACKAGE + ".ScreenRecognition");
+            label = context.getString(R.string.recognize_screen);
+            icon = recognitionIcon(context);
+            recognition = true;
+            key = component.flattenToString();
+            packageName = PACKAGE;
+            searchLabel = label.toLowerCase(Locale.getDefault());
+            searchPackage = "ocr screen recognition image text 识图 图片 文字";
         }
         String key() { return key; }
         String pkg() { return packageName; }
@@ -49,9 +66,22 @@ final class AppCatalog {
             try { result.add(new App(info, density)); }
             catch (RuntimeException ignored) { /* Package may disappear while its icon loads. */ }
         }
+        result.add(new App(context));
         Collator collator = Collator.getInstance();
         result.sort((a, b) -> collator.compare(a.label, b.label));
         return result;
+    }
+
+    private static Drawable recognitionIcon(Context context) {
+        GradientDrawable background = SidebarStyle.rounded(context.getColor(
+                com.android.internal.R.color.materialColorPrimaryContainer),
+                SidebarStyle.dp(context, 16));
+        background.setSize(SidebarStyle.dp(context, 48), SidebarStyle.dp(context, 48));
+        Drawable glyph = context.getDrawable(R.drawable.ic_screen_recognition).mutate();
+        glyph.setTint(context.getColor(
+                com.android.internal.R.color.materialColorOnPrimaryContainer));
+        return new LayerDrawable(new Drawable[] {background,
+                new InsetDrawable(glyph, SidebarStyle.dp(context, 12))});
     }
 
     static List<App> rail(List<App> all, SidebarPreferences prefs, String[] recent) {
@@ -61,7 +91,7 @@ final class AppCatalog {
             // Seed useful installed apps only; never hard-code icons or unavailable packages.
             for (App app : all) {
                 if (result.size() == 4) break;
-                if (!"com.android.settings".equals(app.pkg())) result.add(app);
+                if (!app.recognition && !"com.android.settings".equals(app.pkg())) result.add(app);
             }
         } else {
             for (String key : pinned) {
@@ -72,13 +102,13 @@ final class AppCatalog {
             for (String pkg : recent) {
                 for (App app : all) {
                     if (result.size() >= Math.max(7, pinned.size())) break;
-                    if (app.pkg().equals(pkg) && !result.contains(app)) result.add(app);
+                    if (!app.recognition && app.pkg().equals(pkg) && !result.contains(app)) result.add(app);
                 }
             }
             if (!prefs.store.contains(PINNED)) {
                 for (App app : all) {
                     if (result.size() >= 7) break;
-                    if (!result.contains(app)) result.add(app);
+                    if (!app.recognition && !result.contains(app)) result.add(app);
                 }
             }
         }

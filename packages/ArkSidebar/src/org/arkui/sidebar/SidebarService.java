@@ -76,7 +76,7 @@ public final class SidebarService extends Service implements SharedPreferences.O
             int changed=overlayConfiguration.updateFrom(config);
             if (destroyed || (changed & (ActivityInfo.CONFIG_ORIENTATION|ActivityInfo.CONFIG_SCREEN_SIZE
                     |ActivityInfo.CONFIG_DENSITY|ActivityInfo.CONFIG_UI_MODE|ActivityInfo.CONFIG_LOCALE
-                    |ActivityInfo.CONFIG_LAYOUT_DIRECTION))==0) return;
+                    |ActivityInfo.CONFIG_LAYOUT_DIRECTION|ActivityInfo.CONFIG_ASSETS_PATHS))==0) return;
             // WindowContext receives display geometry after the Service's configuration callback.
             hideAll(); refreshHandles(); notifyConfiguration();
         }
@@ -602,7 +602,7 @@ public final class SidebarService extends Service implements SharedPreferences.O
         super.onConfigurationChanged(config);
         int changed = catalogConfiguration.updateFrom(config);
         if ((changed & (ActivityInfo.CONFIG_LOCALE | ActivityInfo.CONFIG_DENSITY
-                | ActivityInfo.CONFIG_UI_MODE)) != 0) invalidateApps(0);
+                | ActivityInfo.CONFIG_UI_MODE | ActivityInfo.CONFIG_ASSETS_PATHS)) != 0) invalidateApps(0);
         else { hideAll(); refreshHandles(); notifyConfiguration(); }
     }
     @Override public void onDestroy() {

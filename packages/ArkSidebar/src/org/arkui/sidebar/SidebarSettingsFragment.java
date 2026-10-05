@@ -329,6 +329,7 @@ public final class SidebarSettingsFragment extends SettingsBasePreferenceFragmen
         // Keep preference identities stable so checking or reordering one app does
         // not recreate the screen, search dialog, or every application's row.
         for (AppCatalog.App app : apps) {
+            if (EXCLUDED.equals(page) && app.recognition) continue;
             String id = PINNED.equals(page) ? app.key() : app.pkg();
             if (appChoices.containsKey(id)) continue;
             AppChoice item = new AppChoice(preferenceContext(), id);
@@ -348,6 +349,7 @@ public final class SidebarSettingsFragment extends SettingsBasePreferenceFragmen
         for (int i = 0; i < selected.size(); i++) selectedOrder.putIfAbsent(selected.get(i), i);
         Map<String, AppCatalog.App> matches = new LinkedHashMap<>();
         for (AppCatalog.App app : AppCatalog.filter(apps, query)) {
+            if (EXCLUDED.equals(page) && app.recognition) continue;
             matches.putIfAbsent(PINNED.equals(page) ? app.key() : app.pkg(), app);
         }
         Map<String, Integer> matchOrder = new HashMap<>();

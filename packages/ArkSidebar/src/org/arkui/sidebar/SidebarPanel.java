@@ -57,12 +57,11 @@ final class SidebarPanel {
     private final FrameLayout root;
     private final LinearLayout rail, drawer;
     private final Glyph gridButton;
-    private final LinearLayout recognitionButton;
     private EditText appSearch;
     private RecyclerView appGrid;
     private Insets insets = Insets.NONE;
     private boolean expanded, closing;
-    private int iconSize, railWidth, panelHeight, drawerWidth;
+    private int iconSize, railWidth, panelHeight, drawerWidth, drawerHeight;
 
     SidebarPanel(Context c, SidebarPreferences p, List<AppCatalog.App> all,
             List<AppCatalog.App> railApps, boolean isLeft, float y,
@@ -134,26 +133,7 @@ final class SidebarPanel {
         LinearLayout.LayoutParams dlp = new LinearLayout.LayoutParams(dp(c, 26), dp(c, 1));
         dlp.topMargin = dp(c, 5); dlp.bottomMargin = dp(c, 5);
         rail.addView(divider, dlp);
-        recognitionButton = new LinearLayout(c);
-        recognitionButton.setOrientation(LinearLayout.VERTICAL);
-        recognitionButton.setGravity(Gravity.CENTER);
-        recognitionButton.setFocusable(true);
-        recognitionButton.setContentDescription(c.getString(R.string.recognize_screen));
-        recognitionButton.setBackground(buttonBackground(c, c.getColor(
-                com.android.internal.R.color.materialColorPrimaryContainer), dp(c, 18)));
-        Glyph recognize = new Glyph(c, Glyph.RECOGNIZE, c.getString(R.string.recognize_screen));
-        recognize.setFocusable(false);
-        recognize.setImportantForAccessibility(View.IMPORTANT_FOR_ACCESSIBILITY_NO);
-        recognitionButton.addView(recognize, new LinearLayout.LayoutParams(dp(c, 28), dp(c, 28)));
-        TextView recognitionLabel = text(c, c.getString(R.string.recognize), 11,
-                c.getColor(com.android.internal.R.color.materialColorOnPrimaryContainer));
-        recognitionLabel.setGravity(Gravity.CENTER);
-        recognitionButton.addView(recognitionLabel, new LinearLayout.LayoutParams(-1, -2));
-        recognitionButton.setOnClickListener(v -> { close(); actions.recognize(); });
         int buttonSize = railWidth - rail.getPaddingLeft() - rail.getPaddingRight();
-        LinearLayout.LayoutParams recognitionBounds = new LinearLayout.LayoutParams(buttonSize, dp(c, 56));
-        recognitionBounds.bottomMargin = dp(c, 6);
-        rail.addView(recognitionButton, recognitionBounds);
         gridButton = new Glyph(c, Glyph.GRID, c.getString(R.string.all_apps));
         gridButton.setBackground(buttonBackground(c, secondaryContainer(c), buttonSize / 2f));
         gridButton.setOnClickListener(v -> { if (expanded) collapse(); else showApps(); });
@@ -211,8 +191,7 @@ final class SidebarPanel {
         panelHeight = Math.min(dp(context, 490), availableHeight - dp(context, 16));
         int contentHeight = Math.max(1, Math.min(7, pinned.size())) * (iconSize + dp(context, 10))
                 + rail.getPaddingTop() + rail.getPaddingBottom()
-                + gridButton.getLayoutParams().height + recognitionButton.getLayoutParams().height
-                + dp(context, 17);
+                + gridButton.getLayoutParams().height + dp(context, 11);
         panelHeight = Math.min(panelHeight, contentHeight);
         int margin = dp(context, 10);
         int top = Math.max(insets.top + dp(context, 8),
@@ -225,9 +204,14 @@ final class SidebarPanel {
         rail.setLayoutParams(rlp);
         drawerWidth = Math.min(dp(context, 278), root.getWidth() - insets.left - insets.right
                 - railWidth - margin * 3);
-        FrameLayout.LayoutParams dlp = new FrameLayout.LayoutParams(drawerWidth, panelHeight);
+        // Keep the catalog usable even when the user has pinned only one item.
+        drawerHeight = Math.min(dp(context, 490), availableHeight - dp(context, 16));
+        int drawerTop = Math.max(insets.top + dp(context, 8),
+                Math.min((int) touchY - drawerHeight / 2,
+                        root.getHeight() - insets.bottom - drawerHeight - dp(context, 8)));
+        FrameLayout.LayoutParams dlp = new FrameLayout.LayoutParams(drawerWidth, drawerHeight);
         dlp.leftMargin = left ? railX + railWidth + margin : railX - margin - drawerWidth;
-        dlp.topMargin = top;
+        dlp.topMargin = drawerTop;
         drawer.setLayoutParams(dlp);
     }
 
@@ -276,16 +260,22 @@ final class SidebarPanel {
         if (tile.getChildCount() > 1) ((TextView) tile.getChildAt(1)).setText(app.label);
         tile.setOnClickListener(v -> {
             close();
-            actions.launch(app, prefs.get(LAUNCH_MODE, 0, 0, 1) == 0);
+            launch(app, prefs.get(LAUNCH_MODE, 0, 0, 1) == 0);
         });
         tile.setOnLongClickListener(v -> {
             PopupMenu menu = new PopupMenu(context, v);
-            menu.getMenu().add(R.string.small_window).setOnMenuItemClickListener(i -> {
-                close(); actions.launch(app, true); return true;
-            });
-            menu.getMenu().add(R.string.fullscreen).setOnMenuItemClickListener(i -> {
-                close(); actions.launch(app, false); return true;
-            });
+            if (app.recognition) {
+                menu.getMenu().add(R.string.recognize_screen).setOnMenuItemClickListener(i -> {
+                    close(); launch(app, false); return true;
+                });
+            } else {
+                menu.getMenu().add(R.string.small_window).setOnMenuItemClickListener(i -> {
+                    close(); launch(app, true); return true;
+                });
+                menu.getMenu().add(R.string.fullscreen).setOnMenuItemClickListener(i -> {
+                    close(); launch(app, false); return true;
+                });
+            }
             List<String> keys = prefs.list(PINNED);
             if (!prefs.store.contains(PINNED)) for (AppCatalog.App a : pinned) keys.add(a.key());
             boolean contains = keys.contains(app.key());
@@ -296,6 +286,11 @@ final class SidebarPanel {
                     });
             menu.show(); return true;
         });
+    }
+
+    private void launch(AppCatalog.App app, boolean smallWindow) {
+        if (app.recognition) actions.recognize();
+        else actions.launch(app, smallWindow);
     }
 
     private void showApps() {
@@ -395,7 +390,8 @@ final class SidebarPanel {
         gridButton.setScaleX(left ? 1 : -1);
         gridButton.setContentDescription(context.getString(R.string.collapse));
         drawer.setVisibility(View.VISIBLE); applySurface(drawer);
-        drawer.setPivotX(left ? 0 : drawerWidth); drawer.setPivotY(panelHeight / 2f);
+        drawer.setPivotX(left ? 0 : drawerWidth);
+        drawer.setPivotY(Math.max(0, Math.min(drawerHeight, touchY - drawer.getY())));
         drawer.setScaleX(.15f); drawer.setScaleY(.9f); drawer.setAlpha(0);
         drawer.animate().scaleX(1).scaleY(1).alpha(1).setDuration(duration(360))
                 .setInterpolator(new OvershootInterpolator(.35f)).start();

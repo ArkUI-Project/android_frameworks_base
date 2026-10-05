@@ -48,7 +48,7 @@ final class SidebarStyle {
 
     /** Resolution-independent toolbar geometry; application artwork comes from PackageManager. */
     static final class Glyph extends View {
-        static final int GRID = 0, BACK = 1, EDIT = 2, DOTS = 3, SEARCH = 4, RECOGNIZE = 5;
+        static final int GRID = 0, BACK = 1, EDIT = 2, DOTS = 3, SEARCH = 4;
         private final Paint paint = new Paint(Paint.ANTI_ALIAS_FLAG);
         private int kind;
         Glyph(Context c, int kind, String description) {
@@ -66,8 +66,7 @@ final class SidebarStyle {
                     (getHeight() - dp(getContext(), 24)) / 2f);
             float unit = dp(getContext(), 24) / 24f;
             canvas.scale(unit, unit);
-            paint.setColor(kind == RECOGNIZE ? getContext().getColor(
-                    com.android.internal.R.color.materialColorOnPrimaryContainer) : onSurface(getContext()));
+            paint.setColor(onSurface(getContext()));
             paint.setStyle(Paint.Style.FILL);
             if (kind == GRID) {
                 for (int x = 3; x <= 13; x += 10) for (int y = 3; y <= 13; y += 10) {
@@ -86,15 +85,6 @@ final class SidebarStyle {
                 } else if (kind == SEARCH) {
                     canvas.drawCircle(10, 10, 6, paint);
                     canvas.drawLine(15, 15, 21, 21, paint);
-                } else if (kind == RECOGNIZE) {
-                    Path corners = new Path();
-                    corners.moveTo(3, 8); corners.lineTo(3, 3); corners.lineTo(8, 3);
-                    corners.moveTo(16, 3); corners.lineTo(21, 3); corners.lineTo(21, 8);
-                    corners.moveTo(21, 16); corners.lineTo(21, 21); corners.lineTo(16, 21);
-                    corners.moveTo(8, 21); corners.lineTo(3, 21); corners.lineTo(3, 16);
-                    canvas.drawPath(corners, paint);
-                    canvas.drawLine(7, 9, 17, 9, paint);
-                    canvas.drawLine(7, 15, 14, 15, paint);
                 } else {
                     canvas.drawRoundRect(4, 5, 19, 21, 3, 3, paint);
                     canvas.drawLine(11, 13, 21, 3, paint);

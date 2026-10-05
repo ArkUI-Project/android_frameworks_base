@@ -16,7 +16,7 @@
     <string name="handle_move_down">Move handle down</string>
     <string name="recommend">Show recommended apps</string>
     <string name="apps">Sidebar apps</string>
-    <string name="apps_summary">Choose and reorder pinned apps. Long-press an app in the sidebar for more options.</string>
+    <string name="apps_summary">Pin and reorder apps or screen recognition. Long-press a sidebar icon for more options.</string>
     <string name="appearance">Handle and appearance</string>
     <string name="gestures">Gestures and animation</string>
     <string name="advanced">App rules</string>
@@ -38,8 +38,7 @@
     <string name="small_window">Small window</string>
     <string name="fullscreen">Full screen</string>
     <string name="excluded">Hide sidebar in selected apps</string>
-    <string name="all_apps">All small-window apps</string>
-    <string name="recognize">Recognize</string>
+    <string name="all_apps">All apps</string>
     <string name="recognize_screen">Recognize screen</string>
     <string name="search">Search apps</string>
     <string name="edit">Edit sidebar apps</string>
