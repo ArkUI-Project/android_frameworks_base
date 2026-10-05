@@ -193,7 +193,10 @@ final class HyperOsWindowDecor {
         } else {
             // Relative layers follow task Z order: a lower window's handle cannot cover
             // another app window, and moving one task to front brings its chrome with it.
-            transaction.setRelativeLayer(token.mSurfaceControl, task.mSurfaceControl, 1)
+            // Activity and TaskFragment children also occupy task-relative layers. Keep
+            // chrome above the entire stack so expanded apps cannot intercept its handles.
+            transaction.setRelativeLayer(token.mSurfaceControl, task.mSurfaceControl,
+                            Integer.MAX_VALUE)
                     .show(token.mSurfaceControl);
         }
         return true;
