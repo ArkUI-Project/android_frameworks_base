@@ -1168,6 +1168,8 @@
   <java-symbol type="string" name="private_profile_label_badge" />
   <java-symbol type="string" name="profile_label_private" />
   <java-symbol type="string" name="profile_label_clone" />
+  <java-symbol type="string" name="profile_label_app_twin" />
+  <java-symbol type="string" name="app_twin_profile_label_badge" />
   <java-symbol type="string" name="profile_label_work" />
   <java-symbol type="string" name="profile_label_work_2" />
   <java-symbol type="string" name="profile_label_work_3" />

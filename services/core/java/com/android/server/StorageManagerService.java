@@ -4975,7 +4975,9 @@ class StorageManagerService extends IStorageManager.Stub
         private void killAppForOpChange(int code, int uid) {
             final IActivityManager am = ActivityManager.getService();
             try {
-                am.killUid(UserHandle.getAppId(uid), UserHandle.USER_ALL,
+                // App-op changes belong to a full UID. Restarting every user also kills the
+                // owner's Settings while a new profile is being provisioned.
+                am.killUid(UserHandle.getAppId(uid), UserHandle.getUserId(uid),
                         AppOpsManager.opToName(code) + " changed.");
             } catch (RemoteException e) {
             }

@@ -4233,6 +4233,7 @@ public class UserManagerService extends IUserManager.Stub {
      * towards config_multiuserMaximumUsers.
      */
     private boolean isUserTypeSubjectToSwitchableUserMaximum(UserTypeDetails userTypeDetails) {
+        if (UserManager.USER_TYPE_PROFILE_APP_TWIN.equals(userTypeDetails.getName())) return false;
         if (!android.multiuser.Flags.decoupleMaxUsersFromProfiles()) {
             return !shouldUserTypeIgnoreOverallDeviceUserMaximum(userTypeDetails.getName());
         }
@@ -4368,6 +4369,7 @@ public class UserManagerService extends IUserManager.Stub {
             // Limit total number of users that can be created (except for guest and demo)
             int result =
                     UserManager.isUserTypeGuest(userType) || UserManager.isUserTypeDemo(userType)
+                            || UserManager.USER_TYPE_PROFILE_APP_TWIN.equals(userType)
                         ? Integer.MAX_VALUE
                         : (UserManager.getMaxSupportedUsers() - userCount);
 
@@ -4576,7 +4578,9 @@ public class UserManagerService extends IUserManager.Stub {
                     - profilesRemovedCount;
 
             // Limit total number of users that can be created
-            int result = UserManager.getMaxSupportedUsers() - usersCountAfterRemoving;
+            int result = UserManager.USER_TYPE_PROFILE_APP_TWIN.equals(userType)
+                    ? type.getMaxAllowedPerParent()
+                    : UserManager.getMaxSupportedUsers() - usersCountAfterRemoving;
 
             // Special case: Allow creating a managed profile anyway if there's only 1 user
             if (result <= 0 && isManagedProfile && usersCountAfterRemoving == 1) {
@@ -4616,6 +4620,7 @@ public class UserManagerService extends IUserManager.Stub {
         for (int i = 0; i < totalUserCount; i++) {
             UserInfo user = mUsers.valueAt(i).info;
             if (!mRemovingUserIds.get(user.id)
+                    && !user.isAppTwinProfile()
                     && (android.multiuser.Flags.decoupleMaxUsersFromProfiles() ?
                             isUserTypeSubjectToSwitchableUserMaximum(user) : !user.isGuest())
                     && !user.preCreated) {
@@ -6318,7 +6323,8 @@ public class UserManagerService extends IUserManager.Stub {
         // If new user is of type MANAGED, check if creation of managed profile is allowed
         // If new user is of type PRIVATE, check if creation of private profile is allowed
         String restriction = UserManager.DISALLOW_ADD_USER;
-        if (UserManager.isUserTypeCloneProfile(userType)) {
+        if (UserManager.isUserTypeCloneProfile(userType)
+                || UserManager.USER_TYPE_PROFILE_APP_TWIN.equals(userType)) {
             restriction = UserManager.DISALLOW_ADD_CLONE_PROFILE;
         } else if (UserManager.isUserTypeManagedProfile(userType)) {
             restriction = UserManager.DISALLOW_ADD_MANAGED_PROFILE;
@@ -6471,6 +6477,7 @@ public class UserManagerService extends IUserManager.Stub {
                 if (!android.multiuser.Flags.consistentMaxUsers()
                         && !isGuest && !UserManager.isUserTypeManagedProfile(userType)
                         && !UserManager.isUserTypeDemo(userType)
+                        && !UserManager.USER_TYPE_PROFILE_APP_TWIN.equals(userType)
                         && isUserLimitReachedForLoggingLegacy()) {
                     // Keep logic in sync with getRemainingCreatableUserCountLegacy().
                     // If the user limit has been reached, we cannot add a user (except guest/demo).

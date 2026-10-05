@@ -102,6 +102,11 @@ Changes to the whitelist during system updates can result in installing addition
 to pre-existing users, but cannot uninstall pre-existing system packages from pre-existing users.
 -->
 <config>
+    <!-- App-twin permission pages and the explicit cross-space share chooser. -->
+    <install-in-user-type package="com.android.settings">
+        <install-in user-type="org.arkui.usertype.profile.APP_TWIN" />
+    </install-in-user-type>
+
     <!--  Bluetooth (com.android.bt apex) - visible on the sharesheet -->
     <install-in-user-type package="com.android.bluetooth">
         <install-in user-type="SYSTEM" />

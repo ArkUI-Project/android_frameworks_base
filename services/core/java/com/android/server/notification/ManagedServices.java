@@ -2448,7 +2448,7 @@ abstract public class ManagedServices {
                 if (privateSpaceFlagsEnabled()) {
                     return user.isProfile() && hasParent(user, context);
                 }
-                return user.isManagedProfile() || user.isCloneProfile();
+                return user.isManagedProfile() || user.isCloneProfile() || user.isAppTwinProfile();
             }
         }
 

@@ -110,6 +110,7 @@ public final class UserTypeFactory {
         builders.put(USER_TYPE_FULL_RESTRICTED, getDefaultTypeFullRestricted());
         builders.put(USER_TYPE_SYSTEM_HEADLESS, getDefaultTypeSystemHeadless());
         builders.put(USER_TYPE_PROFILE_CLONE, getDefaultTypeProfileClone());
+        builders.put(UserManager.USER_TYPE_PROFILE_APP_TWIN, getDefaultTypeProfileAppTwin());
         builders.put(USER_TYPE_PROFILE_COMMUNAL, getDefaultTypeProfileCommunal());
         builders.put(USER_TYPE_PROFILE_PRIVATE, getDefaultTypeProfilePrivate());
         builders.put(USER_TYPE_PROFILE_SUPERVISING, getDefaultTypeProfileSupervising());
@@ -169,6 +170,41 @@ public final class UserTypeFactory {
                         .setDeleteAppWithParent(true)
                         .setCrossProfileContentSharingStrategy(UserProperties
                                 .CROSS_PROFILE_CONTENT_SHARING_DELEGATE_FROM_PARENT));
+    }
+
+    private static UserTypeDetails.Builder getDefaultTypeProfileAppTwin() {
+        return new UserTypeDetails.Builder()
+                .setName(UserManager.USER_TYPE_PROFILE_APP_TWIN)
+                .setBaseType(FLAG_PROFILE)
+                .setMaxAllowed(8)
+                .setMaxAllowedPerParent(8)
+                .setProfileParentRequired(true)
+                .setLabels(R.string.profile_label_app_twin)
+                .setIconBadge(R.drawable.ic_clone_icon_badge)
+                .setBadgePlain(R.drawable.ic_clone_badge)
+                .setBadgeNoBackground(R.drawable.ic_clone_badge)
+                .setStatusBarIcon(Resources.ID_NULL)
+                .setBadgeLabels(R.string.app_twin_profile_label_badge)
+                .setBadgeColors(android.R.color.system_accent1_600)
+                .setDarkThemeBadgeColors(android.R.color.system_accent1_200)
+                .setAccessibilityString(R.string.profile_label_app_twin)
+                .setDefaultSecureSettings(getDefaultNonManagedProfileSecureSettings())
+                // Telephony and keyboard settings use the parent; app data remains isolated.
+                .setDefaultCrossProfileIntentFilters(getDefaultAppTwinCrossProfileIntentFilters())
+                .setDefaultUserProperties(new UserProperties.Builder()
+                        .setStartWithParent(true)
+                        .setCredentialShareableWithParent(true)
+                        .setShowInLauncher(UserProperties.SHOW_IN_LAUNCHER_WITH_PARENT)
+                        .setShowInSettings(UserProperties.SHOW_IN_SETTINGS_NO)
+                        .setShowInQuietMode(UserProperties.SHOW_IN_QUIET_MODE_PAUSED)
+                        .setShowInSharingSurfaces(UserProperties.SHOW_IN_SHARING_SURFACES_WITH_PARENT)
+                        .setInheritDevicePolicy(UserProperties.INHERIT_DEVICE_POLICY_FROM_PARENT)
+                        .setUseParentsContacts(false)
+                        .setMediaSharedWithParent(false)
+                        .setDeleteAppWithParent(true)
+                        .setUpdateCrossProfileIntentFiltersOnOTA(true)
+                        .setCrossProfileIntentFilterAccessControl(
+                                UserProperties.CROSS_PROFILE_INTENT_FILTER_ACCESS_LEVEL_SYSTEM));
     }
 
     /**
@@ -535,6 +571,18 @@ public final class UserTypeFactory {
     private static List<DefaultCrossProfileIntentFilter>
             getDefaultManagedCrossProfileIntentFilter() {
         return DefaultCrossProfileIntentFiltersUtils.getDefaultManagedProfileFilters();
+    }
+
+    private static List<DefaultCrossProfileIntentFilter> getDefaultAppTwinCrossProfileIntentFilters() {
+        var filters = new java.util.ArrayList<>(getDefaultPrivateCrossProfileIntentFilter());
+        filters.add(new DefaultCrossProfileIntentFilter.Builder(
+                DefaultCrossProfileIntentFilter.Direction.TO_PARENT,
+                android.content.pm.PackageManager.SKIP_CURRENT_PROFILE, false)
+                .addAction(android.provider.Settings.ACTION_INPUT_METHOD_SETTINGS)
+                .addAction(android.provider.Settings.ACTION_INPUT_METHOD_SUBTYPE_SETTINGS)
+                .addCategory(android.content.Intent.CATEGORY_DEFAULT)
+                .build());
+        return filters;
     }
 
     private static List<DefaultCrossProfileIntentFilter> getDefaultCloneCrossProfileIntentFilter() {

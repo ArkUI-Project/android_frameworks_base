@@ -1054,11 +1054,29 @@ public class NotificationManagerService extends SystemService {
         if (privateSpaceFlagsEnabled()) {
             return userInfo.isProfile() && hasParent(userInfo);
         }
-        return userInfo.isManagedProfile() || userInfo.isCloneProfile();
+        return userInfo.isManagedProfile() || userInfo.isCloneProfile()
+                || userInfo.isAppTwinProfile();
     }
 
     boolean hasParent(UserInfo profile) {
         return mUmInternal.getProfileParentId(profile.id) != profile.id;
+    }
+
+    private void refreshAppTwinNames(int userId) {
+        final UserInfo user = mUmInternal.getUserInfo(userId);
+        if (user == null || !user.isAppTwinProfile()) return;
+        synchronized (mNotificationLock) {
+            for (NotificationRecord record : mNotificationList) {
+                if (record.getUserId() != userId) continue;
+                Notification notification = record.getNotification();
+                ApplicationInfo app = notification.extras.getParcelable(
+                        Notification.EXTRA_BUILDER_APPLICATION_INFO, ApplicationInfo.class);
+                if (app == null) continue;
+                notification.extras.putString(Notification.EXTRA_SUBSTITUTE_APP_NAME,
+                        app.loadLabel(mPackageManagerClient) + " · " + user.name);
+                mListeners.notifyPostedLocked(record, record);
+            }
+        }
     }
 
     protected void setDefaultAssistantForUser(int userId) {
@@ -2449,6 +2467,9 @@ public class NotificationManagerService extends SystemService {
                     mHistoryManager.onUserAdded(userId);
                     mSettingsObserver.update(null, userId);
                 }
+            } else if (action.equals(Intent.ACTION_USER_INFO_CHANGED)) {
+                final int userId = intent.getIntExtra(Intent.EXTRA_USER_HANDLE, USER_NULL);
+                mHandler.post(() -> refreshAppTwinNames(userId));
             } else if (action.equals(Intent.ACTION_USER_REMOVED)) {
                 final int userId = intent.getIntExtra(Intent.EXTRA_USER_HANDLE, USER_NULL);
                 mUserProfiles.updateCache(context);
@@ -3003,6 +3024,7 @@ public class NotificationManagerService extends SystemService {
             filter.addAction(Intent.ACTION_USER_SWITCHED);
         }
         filter.addAction(Intent.ACTION_USER_ADDED);
+        filter.addAction(Intent.ACTION_USER_INFO_CHANGED);
         filter.addAction(Intent.ACTION_USER_REMOVED);
         filter.addAction(Intent.ACTION_USER_UNLOCKED);
         filter.addAction(Intent.ACTION_MANAGED_PROFILE_UNAVAILABLE);
@@ -9172,6 +9194,13 @@ public class NotificationManagerService extends SystemService {
                             + Manifest.permission.SUBSTITUTE_NOTIFICATION_APP_NAME);
                 }
             }
+        }
+
+        // The server supplies the instance identity after stripping untrusted substitutions.
+        final UserInfo twinUser = mUmInternal.getUserInfo(userId);
+        if (twinUser != null && twinUser.isAppTwinProfile()) {
+            notification.extras.putString(Notification.EXTRA_SUBSTITUTE_APP_NAME,
+                    ai.loadLabel(mPackageManagerClient) + " · " + twinUser.name);
         }
 
         // Remote views? Are they too big?

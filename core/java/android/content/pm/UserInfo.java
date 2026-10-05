@@ -408,6 +408,11 @@ public class UserInfo implements Parcelable {
         return UserManager.isUserTypeCloneProfile(userType);
     }
 
+    /** @hide */
+    public boolean isAppTwinProfile() {
+        return UserManager.USER_TYPE_PROFILE_APP_TWIN.equals(userType);
+    }
+
     @FlaggedApi(android.multiuser.Flags.FLAG_SUPPORT_COMMUNAL_PROFILE)
     public boolean isCommunalProfile() {
         return UserManager.isUserTypeCommunalProfile(userType);

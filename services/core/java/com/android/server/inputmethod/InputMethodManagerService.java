@@ -341,7 +341,16 @@ public final class InputMethodManagerService implements IInputMethodManagerImpl.
     @UserIdInt
     @BinderThread
     private int resolveImeUserIdLocked(@UserIdInt int callingProcessUserId) {
-        return mConcurrentMultiUserModeEnabled ? callingProcessUserId : mCurrentImeUserId;
+        return mConcurrentMultiUserModeEnabled
+                ? resolveAppTwinImeUserId(callingProcessUserId) : mCurrentImeUserId;
+    }
+
+    /** App twins always use the parent's IME process, enabled methods and selection. */
+    @UserIdInt
+    private int resolveAppTwinImeUserId(@UserIdInt int userId) {
+        final UserInfo user = mUserManagerInternal.getUserInfo(userId);
+        return user != null && user.isAppTwinProfile()
+                ? mUserManagerInternal.getProfileParentId(userId) : userId;
     }
 
     /**
@@ -1567,6 +1576,7 @@ public final class InputMethodManagerService implements IInputMethodManagerImpl.
             mContext.enforceCallingOrSelfPermission(
                     Manifest.permission.INTERACT_ACROSS_USERS_FULL, null);
         }
+        userId = resolveAppTwinImeUserId(userId);
         final InputMethodSettings settings = InputMethodSettingsRepository.get(userId);
         final String selectedImeId;
         final var bindingController = getInputMethodBindingController(userId);
@@ -1668,6 +1678,7 @@ public final class InputMethodManagerService implements IInputMethodManagerImpl.
                     Manifest.permission.INTERACT_ACROSS_USERS_FULL, null);
         }
 
+        userId = resolveAppTwinImeUserId(userId);
         synchronized (ImfLock.class) {
             if (!isStylusHandwritingEnabled(mContext, userId)) {
                 return false;
@@ -1697,8 +1708,9 @@ public final class InputMethodManagerService implements IInputMethodManagerImpl.
                 Settings.Secure.STYLUS_HANDWRITING_DEFAULT_VALUE, profileParentUserId) != 0;
     }
 
-    private List<InputMethodInfo> getInputMethodListInternal(@UserIdInt int userId,
+    private List<InputMethodInfo> getInputMethodListInternal(@UserIdInt int requestedUserId,
             @DirectBootAwareness int directBootAwareness, int callingUid) {
+        final int userId = resolveAppTwinImeUserId(requestedUserId);
         final var userData = getUserData(userId);
         final var methodMap = userData.mRawInputMethodMap.get().toInputMethodMap(
                 AdditionalSubtypeMapRepository.get(userId), directBootAwareness,
@@ -1712,8 +1724,9 @@ public final class InputMethodManagerService implements IInputMethodManagerImpl.
         return methodList;
     }
 
-    private List<InputMethodInfo> getEnabledInputMethodListInternal(@UserIdInt int userId,
+    private List<InputMethodInfo> getEnabledInputMethodListInternal(@UserIdInt int requestedUserId,
             int callingUid) {
+        final int userId = resolveAppTwinImeUserId(requestedUserId);
         final InputMethodSettings settings = InputMethodSettingsRepository.get(userId);
         final ArrayList<InputMethodInfo> methodList = settings.getEnabledInputMethodList();
         // filter caller's access to input methods
@@ -1753,6 +1766,7 @@ public final class InputMethodManagerService implements IInputMethodManagerImpl.
 
     private List<InputMethodSubtype> getEnabledInputMethodSubtypeListInternal(String imiId,
             boolean allowsImplicitlyEnabledSubtypes, @UserIdInt int userId, int callingUid) {
+        userId = resolveAppTwinImeUserId(userId);
         final InputMethodSettings settings = InputMethodSettingsRepository.get(userId);
         final InputMethodInfo imi = settings.getMethodMap().get(imiId);
         if (imi == null) {
@@ -3608,7 +3622,7 @@ public final class InputMethodManagerService implements IInputMethodManagerImpl.
                 cs.mClient.onStartInputResult(res, startInputSeq);
                 // For first-time client bind, MSG_BIND should arrive after MSG_START_INPUT_RESULT.
                 if (res.result == InputBindResult.ResultCode.SUCCESS_WAITING_IME_SESSION) {
-                    requestClientSessionLocked(cs, userId);
+                    requestClientSessionLocked(cs, resolveAppTwinImeUserId(userId));
                     requestClientSessionForAccessibilityLocked(cs);
                 }
             } else {
@@ -3660,6 +3674,9 @@ public final class InputMethodManagerService implements IInputMethodManagerImpl.
             Slog.w(TAG, "User #" + userId + " is not running.");
             return InputBindResult.INVALID_USER;
         }
+        // Remap only after authenticating the requested user. The client UID, package and focused
+        // window below are still checked as the original app-twin caller.
+        userId = resolveAppTwinImeUserId(userId);
         final var userData = getUserData(userId);
         try {
             Trace.traceBegin(TRACE_TAG_WINDOW_MANAGER,
@@ -4348,7 +4365,8 @@ public final class InputMethodManagerService implements IInputMethodManagerImpl.
                     Manifest.permission.INTERACT_ACROSS_USERS_FULL, null);
         }
         synchronized (ImfLock.class) {
-            return InputMethodSettingsRepository.get(userId).getLastInputMethodSubtype();
+            return InputMethodSettingsRepository.get(resolveAppTwinImeUserId(userId))
+                    .getLastInputMethodSubtype();
         }
     }
 
@@ -5532,7 +5550,8 @@ public final class InputMethodManagerService implements IInputMethodManagerImpl.
                     Manifest.permission.INTERACT_ACROSS_USERS_FULL, null);
         }
         synchronized (ImfLock.class) {
-            final var bindingController = getInputMethodBindingController(userId);
+            final var bindingController = getInputMethodBindingController(
+                    resolveAppTwinImeUserId(userId));
             // TODO(b/347083680): The method below has questionable behaviors.
             return bindingController.getCurrentInputMethodSubtype();
         }

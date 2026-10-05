@@ -676,7 +676,8 @@ public class LauncherAppsService extends SystemService {
             final int callingUid = injectBinderCallingUid();
             final long ident = injectClearCallingIdentity();
             try {
-                if (mUserManagerInternal.getUserInfo(user.getIdentifier()).isManagedProfile()) {
+                final UserInfo profile = mUserManagerInternal.getUserInfo(user.getIdentifier());
+                if (profile != null && (profile.isManagedProfile() || profile.isAppTwinProfile())) {
                     // Managed profile should not show hidden apps
                     return launcherActivities;
                 }
@@ -840,7 +841,8 @@ public class LauncherAppsService extends SystemService {
                     // package does not exist; should not happen
                     return null;
                 }
-                return new LauncherActivityInfoInternal(activityInfo, incrementalStatesInfo, user,
+                return new LauncherActivityInfoInternal(appTwinActivityInfo(activityInfo, user),
+                        incrementalStatesInfo, user,
                         supportsMultiInstance(mIPM, activityInfo.getComponentName(),
                                 user.getIdentifier()));
             } finally {
@@ -940,7 +942,7 @@ public class LauncherAppsService extends SystemService {
             return launcherActivityList;
         }
 
-        private static LauncherActivityInfoInternal constructLauncherActivityInfoForArchivedApp(
+        private LauncherActivityInfoInternal constructLauncherActivityInfoForArchivedApp(
                 IPackageManager pm,
                 UserHandle user,
                 ApplicationInfo applicationInfo,
@@ -954,7 +956,7 @@ public class LauncherAppsService extends SystemService {
             activityInfo.nonLocalizedLabel = archiveActivityInfo.getTitle();
 
             return new LauncherActivityInfoInternal(
-                    activityInfo,
+                    appTwinActivityInfo(activityInfo, user),
                     new IncrementalStatesInfo(
                             false /* isLoading */, 0 /* progress */, 0 /* loadingCompletedTime */),
                     user,
@@ -996,8 +998,22 @@ public class LauncherAppsService extends SystemService {
             return List.of(applicationInfo);
         }
 
+        private ActivityInfo appTwinActivityInfo(ActivityInfo original, UserHandle user) {
+            final UserInfo profile = mUserManagerInternal.getUserInfo(user.getIdentifier());
+            if (profile == null || !profile.isAppTwinProfile()) return original;
+            final ActivityInfo result = new ActivityInfo(original);
+            result.nonLocalizedLabel = original.loadLabel(mContext.getPackageManager())
+                    + " · " + profile.name;
+            return result;
+        }
+
         private List<LauncherActivityInfoInternal> queryIntentLauncherActivities(
                 Intent intent, int callingUid, UserHandle user) {
+            final UserInfo profile = mUserManagerInternal.getUserInfo(user.getIdentifier());
+            final boolean isTwin = profile != null && profile.isAppTwinProfile();
+            final String twinPackage = isTwin ? Binder.withCleanCallingIdentity(() ->
+                    Settings.Secure.getStringForUser(mContext.getContentResolver(),
+                            UserManager.APP_TWIN_PACKAGE_SETTING, user.getIdentifier())) : null;
             final List<ResolveInfo> apps = mPackageManagerInternal.queryIntentActivities(intent,
                     intent.resolveTypeIfNeeded(mContext.getContentResolver()),
                     PackageManager.MATCH_DIRECT_BOOT_AWARE
@@ -1008,6 +1024,7 @@ public class LauncherAppsService extends SystemService {
             for (int i = 0; i < numResolveInfos; i++) {
                 final ResolveInfo ri = apps.get(i);
                 final String packageName = ri.activityInfo.packageName;
+                if (isTwin && !TextUtils.equals(packageName, twinPackage)) continue;
                 if (packageName == null) {
                     // should not happen
                     continue;
@@ -1019,7 +1036,7 @@ public class LauncherAppsService extends SystemService {
                     // package doesn't exist any more; should not happen
                     continue;
                 }
-                results.add(new LauncherActivityInfoInternal(ri.activityInfo,
+                results.add(new LauncherActivityInfoInternal(appTwinActivityInfo(ri.activityInfo, user),
                         incrementalStatesInfo, user,
                         supportsMultiInstance(mIPM, ri.activityInfo.getComponentName(),
                                 user.getIdentifier())));

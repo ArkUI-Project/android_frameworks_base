@@ -191,6 +191,18 @@ public class UserManager {
     @FlaggedApi(android.os.Flags.FLAG_ALLOW_PRIVATE_PROFILE)
     public static final String USER_TYPE_PROFILE_CLONE = "android.os.usertype.profile.CLONE";
 
+    /**
+     * An independently managed ArkUI app instance, distinct from the native clone profile.
+     * @hide
+     */
+    public static final String USER_TYPE_PROFILE_APP_TWIN = "org.arkui.usertype.profile.APP_TWIN";
+
+    /**
+     * Secure setting containing the package assigned to an app-twin profile.
+     * @hide
+     */
+    public static final String APP_TWIN_PACKAGE_SETTING = "arkui_app_twin_package";
+
 
     /**
      * User type representing a private profile. Private profile is a user profile that can be used

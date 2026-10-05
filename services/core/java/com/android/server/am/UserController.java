@@ -1923,6 +1923,12 @@ class UserController implements Handler.Callback {
                 // assigned to the default display
                 startUser(profilesToStart.get(i).id, USER_START_MODE_BACKGROUND_VISIBLE);
             }
+            // App twins have a separate, bounded quota and must keep receiving notifications.
+            for (int j = i; j < profilesToStartSize; ++j) {
+                if (profilesToStart.get(j).isAppTwinProfile()) {
+                    startUser(profilesToStart.get(j).id, USER_START_MODE_BACKGROUND_VISIBLE);
+                }
+            }
             if (i < profilesToStartSize) {
                 Slogf.w(TAG, "More profiles than MAX_RUNNING_USERS");
             }
