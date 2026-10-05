@@ -237,9 +237,33 @@ constructor(
 
     private var shadeTailReveal: Float? = null
 
-    fun setShadeTailProgress(enabled: Boolean, reveal: Float) {
-        shadeTailReveal = if (enabled) reveal else null
+    /** Untransformed bottom of the complete phone header, including its first layout. */
+    fun getExpandedHeaderBottom(): Int {
+        val estimatedHeight = maxOf(
+            resources.getDimensionPixelSize(R.dimen.qs_header_height),
+            2 * resources.getDimensionPixelSize(R.dimen.large_screen_shade_header_min_height) +
+                resources.getDimensionPixelSize(R.dimen.new_qs_header_non_clickable_element_height),
+        )
+        return header.top + maxOf(header.height, estimatedHeight)
+    }
+
+    fun setShadeTailProgress(frame: ShadeTailMotion.Frame) {
+        val wasEnabled = shadeTailReveal != null
+        val transform = frame.transform(
+            header.top.toFloat(), header.height.toFloat(), resources.displayMetrics.density
+        )
+        shadeTailReveal = if (frame.enabled) transform.alpha else null
         header.alpha = shadeTailReveal ?: ShadeInterpolation.getContentAlpha(shadeExpandedFraction)
+        header.translationY = transform.translationY
+        header.scaleX = transform.scale
+        header.scaleY = transform.scale
+        if (wasEnabled != frame.enabled) {
+            iconContainer.setQsExpansionTransitioning(
+                !frame.enabled && qsExpandedFraction > 0f && qsExpandedFraction < 1f
+            )
+            updatePosition()
+            updateIgnoredSlots()
+        }
     }
 
     /** Expansion fraction of the QQS/QS shade. This is not the expansion between QQS <-> QS. */
@@ -257,7 +281,9 @@ constructor(
         set(value) {
             if (visible && field != value) {
                 field = value
-                iconContainer.setQsExpansionTransitioning(value > 0f && value < 1.0f)
+                iconContainer.setQsExpansionTransitioning(
+                    shadeTailReveal == null && value > 0f && value < 1.0f
+                )
                 updatePosition()
                 updateIgnoredSlots()
             }
@@ -615,7 +641,7 @@ constructor(
     }
 
     private fun updateBatteryMode() {
-        qsBatteryModeController.getBatteryMode(cutout, qsExpandedFraction)?.let {
+        qsBatteryModeController.getBatteryMode(cutout, headerLayoutExpansion)?.let {
             if (NewStatusBarIcons.isEnabled) {
                 showBatteryEstimate.value = it == MODE_ESTIMATE
             } else {
@@ -686,10 +712,13 @@ constructor(
     private fun updatePosition() {
         if (!largeScreenActive && visible) {
             logInstantEvent("updatePosition: $qsExpandedFraction")
-            header.progress = qsExpandedFraction
+            header.progress = headerLayoutExpansion
             updateBatteryMode()
         }
     }
+
+    private val headerLayoutExpansion: Float
+        get() = if (shadeTailReveal != null) 1f else qsExpandedFraction
 
     private fun logInstantEvent(message: String) {
         Trace.instantForTrack(TRACE_TAG_APP, "LargeScreenHeaderController", message)
@@ -710,8 +739,10 @@ constructor(
     }
 
     private fun updateIgnoredSlots() {
+        // A collapsed motion frame can arrive from the initial user setting before onInit().
+        if (!::carrierIconSlots.isInitialized) return
         // switching from QQS to QS state halfway through the transition
-        if (singleCarrier || (!largeScreenActive && qsExpandedFraction < 0.5)) {
+        if (singleCarrier || (!largeScreenActive && headerLayoutExpansion < 0.5)) {
             iconContainer.removeIgnoredSlots(carrierIconSlots)
         } else {
             iconContainer.addIgnoredSlots(carrierIconSlots)

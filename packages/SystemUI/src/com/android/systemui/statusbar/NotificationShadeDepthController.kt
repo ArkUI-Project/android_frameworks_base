@@ -116,6 +116,8 @@ constructor(
     private var notificationAnimator: Animator? = null
     private var updateScheduled: Boolean = false
     @VisibleForTesting var shadeExpansion = 0f
+    private var dualShadeBackdropEnabled = false
+    private var dualShadeBackdropProgress = 0f
     private var isClosed: Boolean = true
     private var isOpen: Boolean = false
     private var isBlurred: Boolean = false
@@ -263,7 +265,24 @@ constructor(
             scheduleUpdate()
         }
 
+    /** Uses the same early backdrop progress as the scrim, without changing panel expansion. */
+    fun setDualShadeBackdropProgress(enabled: Boolean, progress: Float) {
+        if (progress.isNaN()) {
+            Log.w(TAG, "Invalid dual shade backdrop progress")
+            return
+        }
+        val nextProgress = if (enabled) MathUtils.saturate(progress) else 0f
+        if (dualShadeBackdropEnabled == enabled && dualShadeBackdropProgress == nextProgress) {
+            return
+        }
+        dualShadeBackdropEnabled = enabled
+        dualShadeBackdropProgress = nextProgress
+        scheduleUpdate()
+    }
+
     private fun computeBlurAndZoomOut(): Pair<Int, Float> {
+        val dualShade =
+            dualShadeBackdropEnabled && statusBarStateController.state == StatusBarState.SHADE
         val animationRadius =
             MathUtils.constrain(
                 shadeAnimation.radius,
@@ -272,17 +291,25 @@ constructor(
             )
         val expansionRadius =
             blurUtils.blurRadiusOfRatio(
-                ShadeInterpolation.getNotificationScrimAlpha(
-                    if (shouldApplyShadeBlur()) shadeExpansion else 0f
-                )
+                if (dualShade) {
+                    if (shouldApplyShadeBlur()) dualShadeBackdropProgress else 0f
+                } else {
+                    ShadeInterpolation.getNotificationScrimAlpha(
+                        if (shouldApplyShadeBlur()) shadeExpansion else 0f
+                    )
+                }
             )
-        var combinedBlur =
-            (expansionRadius * INTERACTION_BLUR_FRACTION +
-                animationRadius * ANIMATION_BLUR_FRACTION)
-        val qsExpandedRatio =
-            ShadeInterpolation.getNotificationScrimAlpha(qsPanelExpansion) * shadeExpansion
-        combinedBlur = max(combinedBlur, blurUtils.blurRadiusOfRatio(qsExpandedRatio))
-        combinedBlur = max(combinedBlur, blurUtils.blurRadiusOfRatio(transitionToFullShadeProgress))
+        var combinedBlur = expansionRadius
+        if (!dualShade) {
+            combinedBlur =
+                (expansionRadius * INTERACTION_BLUR_FRACTION +
+                    animationRadius * ANIMATION_BLUR_FRACTION)
+            val qsExpandedRatio =
+                ShadeInterpolation.getNotificationScrimAlpha(qsPanelExpansion) * shadeExpansion
+            combinedBlur = max(combinedBlur, blurUtils.blurRadiusOfRatio(qsExpandedRatio))
+            combinedBlur =
+                max(combinedBlur, blurUtils.blurRadiusOfRatio(transitionToFullShadeProgress))
+        }
         var shadeRadius = max(combinedBlur, wakeAndUnlockBlurRadius)
 
         if (areBlursDisabledForAppLaunch || blursDisabledForUnlock) {
@@ -729,6 +756,8 @@ constructor(
             it.println("StatusBarWindowBlurController:")
             it.increaseIndent()
             it.println("shadeExpansion: $shadeExpansion")
+            it.println("dualShadeBackdropEnabled: $dualShadeBackdropEnabled")
+            it.println("dualShadeBackdropProgress: $dualShadeBackdropProgress")
             it.println("shouldApplyShadeBlur: ${shouldApplyShadeBlur()}")
             it.println("shadeAnimation: ${shadeAnimation.radius}")
             it.println("brightnessMirrorRadius: ${brightnessMirrorSpring.radius}")

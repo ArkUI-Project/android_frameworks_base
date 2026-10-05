@@ -78,7 +78,7 @@ fun <T> ContentScope.ButtonGroupGrid(
                     horizontalPadding,
                     keys,
                     elementKey,
-                    modifier = Modifier.shadeTail(strength = 0.75f),
+                    modifier = Modifier.shadeTail(),
                     tileContent = tileContent,
                 )
             }

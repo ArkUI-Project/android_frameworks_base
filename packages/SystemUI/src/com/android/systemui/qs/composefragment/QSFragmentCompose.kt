@@ -37,6 +37,8 @@ import androidx.annotation.VisibleForTesting
 import androidx.compose.animation.core.tween
 import androidx.compose.foundation.ScrollState
 import androidx.compose.foundation.background
+import androidx.compose.foundation.gestures.awaitEachGesture
+import androidx.compose.foundation.gestures.awaitFirstDown
 import androidx.compose.foundation.isSystemInDarkTheme
 import androidx.compose.foundation.layout.Arrangement.spacedBy
 import androidx.compose.foundation.layout.Box
@@ -71,6 +73,8 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.graphicsLayer
+import androidx.compose.ui.input.pointer.PointerEventPass
+import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.layout.approachLayout
 import androidx.compose.ui.layout.layout
 import androidx.compose.ui.layout.onLayoutRectChanged
@@ -209,10 +213,8 @@ constructor(
         useControlCenterLayout = enabled
     }
 
-    override fun onShadeMotion(enabled: Boolean, reveal: Float, tail: Float) {
-        shadeMotion.enabled = enabled
-        shadeMotion.reveal = reveal
-        shadeMotion.tail = tail
+    override fun onShadeMotion(frame: ShadeTailMotion.Frame) {
+        shadeMotion.update(frame)
     }
 
     private val scrollListener = MutableStateFlow<QS.ScrollListener?>(null)
@@ -303,6 +305,11 @@ constructor(
         return frame
     }
 
+    override fun onDestroyView() {
+        shadeMotion.reset()
+        super.onDestroyView()
+    }
+
     @Composable
     private fun Content(modifier: Modifier = Modifier) {
         PlatformTheme(isDarkTheme = if (notificationShadeBlur()) isSystemInDarkTheme() else true) {
@@ -320,14 +327,15 @@ constructor(
                                 }
                             }
                             .graphicsLayer {
-                                alpha = if (shadeMotion.enabled) shadeMotion.reveal
+                                alpha = if (shadeMotion.enabled) 1f
                                     else viewModel.viewAlpha
                             }
                             .thenIf(!Flags.notificationShadeBlur()) {
                                 Modifier.offset {
                                     IntOffset(
                                         x = 0,
-                                        y = viewModel.viewTranslationY.fastRoundToInt(),
+                                        y = if (shadeMotion.enabled) 0
+                                            else viewModel.viewTranslationY.fastRoundToInt(),
                                     )
                                 }
                             }
@@ -425,7 +433,27 @@ constructor(
                 LaunchedEffect(Unit) { viewModel.onQQSOpen() }
                 // Cannot pass the element modifier in because the top element has a `testTag`
                 // and this would overwrite it.
-                Element(QuickQuickSettings.rootElementKey, Modifier) { QuickQuickSettingsElement() }
+                Element(
+                    QuickQuickSettings.rootElementKey,
+                    Modifier
+                        .pointerInput(shadeMotion) {
+                            awaitEachGesture {
+                                val down =
+                                    awaitFirstDown(
+                                        requireUnconsumed = false,
+                                        pass = PointerEventPass.Initial,
+                                    )
+                                if (shadeMotion.enabled) down.consume()
+                            }
+                        }
+                        .graphicsLayer { alpha = if (shadeMotion.enabled) 0f else 1f },
+                ) {
+                    // Both scenes stay composed. QQS must neither register duplicate tile rows
+                    // nor draw during the frame before the full-QS scene has finished snapping.
+                    CompositionLocalProvider(LocalShadeTailMotion provides null) {
+                        QuickQuickSettingsElement()
+                    }
+                }
             }
 
             scene(SceneKeys.EditMode) {
@@ -1098,8 +1126,9 @@ constructor(
             println("bottom QS padding", bottomContentPadding)
             printSection("Shade tail motion") {
                 println("enabled", shadeMotion.enabled)
-                println("reveal", shadeMotion.reveal)
-                println("tail", shadeMotion.tail)
+                println("target", shadeMotion.frame.target)
+                println("upper progress", shadeMotion.frame.progressAt(0f))
+                println("lower progress", shadeMotion.frame.progressAt(1f))
             }
             if (::viewModel.isInitialized) {
                 printSection("View Model") { viewModel.dump(this@run, args) }
@@ -1661,24 +1690,16 @@ private fun ControlCenterLayout(
             }
         }
     }
-    val tilesCard: @Composable () -> Unit = {
-        Box(
-            Modifier.shadeTail(strength = 0.25f).background(
-                MaterialTheme.colorScheme.surfaceContainerHigh,
-                RoundedCornerShape(36.dp),
-            ).padding(if (compact) 8.dp else 12.dp)
-        ) { tiles() }
-    }
     Column(verticalArrangement = spacedBy(if (compact) 12.dp else 16.dp)) {
         if (brightnessSettings.sliderAtTop) brightnessCard()
         if (mediaInRow && mediaVisible) {
             Row(horizontalArrangement = spacedBy(16.dp)) {
-                Box(Modifier.weight(1f)) { tilesCard() }
+                Box(Modifier.weight(1f)) { tiles() }
                 Box(Modifier.weight(1f).shadeTail()) { media() }
             }
         } else {
             if (mediaVisible) Box(Modifier.shadeTail()) { media() }
-            tilesCard()
+            tiles()
         }
         if (!brightnessSettings.sliderAtTop) brightnessCard()
     }

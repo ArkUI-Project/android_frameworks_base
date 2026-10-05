@@ -751,9 +751,9 @@ public final class NotificationPanelViewController implements
         mNavigationBarController = navigationBarController;
         mNotificationsQSContainerController.init();
         mNotificationStackScrollLayoutController = notificationStackScrollLayoutController;
-        mShadeTailMotion = new ShadeTailMotion((enabled, reveal, tail) -> {
-            mQsController.setShadeMotion(enabled, reveal, tail);
-            mNotificationStackScrollLayoutController.setShadeMotion(enabled, reveal, tail);
+        mShadeTailMotion = new ShadeTailMotion(frame -> {
+            mQsController.setShadeMotion(frame);
+            mNotificationStackScrollLayoutController.setShadeMotion(frame);
         });
         mKeyguardStatusBarViewComponentFactory = keyguardStatusBarViewComponentFactory;
         mDepthController = notificationShadeDepthController;
@@ -1123,6 +1123,8 @@ public final class NotificationPanelViewController implements
 
     /** Refresh cached shade layout policy after changing the user-selected panel style. */
     void onShadePanelsStyleChanged() {
+        mShadeTailMotion.reset();
+        resetDualShadeBackdrop();
         Configuration configuration = mResources.getConfiguration();
         mConfigurationController.onConfigurationChanged(configuration);
         mView.getRootView().dispatchConfigurationChanged(configuration);
@@ -3179,6 +3181,7 @@ public final class NotificationPanelViewController implements
             }
             mShadeRepository.setLegacyShadeExpansion(mExpandedFraction);
             mQsController.setShadeExpansion(mExpandedHeight, mExpandedFraction);
+            updateDualShadeBackdrop();
             mShadeTailMotion.setExpansion(mQsController.isDualShadeEnabled()
                     && mStatusBarStateController.getState() == SHADE, mExpandedFraction);
             mExpansionDragDownAmountPx = h;
@@ -3188,6 +3191,21 @@ public final class NotificationPanelViewController implements
             onHeightUpdated(mExpandedHeight);
             updateExpansionAndVisibility();
         });
+    }
+
+    private void updateDualShadeBackdrop() {
+        final boolean enabled = mQsController.isDualShadeEnabled()
+                && mStatusBarStateController.getState() == SHADE;
+        // Establish the background before the rows arrive, and retain it as they leave.
+        final float remaining = 1f - MathUtils.constrain(mExpandedFraction * 4f, 0f, 1f);
+        final float progress = 1f - remaining * remaining * remaining;
+        mDepthController.setDualShadeBackdropProgress(enabled, progress);
+        mScrimController.setDualShadeBackdropProgress(enabled, progress);
+    }
+
+    private void resetDualShadeBackdrop() {
+        mDepthController.setDualShadeBackdropProgress(false, 0f);
+        mScrimController.setDualShadeBackdropProgress(false, 0f);
     }
 
     /**
@@ -3582,6 +3600,9 @@ public final class NotificationPanelViewController implements
             ConfigurationController.ConfigurationListener {
         @Override
         public void onConfigChanged(Configuration newConfig) {
+            mShadeTailMotion.snapToExpansion(mQsController.isDualShadeEnabled()
+                    && mStatusBarStateController.getState() == SHADE, mExpandedFraction);
+            resetDualShadeBackdrop();
             if (ShadeWindowGoesAround.isEnabled()) {
                 updateResources();
             }
@@ -3619,6 +3640,9 @@ public final class NotificationPanelViewController implements
             mQsController.setBarState(statusBarState);
             if (statusBarState != SHADE) {
                 mShadeTailMotion.reset();
+                resetDualShadeBackdrop();
+            } else {
+                updateDualShadeBackdrop();
             }
 
             boolean fromShadeToKeyguard = statusBarState == KEYGUARD
@@ -3753,6 +3777,7 @@ public final class NotificationPanelViewController implements
         @Override
         public void onViewDetachedFromWindow(View v) {
             mShadeTailMotion.reset();
+            resetDualShadeBackdrop();
             mContentResolver.unregisterContentObserver(mDoubleTapToSleepObserver);
             mFragmentService.getFragmentHostManager(mView)
                     .removeTagListener(QS.TAG, mQsController.getQsFragmentListener());
@@ -3768,6 +3793,7 @@ public final class NotificationPanelViewController implements
                 int oldTop, int oldRight, int oldBottom) {
             DejankUtils.startDetectingBlockingIpcs("NVP#onLayout");
             updateExpandedHeightToMaxHeight();
+            updateDualShadeBackdrop();
             mHasLayoutedSinceDown = true;
             if (mUpdateFlingOnLayout) {
                 abortAnimations();

@@ -146,6 +146,7 @@ public class QuickSettingsControllerImpl implements QuickSettingsController, Dum
     private final ContentObserver mDualShadeObserver;
     private boolean mDualShadeEnabled;
     private boolean mDualShadeShowingQs;
+    private ShadeTailMotion.Frame mShadeMotionFrame = ShadeTailMotion.Frame.DISABLED;
 
     private final QsFrameTranslateController mQsFrameTranslateController;
     private final PulseExpansionHandler mPulseExpansionHandler;
@@ -531,6 +532,8 @@ public class QuickSettingsControllerImpl implements QuickSettingsController, Dum
         if (mDualShadeEnabled == enabled) return;
         // Finish the old panel before changing its layout and touch ownership.
         if (mQs != null) {
+            setOverScrolling(false);
+            setOverScrollAmount(0);
             if (mBarState == KEYGUARD) {
                 closeQs();
             } else {
@@ -539,6 +542,9 @@ public class QuickSettingsControllerImpl implements QuickSettingsController, Dum
         }
         mDualShadeEnabled = enabled;
         mDualShadeShowingQs = false;
+        mShadeMotionFrame = enabled ? ShadeTailMotion.Frame.COLLAPSED
+                : ShadeTailMotion.Frame.DISABLED;
+        applyShadeMotion();
         if (mQs != null) {
             mPanelViewControllerLazy.get().onShadePanelsStyleChanged();
             updateMinHeight();
@@ -592,6 +598,12 @@ public class QuickSettingsControllerImpl implements QuickSettingsController, Dum
     }
 
     int getHeaderHeight() {
+        if (isDualShadeEnabled() && mBarState == SHADE) {
+            // The standalone header stays in its complete QS layout, even on the notification
+            // side. Its two rows and date are taller than the collapsed status-bar header.
+            return mShadeHeaderController.getExpandedHeaderBottom()
+                    + mResources.getDimensionPixelSize(R.dimen.notification_section_divider_height);
+        }
         if (isQsFragmentCreated()) {
             if (QSComposeFragment.isEnabled()) {
                 return mQs.getHeaderHeight();
@@ -835,7 +847,7 @@ public class QuickSettingsControllerImpl implements QuickSettingsController, Dum
 
     /** Returns amount header should be translated */
     private float getHeaderTranslation() {
-        if (mSplitShadeEnabled) {
+        if (mSplitShadeEnabled || (isDualShadeEnabled() && mBarState == SHADE)) {
             // in split shade QS don't translate, just (un)squish and overshoot
             return 0;
         }
@@ -1064,6 +1076,7 @@ public class QuickSettingsControllerImpl implements QuickSettingsController, Dum
             mCollapsedOnDown = false;
         }
         mBarState = barState;
+        applyShadeMotion();
     }
 
     /** */
@@ -1176,10 +1189,19 @@ public class QuickSettingsControllerImpl implements QuickSettingsController, Dum
         mQs.setExpanded(getExpanded());
     }
 
-    void setShadeMotion(boolean enabled, float reveal, float tail) {
-        mShadeHeaderController.setShadeTailProgress(enabled && isDualShadeEnabled(), reveal);
+    void setShadeMotion(ShadeTailMotion.Frame frame) {
+        // A frame may arrive while the fragment is absent; replay it to the replacement view.
+        mShadeMotionFrame = frame;
+        applyShadeMotion();
+    }
+
+    private void applyShadeMotion() {
+        ShadeTailMotion.Frame rendered = isDualShadeEnabled() && mBarState == SHADE
+                ? (mShadeMotionFrame.enabled ? mShadeMotionFrame : ShadeTailMotion.Frame.COLLAPSED)
+                : ShadeTailMotion.Frame.DISABLED;
+        mShadeHeaderController.setShadeTailProgress(rendered);
         if (mQs instanceof ShadeTailMotion.Listener listener) {
-            listener.onShadeMotion(enabled && isDualShadeEnabled(), reveal, tail);
+            listener.onShadeMotion(rendered);
         }
     }
 
@@ -1190,12 +1212,14 @@ public class QuickSettingsControllerImpl implements QuickSettingsController, Dum
         if (mQs instanceof ShadeTailMotion.Listener listener) {
             listener.setControlCenterEnabled(dualShade);
         }
+        applyShadeMotion();
         mQsFrame.setVisibility(dualShade && !mDualShadeShowingQs
                 ? View.INVISIBLE : View.VISIBLE);
         mNotificationStackScrollLayoutController.setHiddenForDualShade(
                 dualShade && mDualShadeShowingQs);
         final float squishiness;
-        if ((isExpandImmediate() || getExpanded()) && !mSplitShadeEnabled) {
+        final boolean standalonePanel = dualShade && mBarState == SHADE;
+        if (standalonePanel || ((isExpandImmediate() || getExpanded()) && !mSplitShadeEnabled)) {
             squishiness = 1;
         } else if (mTransitioningToFullShadeProgress > 0.0f) {
             squishiness = mLockscreenShadeTransitionController.getQsSquishTransitionFraction();
@@ -1207,12 +1231,11 @@ public class QuickSettingsControllerImpl implements QuickSettingsController, Dum
         }
         final float qsExpansionFraction = computeExpansionFraction();
         final float adjustedExpansionFraction = mSplitShadeEnabled
-                || (dualShade && mDualShadeShowingQs && mBarState != KEYGUARD
-                        && mShadeExpandedFraction > 0f)
+                || standalonePanel
                 ? 1f : computeExpansionFraction();
         mQs.setQsExpansion(
                 adjustedExpansionFraction,
-                mShadeExpandedFraction,
+                standalonePanel ? 1f : mShadeExpandedFraction,
                 getHeaderTranslation(),
                 squishiness
         );
@@ -1576,8 +1599,8 @@ public class QuickSettingsControllerImpl implements QuickSettingsController, Dum
         SceneContainerFlag.assertInLegacyMode();
         float topPadding;
         boolean keyguardShowing = mBarState == KEYGUARD;
-        if (isDualShadeEnabled() && !keyguardShowing) {
-            return mQuickQsHeaderHeight;
+        if (isDualShadeEnabled() && mBarState == SHADE) {
+            return getHeaderHeight();
         }
         if (mSplitShadeEnabled) {
             return keyguardShowing
@@ -1654,7 +1677,9 @@ public class QuickSettingsControllerImpl implements QuickSettingsController, Dum
 
     private float getEdgePosition() {
         // TODO: replace StackY with unified calculation
-        return Math.max(mQuickQsHeaderHeight * mAmbientState.getExpansionFraction(),
+        float headerHeight = isDualShadeEnabled() && mBarState == SHADE
+                ? getHeaderHeight() : mQuickQsHeaderHeight;
+        return Math.max(headerHeight * mAmbientState.getExpansionFraction(),
                 mAmbientState.getStackY()
                         // need to adjust for extra margin introduced by large screen shade header
                         + mAmbientState.getStackTopMargin() * mAmbientState.getExpansionFraction()
@@ -2423,6 +2448,10 @@ public class QuickSettingsControllerImpl implements QuickSettingsController, Dum
         @Override
         public void onFragmentViewCreated(String tag, Fragment fragment) {
             mQs = (QS) fragment;
+            if (mQs instanceof ShadeTailMotion.Listener listener) {
+                listener.setControlCenterEnabled(isDualShadeEnabled());
+            }
+            applyShadeMotion();
             mQs.setPanelView(mQsHeightListener);
             mQs.setCollapseExpandAction(mQsCollapseExpandAction);
             mQs.setHeaderClickable(isExpansionEnabled());

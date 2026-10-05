@@ -83,6 +83,7 @@ import com.android.systemui.scene.ui.view.WindowRootView;
 import com.android.systemui.shade.QSHeaderBoundsProvider;
 import com.android.systemui.shade.ShadeController;
 import com.android.systemui.shade.ShadeDisplayAware;
+import com.android.systemui.shade.ShadeTailMotion;
 import com.android.systemui.shade.ShadeViewController;
 import com.android.systemui.statusbar.CommandQueue;
 import com.android.systemui.statusbar.DragDownHelper;
@@ -319,7 +320,6 @@ public class NotificationStackScrollLayoutController implements Dumpable {
     private float mMaxAlphaForUnhide = 1.0f;
     private float mMaxAlphaForRebind = 1.0f;
     private float mMaxAlphaFromView = 1.0f;
-    private float mShadeTailAlpha = 1.0f;
     private boolean mHiddenForDualShade;
     private boolean mRequestedVisible = true;
 
@@ -1503,7 +1503,7 @@ public class NotificationStackScrollLayoutController implements Dumpable {
             float newAlpha = Math.min(mMaxAlphaForRebind,
                     Math.min(Math.min(mMaxAlphaFromView, mMaxAlphaForKeyguard),
                             Math.min(mMaxAlphaForUnhide, mMaxAlphaForGlanceableHub)));
-            mView.setAlpha(newAlpha * mShadeTailAlpha);
+            mView.setAlpha(newAlpha);
         }
     }
 
@@ -1618,14 +1618,8 @@ public class NotificationStackScrollLayoutController implements Dumpable {
         updateVisibility(mRequestedVisible);
     }
 
-    public void setShadeMotion(boolean enabled, float reveal, float tail) {
-        mView.setShadeMotion(enabled, reveal, tail);
-        // A collapsed shade must not hide incoming heads-up notifications.
-        float alpha = enabled && reveal > 0f ? reveal : 1f;
-        if (alpha != mShadeTailAlpha) {
-            mShadeTailAlpha = alpha;
-            updateAlpha();
-        }
+    public void setShadeMotion(ShadeTailMotion.Frame frame) {
+        mView.setShadeMotion(frame);
     }
 
     public boolean isShowingEmptyShadeView() {
@@ -1998,7 +1992,6 @@ public class NotificationStackScrollLayoutController implements Dumpable {
     @Override
     public void dump(@NonNull PrintWriter pw, @NonNull String[] args) {
         pw.println("mMaxAlphaFromView=" + mMaxAlphaFromView);
-        pw.println("mShadeTailAlpha=" + mShadeTailAlpha);
         pw.println("mMaxAlphaForUnhide=" + mMaxAlphaForUnhide);
         pw.println("mMaxAlphaForRebind=" + mMaxAlphaForRebind);
         pw.println("mMaxAlphaForGlanceableHub=" + mMaxAlphaForGlanceableHub);

@@ -2270,7 +2270,8 @@ public class NotificationStackScrollLayout
         for (int childIdx = 0; childIdx < count; childIdx++) {
             ExpandableView slidingChild = getChildAtIndex(childIdx);
             if (slidingChild.getVisibility() != VISIBLE
-                    || (ignoreDecors && slidingChild instanceof StackScrollerDecorView)) {
+                    || (ignoreDecors && slidingChild instanceof StackScrollerDecorView)
+                    || isShadeChildTransparent(slidingChild)) {
                 continue;
             }
             float childTop = slidingChild.getTranslationY();
@@ -3974,6 +3975,19 @@ public class NotificationStackScrollLayout
 
         if (mTouchHandler != null && mTouchHandler.onInterceptTouchEvent(ev)) {
             return true;
+        }
+        if (ev.getActionMasked() == ACTION_DOWN) {
+            for (int i = getChildCount() - 1; i >= 0; i--) {
+                ExpandableView child = getChildAtIndex(i);
+                if (child.getVisibility() == VISIBLE && isShadeChildTransparent(child)
+                        && ev.getX() >= child.getLeft() && ev.getX() <= child.getRight()
+                        && ev.getY() >= child.getY()
+                        && ev.getY() <= child.getY() + child.getActualHeight()) {
+                    // Drawing alpha alone does not remove a row's buttons from View hit testing.
+                    // Keep this down in the container so the panel can still handle the drag.
+                    return true;
+                }
+            }
         }
         return super.onInterceptTouchEvent(ev);
     }
@@ -6714,6 +6728,8 @@ public class NotificationStackScrollLayout
 
     @Override
     protected void dispatchDraw(@NonNull Canvas canvas) {
+        mShadeGeometryDirty = true;
+        prepareShadeTransforms();
         if (mBlurEffect != null) {
             spewLog("Applying blur RenderEffect to NotificationStackScrollLayout");
             // reuse the cached RenderNode to blur
@@ -6761,50 +6777,95 @@ public class NotificationStackScrollLayout
 
     @Override
     protected boolean drawChild(Canvas canvas, View child, long drawingTime) {
-        if (!mShadeTailEnabled || mLaunchingNotification || shouldSkipBlurForChild(child)
-                || (mShadeReveal == 1f && mShadeTail == 1f)) {
+        if (!mShadeFrame.enabled || mShadeFrame.fullyExpanded || mLaunchingNotification
+                || shouldSkipBlurForChild(child)) {
             return drawShadeChild(canvas, child, drawingTime);
         }
+        final ShadeTailMotion.Transform transform = getShadeTransform(child);
+        if (transform.alpha <= 0f) return false;
         final int save = canvas.save();
         final float top = child.getY();
-        final float scale = ShadeTailMotion.scale(mShadeReveal, mShadeTail);
+        final float scale = transform.scale;
         float height = child instanceof ExpandableView expandable
                 ? expandable.getActualHeight() : child.getHeight();
-        canvas.translate(0f, ShadeTailMotion.translation(mShadeReveal, mShadeTail,
-                top + height / 2f, getResources().getDisplayMetrics().density));
-        canvas.scale(scale, ShadeTailMotion.scaleY(mShadeReveal, mShadeTail),
-                getWidth() / 2f, top + height / 2f);
+        canvas.translate(0f, transform.translationY);
+        canvas.scale(scale, scale, getWidth() / 2f, top + height / 2f);
+        final float alpha = transform.alpha;
+        if (alpha < 1f) {
+            final float outset = 16f * getResources().getDisplayMetrics().density;
+            canvas.saveLayerAlpha(-outset, top - outset, getWidth() + outset,
+                    top + height + outset, Math.round(alpha * 255f));
+        }
         boolean result = drawShadeChild(canvas, child, drawingTime);
         canvas.restoreToCount(save);
         return result;
     }
 
-    private boolean mShadeTailEnabled;
-    private float mShadeReveal = 1f;
-    private float mShadeTail = 1f;
+    private ShadeTailMotion.Frame mShadeFrame = ShadeTailMotion.Frame.DISABLED;
+    private boolean mShadeGeometryDirty = true;
+    private final ArrayList<View> mShadeRows = new ArrayList<>();
+    private final Map<View, ShadeTailMotion.Transform> mShadeTransforms = new HashMap<>();
     private final android.graphics.Matrix mShadeTouchInverse = new android.graphics.Matrix();
     private boolean mShadeTransformedTouch;
+
+    private void prepareShadeTransforms() {
+        if (!mShadeGeometryDirty) return;
+        mShadeGeometryDirty = false;
+        mShadeTransforms.clear();
+        mShadeRows.clear();
+        if (!mShadeFrame.enabled || mShadeFrame.fullyExpanded || mLaunchingNotification) return;
+        for (int i = 0; i < getChildCount(); i++) {
+            View child = getChildAt(i);
+            if (child.getVisibility() == VISIBLE && !shouldSkipBlurForChild(child)) {
+                mShadeRows.add(child);
+            }
+        }
+        int count = mShadeRows.size();
+        float[] tops = new float[count];
+        float[] heights = new float[count];
+        for (int i = 0; i < count; i++) {
+            View child = mShadeRows.get(i);
+            tops[i] = getY() + child.getY();
+            heights[i] = child instanceof ExpandableView expandable
+                    ? expandable.getActualHeight() : child.getHeight();
+        }
+        ShadeTailMotion.Transform[] fitted = mShadeFrame.transforms(tops, heights,
+                getResources().getDisplayMetrics().density);
+        for (int i = 0; i < count; i++) mShadeTransforms.put(mShadeRows.get(i), fitted[i]);
+    }
+
+    private ShadeTailMotion.Transform getShadeTransform(View child) {
+        prepareShadeTransforms();
+        return mShadeTransforms.getOrDefault(child, ShadeTailMotion.Transform.IDENTITY);
+    }
+
+    private boolean isShadeChildTransparent(ExpandableView child) {
+        return mShadeFrame.enabled && !mShadeFrame.fullyExpanded && !mLaunchingNotification
+                && !shouldSkipBlurForChild(child)
+                && getShadeTransform(child).alpha <= 0f;
+    }
 
     /** Keep a gesture in the touched card's coordinates while its visual tail settles. */
     private void captureShadeTouchTransform(float x, float y) {
         mShadeTransformedTouch = false;
-        if (!mShadeTailEnabled || mLaunchingNotification
-                || (mShadeReveal == 1f && mShadeTail == 1f)) return;
-        float scale = ShadeTailMotion.scale(mShadeReveal, mShadeTail);
-        float scaleY = ShadeTailMotion.scaleY(mShadeReveal, mShadeTail);
+        if (!mShadeFrame.enabled || mShadeFrame.fullyExpanded || mLaunchingNotification) return;
+        mShadeGeometryDirty = true;
+        prepareShadeTransforms();
         for (int i = getChildCount() - 1; i >= 0; i--) {
             ExpandableView child = getChildAtIndex(i);
-            if (child.getVisibility() != VISIBLE || shouldSkipBlurForChild(child)) continue;
+            if (child.getVisibility() != VISIBLE || shouldSkipBlurForChild(child)
+                    || isShadeChildTransparent(child)) continue;
             float top = child.getY();
             float height = child.getActualHeight();
-            float shift = ShadeTailMotion.translation(mShadeReveal, mShadeTail, top + height / 2f,
-                    getResources().getDisplayMetrics().density);
-            float drawnTop = top + height * (1f - scaleY) / 2f + shift;
+            ShadeTailMotion.Transform transform = getShadeTransform(child);
+            float scale = transform.scale;
+            float shift = transform.translationY;
+            float drawnTop = top + height * (1f - scale) / 2f + shift;
             float drawnLeft = getWidth() / 2f + (child.getLeft() - getWidth() / 2f) * scale;
             if (x >= drawnLeft && x <= drawnLeft + child.getWidth() * scale
-                    && y >= drawnTop + child.getClipTopAmount() * scaleY
-                    && y <= drawnTop + (height - child.getClipBottomAmount()) * scaleY) {
-                mShadeTouchInverse.setScale(scale, scaleY, getWidth() / 2f, top + height / 2f);
+                    && y >= drawnTop + child.getClipTopAmount() * scale
+                    && y <= drawnTop + (height - child.getClipBottomAmount()) * scale) {
+                mShadeTouchInverse.setScale(scale, scale, getWidth() / 2f, top + height / 2f);
                 mShadeTouchInverse.postTranslate(0f, shift);
                 mShadeTransformedTouch = mShadeTouchInverse.invert(mShadeTouchInverse);
                 return;
@@ -6812,13 +6873,15 @@ public class NotificationStackScrollLayout
         }
     }
 
-    public void setShadeMotion(boolean enabled, float reveal, float tail) {
-        if (mShadeTailEnabled == enabled && mShadeReveal == reveal && mShadeTail == tail) {
-            return;
+    public void setShadeMotion(ShadeTailMotion.Frame frame) {
+        if (mShadeFrame == frame) return;
+        mShadeFrame = frame;
+        mShadeGeometryDirty = true;
+        if (!frame.enabled) {
+            mShadeTransforms.clear();
+            mShadeRows.clear();
+            mShadeTransformedTouch = false;
         }
-        mShadeTailEnabled = enabled;
-        mShadeReveal = reveal;
-        mShadeTail = tail;
         invalidate();
     }
 

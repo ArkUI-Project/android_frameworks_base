@@ -135,7 +135,7 @@ constructor(
             ) { spanIndex, column, isFirstInColumn, isLastInColumn ->
                 val it = sizedTiles[spanIndex]
 
-                Element(it.tile.spec.toElementKey(), Modifier.shadeTail(strength = 0.75f)) {
+                Element(it.tile.spec.toElementKey(), Modifier.shadeTail()) {
                     Tile(
                         tile = it.tile,
                         iconOnly = iconTilesViewModel.isIconTile(it.tile.spec),
