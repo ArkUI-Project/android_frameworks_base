@@ -68,6 +68,7 @@ import com.android.systemui.scene.shared.model.Scenes
 import com.android.systemui.screenrecord.data.model.ScreenRecordModel
 import com.android.systemui.screenrecord.data.repository.screenRecordRepository
 import com.android.systemui.shade.data.repository.fakeShadeDisplaysRepository
+import com.android.systemui.shade.data.repository.fakeShadeRepository
 import com.android.systemui.shade.domain.interactor.enableDualShade
 import com.android.systemui.shade.shadeTestUtil
 import com.android.systemui.statusbar.chips.mediaprojection.domain.interactor.MediaProjectionChipInteractorTest.Companion.NORMAL_PACKAGE
@@ -648,6 +649,92 @@ class HomeStatusBarViewModelImplTest(flags: FlagsParameterization) : SysuiTestCa
             runCurrent()
 
             assertThat(latest).isTrue()
+        }
+
+    @Test
+    @DisableSceneContainer
+    fun legacySeparatedShade_nativeContentReadyAcrossExpansionBoundary() =
+        kosmos.runTest {
+            val allowed by collectLastValue(underTest.isHomeStatusBarAllowed)
+            val clock by collectLastValue(underTest.isClockVisible)
+            val systemInfo by collectLastValue(underTest.systemInfoCombinedVis)
+            transitionKeyguardToGone()
+            fakeDisableFlagsRepository.disableFlags.value =
+                DisableFlagsModel(DISABLE_NONE, DISABLE2_NONE)
+            fakeShadeRepository.setLegacySeparatedShadeEnabled(true)
+
+            for (expansion in listOf(0f, 0.39f, 0.4f, 1f, 0.41f, 0f)) {
+                shadeTestUtil.setShadeExpansion(expansion)
+                runCurrent()
+
+                assertThat(allowed).isTrue()
+                assertThat(clock!!.visibility).isEqualTo(View.VISIBLE)
+                assertThat(systemInfo!!.baseVisibility.visibility).isEqualTo(View.VISIBLE)
+            }
+        }
+
+    @Test
+    @DisableSceneContainer
+    fun legacySeparatedShade_disabled_restoresMergedShadeHiding() =
+        kosmos.runTest {
+            val allowed by collectLastValue(underTest.isHomeStatusBarAllowed)
+            val clock by collectLastValue(underTest.isClockVisible)
+            val systemInfo by collectLastValue(underTest.systemInfoCombinedVis)
+            transitionKeyguardToGone()
+            fakeShadeRepository.setLegacySeparatedShadeEnabled(true)
+            shadeTestUtil.setShadeExpansion(0.8f)
+            runCurrent()
+            assertThat(allowed).isTrue()
+
+            fakeShadeRepository.setLegacySeparatedShadeEnabled(false)
+            runCurrent()
+
+            assertThat(allowed).isFalse()
+            assertThat(clock!!.visibility).isEqualTo(View.GONE)
+            assertThat(systemInfo!!.baseVisibility.visibility).isEqualTo(View.GONE)
+
+            shadeTestUtil.setShadeExpansion(0f)
+            runCurrent()
+            assertThat(allowed).isTrue()
+            assertThat(clock!!.visibility).isEqualTo(View.VISIBLE)
+            assertThat(systemInfo!!.baseVisibility.visibility).isEqualTo(View.VISIBLE)
+        }
+
+    @Test
+    @DisableSceneContainer
+    fun legacySeparatedShade_keyguardStillHidesStatusBar() =
+        kosmos.runTest {
+            val allowed by collectLastValue(underTest.isHomeStatusBarAllowed)
+            transitionKeyguardToGone()
+            fakeShadeRepository.setLegacySeparatedShadeEnabled(true)
+            shadeTestUtil.setShadeExpansion(0.8f)
+            runCurrent()
+            assertThat(allowed).isTrue()
+
+            fakeKeyguardTransitionRepository.transitionTo(
+                KeyguardState.GONE,
+                KeyguardState.LOCKSCREEN,
+            )
+            runCurrent()
+
+            assertThat(allowed).isFalse()
+        }
+
+    @Test
+    @DisableSceneContainer
+    fun legacySeparatedShade_externalDisableFlagsStillHideContent() =
+        kosmos.runTest {
+            val clock by collectLastValue(underTest.isClockVisible)
+            val systemInfo by collectLastValue(underTest.systemInfoCombinedVis)
+            transitionKeyguardToGone()
+            fakeShadeRepository.setLegacySeparatedShadeEnabled(true)
+            shadeTestUtil.setShadeExpansion(0.8f)
+            fakeDisableFlagsRepository.disableFlags.value =
+                DisableFlagsModel(DISABLE_CLOCK or DISABLE_SYSTEM_INFO, DISABLE2_NONE)
+            runCurrent()
+
+            assertThat(clock!!.visibility).isEqualTo(View.GONE)
+            assertThat(systemInfo!!.baseVisibility.visibility).isEqualTo(View.GONE)
         }
 
     @Test

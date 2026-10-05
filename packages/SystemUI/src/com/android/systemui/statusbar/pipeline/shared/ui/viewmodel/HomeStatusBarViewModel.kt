@@ -48,6 +48,7 @@ import com.android.systemui.scene.domain.interactor.SceneInteractor
 import com.android.systemui.scene.shared.flag.SceneContainerFlag
 import com.android.systemui.scene.shared.model.Overlays
 import com.android.systemui.scene.shared.model.Scenes
+import com.android.systemui.shade.data.repository.ShadeRepository
 import com.android.systemui.shade.domain.interactor.ShadeDisplaysInteractor
 import com.android.systemui.shade.domain.interactor.ShadeInteractor
 import com.android.systemui.shade.shared.flag.ShadeWindowGoesAround
@@ -277,6 +278,7 @@ constructor(
     @Background bgDispatcher: CoroutineDispatcher,
     shadeDisplaysInteractor: Provider<ShadeDisplaysInteractor>,
     private val uiEventLogger: StatusBarChipsUiEventLogger,
+    shadeRepository: ShadeRepository,
 ) : HomeStatusBarViewModel, ExclusiveActivatable() {
 
     private val hydrator = Hydrator(traceName = "HomeStatusBarViewModel.hydrator")
@@ -321,8 +323,12 @@ constructor(
         // Keep the status bar visible while the shade is just starting to open or while a HUN is
         // being dragged on (b/412820391), but otherwise hide it so that the status bar doesn't draw
         // while it can't be seen. See b/394257529#comment24.
-        shadeInteractor.anyExpansion
-            .map { it >= 0.4 }
+        combine(shadeInteractor.anyExpansion, shadeRepository.legacySeparatedShadeEnabled) {
+                expansion, separatedShadeEnabled ->
+                // The separated header masks native parents while retaining their child layout
+                // and visibility for the immediate handoff when the panel closes.
+                expansion >= 0.4 && !separatedShadeEnabled
+            }
             .distinctUntilChanged()
             .logDiffsForTable(
                 tableLogBuffer = tableLogger,

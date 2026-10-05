@@ -33,6 +33,7 @@ import com.android.systemui.scene.shared.flag.SceneContainerFlag
 import com.android.systemui.scene.ui.view.WindowRootView
 import com.android.systemui.shade.ShadeController
 import com.android.systemui.shade.ShadeExpandsOnStatusBarLongPress
+import com.android.systemui.shade.ShadeHeaderController
 import com.android.systemui.shade.ShadeLogger
 import com.android.systemui.shade.ShadeViewController
 import com.android.systemui.shade.StatusBarLongPressGestureDetector
@@ -85,6 +86,7 @@ private constructor(
     private val lazyStatusBarShadeDisplayPolicy: Lazy<StatusBarTouchShadeDisplayPolicy>,
     private val lazyShadeDisplaysRepository: Lazy<ShadeDisplaysRepository>,
     private val statusBarWindowControllerStore: StatusBarWindowControllerStore,
+    private val shadeHeaderController: Lazy<ShadeHeaderController>,
 ) : ViewController<PhoneStatusBarView>(view) {
 
     private lateinit var battery: BatteryMeterView
@@ -205,6 +207,9 @@ private constructor(
         if (!StatusBarConnectedDisplays.isEnabled) {
             mView.setStatusBarWindowControllerStore(statusBarWindowControllerStore)
         }
+        if (mView.context.displayId == DEFAULT_DISPLAY) {
+            shadeHeaderController.get().setStatusBarView(mView)
+        }
     }
 
     private fun addCursorSupportToIconContainers() {
@@ -254,6 +259,9 @@ private constructor(
 
     @VisibleForTesting
     public override fun onViewDetached() {
+        if (mView.context.displayId == DEFAULT_DISPLAY) {
+            shadeHeaderController.get().clearStatusBarView(mView)
+        }
         removeDarkReceivers()
         startSideContainer.setOnHoverListener(null)
         endSideContainer.setOnHoverListener(null)
@@ -455,6 +463,7 @@ private constructor(
         private val lazyStatusBarShadeDisplayPolicy: Lazy<StatusBarTouchShadeDisplayPolicy>,
         private val lazyShadeDisplaysRepository: Lazy<ShadeDisplaysRepository>,
         private val statusBarWindowControllerStore: StatusBarWindowControllerStore,
+        private val shadeHeaderController: Lazy<ShadeHeaderController>,
     ) {
         fun create(view: PhoneStatusBarView): PhoneStatusBarViewController {
             return PhoneStatusBarViewController(
@@ -478,6 +487,7 @@ private constructor(
                 lazyStatusBarShadeDisplayPolicy,
                 lazyShadeDisplaysRepository,
                 statusBarWindowControllerStore,
+                shadeHeaderController,
             )
         }
     }

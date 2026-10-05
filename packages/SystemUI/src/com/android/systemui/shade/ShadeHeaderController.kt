@@ -25,6 +25,9 @@ import android.content.Context
 import android.content.Intent
 import android.content.res.Configuration
 import android.graphics.Insets
+import android.graphics.PointF
+import android.graphics.Rect
+import android.graphics.Typeface
 import android.os.Bundle
 import android.os.Trace
 import android.os.Trace.TRACE_TAG_APP
@@ -36,6 +39,7 @@ import android.view.View
 import android.view.ViewGroup
 import android.view.WindowInsets
 import android.widget.TextView
+import android.window.SurfaceSyncGroup
 import androidx.annotation.VisibleForTesting
 import androidx.compose.foundation.isSystemInDarkTheme
 import androidx.compose.foundation.layout.wrapContentSize
@@ -190,6 +194,19 @@ constructor(
         header.requireViewById(R.id.hover_system_icons_container)
     private val originalHeaderHeight = header.layoutParams.height
     private val originalClockEllipsize = clock.ellipsize
+    private val headerSystemIcons: View = header.requireViewById(R.id.shade_header_system_icons)
+    private val privacyContainer: View = header.requireViewById(R.id.privacy_container)
+    private val originalHeaderClipChildren = header.clipChildren
+    private val originalHeaderClipToPadding = header.clipToPadding
+    private val originalHeaderAccessibility = header.importantForAccessibility
+    private val originalClockAccessibility = clock.importantForAccessibility
+    private val originalDateAccessibility = date.importantForAccessibility
+    private val originalCarrierAccessibility = mShadeCarrierGroup.importantForAccessibility
+    private val originalIconsAccessibility = headerSystemIcons.importantForAccessibility
+    private val originalPrivacyAccessibility = privacyContainer.importantForAccessibility
+    private var nativeClockPivotX = clock.pivotX
+    private var nativeClockPivotY = clock.pivotY
+    private var nativeClockClickable = clock.isClickable
 
     private var roundedCorners = 0
     private var cutout: DisplayCutout? = null
@@ -215,6 +232,7 @@ constructor(
                 updateVisibility()
             }
         }
+    private var customizerAnimating = false
 
     /**
      * Whether the QQS/QS part of the shade is visible. This is particularly important in
@@ -243,6 +261,34 @@ constructor(
         }
 
     private var standalonePanel = false
+    private var separatedShadeEnabled = false
+    private var showingControlCenter = false
+    private var separatedExpandedHeight = 0f
+    private var separatedTransitionProgress = 0f
+    private var separatedPropertiesApplied = false
+    private var statusBarView: View? = null
+    private var statusClockId = View.NO_ID
+    private var lastStatusClockView: TextView? = null
+    private var lastStatusClockAnchor: ClockAnchor? = null
+    private var lastHeaderClockAnchor: ClockAnchor? = null
+    private var clockTypographyKey: ClockTypographyKey? = null
+    private val statusBarLayers = mutableListOf<StatusBarLayer>()
+    private val statusBarMasks = mutableListOf<StatusBarMask>()
+    private var statusBarSourceReveal = 1f
+    private var lastStatusHandoffSynchronized = false
+    private var statusHandoffCount = 0
+    private val statusBarAnchorViews = mutableListOf<View>()
+    private val separatedLayoutListener = View.OnLayoutChangeListener { _, _, _, _, _, _, _, _, _ ->
+        if (statusBarView != null) lastStatusClockAnchor = statusClockAnchor()
+        applySeparatedShadeTransition()
+    }
+    private val clockLayoutListener = View.OnLayoutChangeListener { v, _, _, _, _, _, _, _, _ ->
+        nativeClockPivotX = if (v.isLayoutRtl) v.width.toFloat() else 0f
+        nativeClockPivotY = v.height.toFloat() / 2f
+        v.pivotX = nativeClockPivotX
+        v.pivotY = nativeClockPivotY
+        applySeparatedShadeTransition()
+    }
     private var privacyChipVisible = false
     private var publishedStandaloneHeight: Int? = null
     var onHeaderHeightChanged: (() -> Unit)? = null
@@ -253,12 +299,396 @@ constructor(
     /** Only the separated notification page uses its own header layout. */
     fun setStandalonePanel(enabled: Boolean, showingControlCenter: Boolean) {
         val notificationPanel = enabled && !showingControlCenter
-        if (standalonePanel == notificationPanel) return
+        if (separatedShadeEnabled == enabled && this.showingControlCenter == showingControlCenter &&
+            standalonePanel == notificationPanel) return
+        restoreSeparatedProperties()
+        separatedShadeEnabled = enabled
+        this.showingControlCenter = showingControlCenter
         standalonePanel = notificationPanel
         updateStandaloneTypography()
         updateCarrierGroupPadding()
         updateTransition()
+        if (::mShadeCarrierGroupController.isInitialized) updateListeners()
         header.requestApplyInsets()
+        applySeparatedShadeTransition()
+    }
+
+    /** The actual collapsed status bar supplies anchors for any configured clock position. */
+    fun setStatusBarView(view: View) {
+        if (statusBarView === view) {
+            applySeparatedShadeTransition()
+            return
+        }
+        statusBarView?.let { clearStatusBarView(it) }
+        statusBarView = view
+        for (id in intArrayOf(R.id.status_bar_start_side_container, R.id.centered_area,
+            R.id.status_bar_end_side_container)) {
+            view.findViewById<View>(id)?.let {
+                statusBarLayers.add(StatusBarLayer(it, it.alpha, it.importantForAccessibility))
+            }
+        }
+        statusBarAnchorViews.add(view)
+        for (id in intArrayOf(R.id.clock, R.id.clock_center, R.id.clock_right, R.id.system_icons)) {
+            view.findViewById<View>(id)?.let {
+                statusBarAnchorViews.add(it)
+                statusBarMasks.add(StatusBarMask(it, it.clipBounds?.let(::Rect)))
+            }
+        }
+        statusBarAnchorViews.forEach { it.addOnLayoutChangeListener(separatedLayoutListener) }
+        // Cache the configured clock while the shade is closed, before its native owner hides it.
+        lastStatusClockAnchor = statusClockAnchor()
+        applySeparatedShadeTransition()
+    }
+
+    fun clearStatusBarView(view: View) {
+        if (statusBarView !== view) return
+        statusBarLayers.forEach { it.restore() }
+        statusBarMasks.forEach { it.restore() }
+        statusBarAnchorViews.forEach { it.removeOnLayoutChangeListener(separatedLayoutListener) }
+        statusBarLayers.clear()
+        statusBarMasks.clear()
+        statusBarAnchorViews.clear()
+        statusBarView = null
+        statusClockId = View.NO_ID
+        lastStatusClockView = null
+        lastStatusClockAnchor = null
+        clearClockTypography()
+        applySeparatedShadeTransition()
+    }
+
+    /** A reversible transition driven directly by the panel's physical drag height. */
+    fun setSeparatedShadeExpansion(expandedHeight: Float) {
+        separatedExpandedHeight = if (expandedHeight.isFinite()) expandedHeight.coerceAtLeast(0f)
+            else 0f
+        applySeparatedShadeTransition()
+    }
+
+    private data class StatusBarLayer(
+        val view: View,
+        val originalAlpha: Float,
+        val originalAccessibility: Int,
+    ) {
+        fun setReveal(alpha: Float) {
+            view.alpha = originalAlpha * alpha
+            view.importantForAccessibility = if (alpha <= 0f)
+                View.IMPORTANT_FOR_ACCESSIBILITY_NO_HIDE_DESCENDANTS else originalAccessibility
+        }
+
+        fun restore() {
+            view.alpha = originalAlpha
+            view.importantForAccessibility = originalAccessibility
+        }
+    }
+
+    private data class StatusBarMask(
+        val view: View,
+        val originalClip: Rect?,
+        val originalAccessibility: Int = view.importantForAccessibility,
+    ) {
+        private var masked = false
+
+        fun hideDuplicate() {
+            if (masked) return
+            // Keep the native child laid out and ready, while drawing its sharp header counterpart.
+            view.clipBounds = Rect(0, 0, 0, 0)
+            view.importantForAccessibility = View.IMPORTANT_FOR_ACCESSIBILITY_NO_HIDE_DESCENDANTS
+            masked = true
+        }
+
+        fun restore() {
+            if (!masked) return
+            view.clipBounds = originalClip
+            view.importantForAccessibility = originalAccessibility
+            masked = false
+        }
+    }
+
+    private data class ClockAnchor(val x: Float, val baseline: Float, val textSize: Float)
+
+    private data class ClockTypographyKey(
+        val source: Typeface,
+        val target: Typeface,
+        val sourceSpacing: Float,
+        val targetSpacing: Float,
+    )
+
+    private fun clearClockTypography() {
+        clock.clearDrawTypography()
+        clock.clearDrawTypographyEndpoints()
+        clockTypographyKey = null
+    }
+
+    private fun updateClockTypography() {
+        val source = lastStatusClockView
+        if (source == null) {
+            clearClockTypography()
+            return
+        }
+        val key = ClockTypographyKey(
+            source.typeface ?: Typeface.DEFAULT,
+            clock.typeface ?: Typeface.DEFAULT,
+            source.letterSpacing,
+            clock.letterSpacing,
+        )
+        if (clockTypographyKey != key) {
+            clockTypographyKey = key
+            clock.setDrawTypographyEndpoints(
+                key.source, key.sourceSpacing, key.target, key.targetSpacing
+            )
+        }
+        // Keep one font instance throughout the drag, including fully expanded notifications.
+        // Only view scale/position changes; the target Typeface remains the measured layout role.
+        clock.setDrawTypography(key.source, key.sourceSpacing)
+    }
+
+    /** Ignore child transforms, including the transform assigned on the previous drag frame. */
+    private fun layoutPositionOnScreen(view: View): PointF {
+        var current = view
+        var x = 0f
+        var y = 0f
+        while (current.parent is View) {
+            val parent = current.parent as View
+            x += current.left - parent.scrollX
+            y += current.top - parent.scrollY
+            current = parent
+        }
+        val location = IntArray(2)
+        current.getLocationOnScreen(location)
+        return PointF(location[0] + x, location[1] + y)
+    }
+
+    private fun textAnchor(view: TextView): ClockAnchor {
+        val position = layoutPositionOnScreen(view)
+        val textLeft = view.totalPaddingLeft +
+            (view.layout?.takeIf { it.lineCount > 0 }?.getLineLeft(0) ?: 0f)
+        val baseline = if (view.baseline >= 0) view.baseline.toFloat() else
+            view.totalPaddingTop - view.paint.fontMetrics.ascent
+        return ClockAnchor(position.x + textLeft, position.y + baseline, view.textSize)
+    }
+
+    private fun statusClockAnchor(): ClockAnchor {
+        val source = listOf(R.id.clock, R.id.clock_center, R.id.clock_right)
+            .mapNotNull { statusBarView?.findViewById<TextView>(it) }
+            .firstOrNull { it.visibility != View.GONE }
+            ?: lastStatusClockView?.takeIf {
+                statusBarView?.findViewById<TextView>(it.id) === it
+            }
+        statusClockId = source?.id ?: View.NO_ID
+        if (source != null && source !== lastStatusClockView) {
+            lastStatusClockView = source
+            lastStatusClockAnchor = null
+        }
+        if (source != null && source.width > 0 && source.baseline >= 0) {
+            return textAnchor(source).also { lastStatusClockAnchor = it }
+        }
+        if (source != null && source === lastStatusClockView) {
+            lastStatusClockAnchor?.let { return it }
+        }
+        val insets = statusBarContentInsetsProvider?.getStatusBarContentInsetsForCurrentRotation()
+        val textSize = source?.textSize?.takeIf { it > 0f }
+            ?: resources.getDimension(R.dimen.status_bar_clock_size)
+        val barHeight = statusBarView?.height?.takeIf { it > 0 }?.toFloat()
+            ?: resources.getDimension(R.dimen.qs_header_height)
+        val barPosition = statusBarView?.let { layoutPositionOnScreen(it) } ?: PointF()
+        val barWidth = statusBarView?.width?.takeIf { it > 0 }
+            ?: header.width.takeIf { it > 0 } ?: resources.displayMetrics.widthPixels
+        val ratio = textSize / clock.textSize.coerceAtLeast(1f)
+        val font = source?.paint?.fontMetrics ?: clock.paint.fontMetrics
+        val fontRatio = if (source != null) 1f else ratio
+        val baseline = barPosition.y +
+            (barHeight - (font.descent + font.ascent) * fontRatio) / 2f
+        val textWidth = if (source != null) source.paint.measureText(source.text.toString())
+            else clock.paint.measureText(clock.text.toString()) * ratio
+        val startPadding = resources.getDimension(R.dimen.status_bar_padding_start)
+        val endPadding = resources.getDimension(R.dimen.status_bar_padding_end)
+        val clockPadding = if (statusClockId == R.id.clock_right)
+            resources.getDimension(R.dimen.status_bar_clock_end_padding)
+        else resources.getDimension(R.dimen.status_bar_left_clock_starting_padding)
+        val x = when {
+            statusClockId == R.id.clock_center -> (barWidth - textWidth) / 2f
+            statusClockId == R.id.clock_right || statusBarView?.isLayoutRtl == true ->
+                barWidth - (insets?.right ?: 0) - endPadding - clockPadding - textWidth
+            else -> (insets?.left ?: 0) + startPadding + clockPadding
+        }
+        return ClockAnchor(barPosition.x + x, baseline, textSize)
+            .also { lastStatusClockAnchor = it }
+    }
+
+    private fun progressBetween(progress: Float, start: Float, end: Float): Float {
+        val fraction = ((progress - start) / (end - start)).coerceIn(0f, 1f)
+        return fraction * fraction * (3f - 2f * fraction)
+    }
+
+    private fun applySeparatedShadeTransition() {
+        val active = header.isAttachedToWindow && !qsDisabled && separatedShadeEnabled &&
+            separatedExpandedHeight > 0f
+        val shadeSurface = header.rootSurfaceControl
+        val statusSurface = statusBarView?.rootSurfaceControl
+        val sync = if (active != separatedPropertiesApplied && shadeSurface != null &&
+            statusSurface != null && shadeSurface !== statusSurface) {
+            SurfaceSyncGroup("ArkSeparatedStatusHandoff")
+        } else null
+        try {
+            if (sync != null) {
+                // The two windows must present their ownership change in the same frame.
+                val shadeAdded = sync.add(shadeSurface, null)
+                val statusAdded = sync.add(statusSurface, null)
+                lastStatusHandoffSynchronized = shadeAdded && statusAdded
+                statusHandoffCount++
+            }
+            applySeparatedShadeProperties()
+        } finally {
+            // Release any registered root even when the other registration failed.
+            sync?.markSyncReady()
+        }
+    }
+
+    private fun applySeparatedShadeProperties() {
+        if (!header.isAttachedToWindow || qsDisabled || !separatedShadeEnabled ||
+            separatedExpandedHeight <= 0f) {
+            separatedTransitionProgress = 0f
+            restoreSeparatedProperties()
+            if (separatedShadeEnabled) {
+                header.alpha = 0f
+                header.importantForAccessibility = View.IMPORTANT_FOR_ACCESSIBILITY_NO_HIDE_DESCENDANTS
+            } else {
+                header.importantForAccessibility = originalHeaderAccessibility
+            }
+            return
+        }
+        if (!separatedPropertiesApplied) nativeClockClickable = clock.isClickable
+        separatedPropertiesApplied = true
+        val progress = if (shadeExpandedFraction.isFinite() && shadeExpandedFraction >= 0f)
+            shadeExpandedFraction.coerceIn(0f, 1f)
+        else (separatedExpandedHeight / header.rootView.height.coerceAtLeast(1)).coerceIn(0f, 1f)
+        separatedTransitionProgress = progress
+        if (!customizing && !customizerAnimating) header.alpha = 1f
+        header.clipChildren = false
+        header.clipToPadding = false
+        header.importantForAccessibility = originalHeaderAccessibility
+        header.translationX = 0f
+        header.translationY = 0f
+        header.scaleX = 1f
+        header.scaleY = 1f
+
+        val sourceClock = statusClockAnchor()
+        lastStatusClockAnchor = sourceClock
+        val statusClockFade = progressBetween(progress, 0f, 0.24f)
+        // Clock/system duplicates stay clipped beneath the blur. Remaining status content,
+        // including notification icons, fades reversibly instead of disappearing on DOWN.
+        statusBarMasks.forEach { it.hideDuplicate() }
+        statusBarSourceReveal = 1f - statusClockFade
+        statusBarLayers.forEach { it.setReveal(statusBarSourceReveal) }
+
+        val targetClock = textAnchor(clock)
+        lastHeaderClockAnchor = targetClock
+        val startScale = (sourceClock.textSize / targetClock.textSize.coerceAtLeast(1f))
+            .coerceIn(0.05f, 1f)
+        clock.pivotX = clock.totalPaddingLeft +
+            (clock.layout?.takeIf { it.lineCount > 0 }?.getLineLeft(0) ?: 0f)
+        clock.pivotY = targetClock.baseline - layoutPositionOnScreen(clock).y
+        val clockMovement = if (showingControlCenter) 0f else progress
+        updateClockTypography()
+        clock.scaleX = startScale + (1f - startScale) * clockMovement
+        clock.scaleY = clock.scaleX
+        clock.translationX = (sourceClock.x - targetClock.x) * (1f - clockMovement)
+        clock.translationY = (sourceClock.baseline - targetClock.baseline) * (1f - clockMovement)
+        clock.alpha = if (showingControlCenter) 1f - statusClockFade else 1f
+        clock.isClickable = nativeClockClickable && !showingControlCenter
+        clock.importantForAccessibility = if (showingControlCenter)
+            View.IMPORTANT_FOR_ACCESSIBILITY_NO_HIDE_DESCENDANTS else originalClockAccessibility
+
+        date.alpha = progressBetween(progress, 0.48f, 0.88f)
+        mShadeCarrierGroup.alpha = progressBetween(progress, 0.62f, 1f)
+        date.importantForAccessibility = if (date.alpha <= 0f)
+            View.IMPORTANT_FOR_ACCESSIBILITY_NO_HIDE_DESCENDANTS else originalDateAccessibility
+        mShadeCarrierGroup.importantForAccessibility = if (mShadeCarrierGroup.alpha <= 0f)
+            View.IMPORTANT_FOR_ACCESSIBILITY_NO_HIDE_DESCENDANTS else originalCarrierAccessibility
+        date.translationX = 0f
+        date.translationY = (sourceClock.baseline - textAnchor(date).baseline) * (1f - progress)
+        mShadeCarrierGroup.translationX = 0f
+        val iconsPosition = layoutPositionOnScreen(headerSystemIcons)
+        val sourceIcons = statusBarView?.findViewById<View>(R.id.system_icons)
+        val sourcePosition = sourceIcons?.takeIf { it.width > 0 && it.height > 0 }
+            ?.let { layoutPositionOnScreen(it) }
+        val statusInsets = statusBarContentInsetsProvider
+            ?.getStatusBarContentInsetsForCurrentRotation()
+        val sourceRight = if (sourcePosition != null && sourceIcons != null)
+            sourcePosition.x + sourceIcons.width - sourceIcons.paddingRight -
+                (sourceIcons.findViewById<View>(R.id.right_clock_layout)?.width ?: 0)
+        else (statusBarView?.width?.takeIf { it > 0 } ?: header.width).toFloat() -
+            (statusInsets?.right ?: header.paddingRight)
+        val sourceCenterY = if (sourcePosition != null && sourceIcons != null)
+            sourcePosition.y + sourceIcons.height / 2f
+        else resources.getDimension(R.dimen.qs_header_height) / 2f
+        val carrierPosition = layoutPositionOnScreen(mShadeCarrierGroup)
+        val targetCarrierCenterY = carrierPosition.y + mShadeCarrierGroup.height / 2f
+        mShadeCarrierGroup.translationY =
+            (sourceCenterY - targetCarrierCenterY) * (1f - progress)
+        val targetRight = iconsPosition.x + headerSystemIcons.width -
+            headerSystemIcons.paddingRight - systemIconsHoverContainer.paddingRight
+        val targetCenterY = iconsPosition.y + headerSystemIcons.height / 2f
+        val iconMovement = progress
+        headerSystemIcons.translationX = (sourceRight - targetRight) * (1f - iconMovement)
+        headerSystemIcons.translationY = (sourceCenterY - targetCenterY) * (1f - iconMovement)
+        val privacyPosition = layoutPositionOnScreen(privacyContainer)
+        privacyContainer.translationX =
+            (sourceRight - privacyPosition.x - privacyContainer.width) * (1f - iconMovement)
+        privacyContainer.translationY =
+            (sourceCenterY - privacyPosition.y - privacyContainer.height / 2f) * (1f - iconMovement)
+        val iconsAlpha = if (showingControlCenter) 1f
+            else 1f - progressBetween(progress, 0.10f, 0.40f)
+        headerSystemIcons.alpha = if (!privacyChipVisible) iconsAlpha else 0f
+        privacyContainer.alpha = if (privacyChipVisible) iconsAlpha else 0f
+        for (view in arrayOf(headerSystemIcons, privacyContainer)) {
+            view.importantForAccessibility = if (view.alpha <= 0f)
+                View.IMPORTANT_FOR_ACCESSIBILITY_NO_HIDE_DESCENDANTS
+            else if (view === headerSystemIcons) originalIconsAccessibility
+            else originalPrivacyAccessibility
+        }
+    }
+
+    private fun restoreSeparatedProperties() {
+        clearClockTypography()
+        if (!separatedPropertiesApplied) return
+        statusBarLayers.forEach { it.restore() }
+        statusBarMasks.forEach { it.restore() }
+        statusBarSourceReveal = 1f
+        separatedPropertiesApplied = false
+        header.alpha = ShadeInterpolation.getContentAlpha(shadeExpandedFraction.coerceIn(0f, 1f))
+        header.translationX = 0f
+        header.translationY = 0f
+        header.scaleX = 1f
+        header.scaleY = 1f
+        header.clipChildren = originalHeaderClipChildren
+        header.clipToPadding = originalHeaderClipToPadding
+        header.importantForAccessibility = originalHeaderAccessibility
+        clock.pivotX = nativeClockPivotX
+        clock.pivotY = nativeClockPivotY
+        clock.scaleX = if (standalonePanel || largeScreenActive) 1f else
+            1f + (resources.getFloat(R.dimen.qqs_expand_clock_scale) - 1f) *
+                qsExpandedFraction.coerceIn(0f, 1f)
+        clock.scaleY = clock.scaleX
+        clock.alpha = 1f
+        clock.isClickable = nativeClockClickable
+        clock.importantForAccessibility = originalClockAccessibility
+        for (view in arrayOf(clock, date, mShadeCarrierGroup, headerSystemIcons, privacyContainer)) {
+            view.translationX = 0f
+            view.translationY = 0f
+        }
+        date.alpha = 1f
+        mShadeCarrierGroup.alpha = 1f
+        date.importantForAccessibility = originalDateAccessibility
+        mShadeCarrierGroup.importantForAccessibility = originalCarrierAccessibility
+        headerSystemIcons.alpha = 1f
+        privacyContainer.alpha = 1f
+        headerSystemIcons.importantForAccessibility = originalIconsAccessibility
+        privacyContainer.importantForAccessibility = originalPrivacyAccessibility
+        if (separatedShadeEnabled) {
+            forceSeparatedHeaderLayout()
+        } else {
+            header.progress = headerLayoutExpansion
+        }
     }
 
     private fun standaloneHeight(): Int {
@@ -272,6 +702,7 @@ constructor(
     }
 
     private fun updateStandaloneTypography() {
+        clearClockTypography()
         clock.setTextAppearance(R.style.TextAppearance_QS_Status_Clock)
         date.setTextAppearance(
             if (standalonePanel) R.style.TextAppearance_Ark_DualHeader_Date
@@ -302,6 +733,7 @@ constructor(
 
     private fun updateHeaderHeight() {
         val height = if (standalonePanel) standaloneHeight()
+            else if (separatedShadeEnabled && !largeScreenActive) nativePhoneHeaderHeight()
             else originalHeaderHeight
         if (header.layoutParams.height != height) {
             header.layoutParams = header.layoutParams.apply { this.height = height }
@@ -316,22 +748,24 @@ constructor(
     /** Untransformed bottom of the complete phone header, including its first layout. */
     fun getExpandedHeaderBottom(): Int {
         if (standalonePanel) return header.top + standaloneHeight()
-        val estimatedHeight = maxOf(
-            resources.getDimensionPixelSize(R.dimen.qs_header_height),
-            2 * resources.getDimensionPixelSize(R.dimen.large_screen_shade_header_min_height) +
-                resources.getDimensionPixelSize(R.dimen.new_qs_header_non_clickable_element_height),
-        )
-        return header.top + maxOf(header.height, estimatedHeight)
+        return header.top + maxOf(header.height, nativePhoneHeaderHeight())
     }
+
+    private fun nativePhoneHeaderHeight(): Int = maxOf(
+        resources.getDimensionPixelSize(R.dimen.qs_header_height),
+        2 * resources.getDimensionPixelSize(R.dimen.large_screen_shade_header_min_height) +
+            resources.getDimensionPixelSize(R.dimen.new_qs_header_non_clickable_element_height),
+    )
 
     /** Expansion fraction of the QQS/QS shade. This is not the expansion between QQS <-> QS. */
     var shadeExpandedFraction = -1f
         set(value) {
-            if (qsVisible && field != value) {
-                header.alpha = ShadeInterpolation.getContentAlpha(value)
+            if ((qsVisible || separatedShadeEnabled) && field != value) {
+                if (!separatedShadeEnabled) header.alpha = ShadeInterpolation.getContentAlpha(value)
                 field = value
                 updateIgnoredSlots()
             }
+            applySeparatedShadeTransition()
         }
 
     /** Expansion fraction of the QQS <-> QS animation. */
@@ -340,7 +774,7 @@ constructor(
             if (visible && field != value) {
                 field = value
                 iconContainer.setQsExpansionTransitioning(
-                    value > 0f && value < 1.0f
+                    !separatedShadeEnabled && value > 0f && value < 1.0f
                 )
                 updatePosition()
                 updateIgnoredSlots()
@@ -392,6 +826,7 @@ constructor(
                 header.updateAllConstraints(update)
                 privacyChipVisible = visible
                 updateStandalonePrivacyConstraints()
+                applySeparatedShadeTransition()
             }
         }
 
@@ -422,6 +857,7 @@ constructor(
                         R.dimen.hover_system_icons_container_padding_bottom
                     ),
                 )
+                applySeparatedShadeTransition()
             }
 
             override fun onDensityOrFontScaleChanged() {
@@ -573,24 +1009,33 @@ constructor(
         header.setOnApplyWindowInsetsListener(insetListener)
         header.requestApplyInsets()
 
-        clock.addOnLayoutChangeListener { v, _, _, _, _, _, _, _, _ ->
-            val newPivot = if (v.isLayoutRtl) v.width.toFloat() else 0f
-            v.pivotX = newPivot
-            v.pivotY = v.height.toFloat() / 2
+        clock.addOnLayoutChangeListener(clockLayoutListener)
+        for (view in arrayOf(header, date, mShadeCarrierGroup, headerSystemIcons, privacyContainer)) {
+            view.addOnLayoutChangeListener(separatedLayoutListener)
         }
         clock.setOnClickListener { launchClockActivity() }
+        nativeClockClickable = clock.isClickable
 
         dumpManager.registerDumpable(this)
         configurationController.addCallback(configurationControllerListener)
         demoModeController.addCallback(demoModeReceiver)
         statusBarIconController.addIconGroup(iconManager)
+        updateListeners()
         nextAlarmController.addCallback(nextAlarmCallback)
         systemIconsHoverContainer.setOnHoverListener(
             statusOverlayHoverListenerFactory.createListener(systemIconsHoverContainer)
         )
+        applySeparatedShadeTransition()
     }
 
     override fun onViewDetached() {
+        restoreSeparatedProperties()
+        mShadeCarrierGroupController.setListening(false)
+        mShadeCarrierGroupController.setOnSingleCarrierChangedListener(null)
+        clock.removeOnLayoutChangeListener(clockLayoutListener)
+        for (view in arrayOf(header, date, mShadeCarrierGroup, headerSystemIcons, privacyContainer)) {
+            view.removeOnLayoutChangeListener(separatedLayoutListener)
+        }
         clock.setOnClickListener(null)
         privacyIconsController.chipVisibilityListener = null
         dumpManager.unregisterDumpable(this::class.java.simpleName)
@@ -606,6 +1051,7 @@ constructor(
         if (disabled == qsDisabled) return
         qsDisabled = disabled
         updateVisibility()
+        applySeparatedShadeTransition()
     }
 
     fun startCustomizingAnimation(show: Boolean, duration: Long) {
@@ -720,6 +1166,7 @@ constructor(
         updateHeaderHeight()
         updateStandalonePrivacyConstraints()
         updateBatteryMode()
+        applySeparatedShadeTransition()
     }
 
     private fun updateStandalonePrivacyConstraints() {
@@ -766,7 +1213,7 @@ constructor(
 
     private fun updateScrollY() {
         if (!largeScreenActive) {
-            header.scrollY = if (standalonePanel) 0 else qsScrollY
+            header.scrollY = if (separatedShadeEnabled) 0 else qsScrollY
         }
     }
 
@@ -822,29 +1269,47 @@ constructor(
 
         lastInsets?.let { updateConstraintsForInsets(header, it) }
 
-        header.jumpToState(header.startState)
+        if (separatedShadeEnabled) {
+            forceSeparatedHeaderLayout()
+        } else {
+            header.jumpToState(header.startState)
+        }
         updatePosition()
         updateScrollY()
     }
 
+    private fun forceSeparatedHeaderLayout() {
+        val state = when {
+            standalonePanel -> NOTIFICATION_HEADER_CONSTRAINT
+            largeScreenActive -> LARGE_SCREEN_HEADER_CONSTRAINT
+            else -> QS_HEADER_CONSTRAINT
+        }
+        if (header.currentState != state) header.jumpToState(state)
+    }
+
     private fun updatePosition() {
-        if (!largeScreenActive && visible) {
+        if (separatedShadeEnabled) {
+            forceSeparatedHeaderLayout()
+            updateBatteryMode()
+        } else if (!largeScreenActive && visible) {
             logInstantEvent("updatePosition: $qsExpandedFraction")
             header.progress = headerLayoutExpansion
             updateBatteryMode()
         }
+        applySeparatedShadeTransition()
     }
 
     private val headerLayoutExpansion: Float
-        get() = if (standalonePanel) 1f else qsExpandedFraction
+        get() = if (separatedShadeEnabled) 1f else qsExpandedFraction
 
     private fun logInstantEvent(message: String) {
         Trace.instantForTrack(TRACE_TAG_APP, "LargeScreenHeaderController", message)
     }
 
     private fun updateListeners() {
-        mShadeCarrierGroupController.setListening(visible)
-        if (visible) {
+        val listening = visible || (separatedShadeEnabled && header.isAttachedToWindow)
+        mShadeCarrierGroupController.setListening(listening)
+        if (listening) {
             singleCarrier = mShadeCarrierGroupController.isSingleCarrier
             updateIgnoredSlots()
             mShadeCarrierGroupController.setOnSingleCarrierChangedListener {
@@ -902,6 +1367,55 @@ constructor(
         pw.println("currentState: ${header.currentState.stateToString()}")
         pw.println("standaloneNotificationPanel: $standalonePanel")
         pw.println("headerHeight: ${header.height}, expandedHeaderBottom: ${getExpandedHeaderBottom()}")
+        pw.println("separatedShadeEnabled: $separatedShadeEnabled")
+        pw.println("showingControlCenter: $showingControlCenter")
+        pw.println("separatedExpandedHeight: $separatedExpandedHeight")
+        pw.println("separatedTransitionProgress: $separatedTransitionProgress")
+        pw.println("headerAlpha: ${header.alpha}")
+        pw.println("statusClockId: $statusClockId")
+        pw.println("statusBarSourceAttached: ${statusBarView?.isAttachedToWindow == true}")
+        pw.println("statusBarSource: visibility=${statusBarView?.visibility}, " +
+            "alpha=${statusBarView?.alpha}, clip=${statusBarView?.clipBounds}")
+        pw.println("statusBarSourceLayerCount: ${statusBarLayers.size}")
+        pw.println("statusBarSourceReveal: $statusBarSourceReveal")
+        pw.println("statusBarSourceMaskCount: ${statusBarMasks.size}")
+        statusBarMasks.forEach {
+            pw.println("statusMask[${resources.getResourceEntryName(it.view.id)}]: " +
+                "clip=${it.view.clipBounds}, original=${it.originalClip}")
+        }
+        pw.println("lastStatusHandoffSynchronized: $lastStatusHandoffSynchronized")
+        pw.println("statusHandoffCount: $statusHandoffCount")
+        pw.println("statusClockAnchor: $lastStatusClockAnchor")
+        pw.println("headerClockAnchor: $lastHeaderClockAnchor")
+        pw.println("sourceClock: visibility=${lastStatusClockView?.visibility}, " +
+            "alpha=${lastStatusClockView?.alpha}")
+        statusBarView?.findViewById<View>(R.id.status_bar_end_side_content)?.let {
+            pw.println("sourceSystemInfo: visibility=${it.visibility}, alpha=${it.alpha}")
+        }
+        pw.println("separatedClock: alpha=${clock.alpha}, scale=${clock.scaleX}, " +
+            "translationX=${clock.translationX}, translationY=${clock.translationY}")
+        pw.println("clockTypographyMatchesSource: ${clock.drawTypeface != null &&
+            clock.drawTypeface === lastStatusClockView?.typeface}")
+        pw.println("clockTypographyDrawWeight: ${clock.drawTypeface?.weight}")
+        pw.println("clockTypographyDrawSpacing: ${clock.drawLetterSpacing}")
+        pw.println("clockTypographyClipRightExtension: ${clock.drawTypographyClipRightExtension}")
+        clockTypographyKey?.let {
+            pw.println("clockTypographyFamilies: source=${it.source.systemFontFamilyName}, " +
+                "target=${it.target.systemFontFamilyName}")
+            pw.println("clockTypographyWeights: source=${it.source.weight}, target=${it.target.weight}")
+            pw.println("clockTypographySpacing: source=${it.sourceSpacing}, target=${it.targetSpacing}")
+        }
+        pw.println("separatedDateAlpha: ${date.alpha}")
+        pw.println("separatedCarrierAlpha: ${mShadeCarrierGroup.alpha}")
+        pw.println("separatedDateTranslationY: ${date.translationY}")
+        pw.println("separatedCarrierTranslationY: ${mShadeCarrierGroup.translationY}")
+        pw.println("separatedIcons: alpha=${headerSystemIcons.alpha}, " +
+            "translationX=${headerSystemIcons.translationX}, " +
+            "translationY=${headerSystemIcons.translationY}")
+        for (layer in statusBarLayers) {
+            pw.println("statusParentAlpha[${resources.getResourceEntryName(layer.view.id)}]: " +
+                layer.view.alpha)
+        }
     }
 
     private fun MotionLayout.updateConstraints(@IdRes state: Int, update: ConstraintChange) {
@@ -933,14 +1447,17 @@ constructor(
         AnimatorListenerAdapter() {
         override fun onAnimationEnd(animation: Animator) {
             super.onAnimationEnd(animation)
+            customizerAnimating = false
             header.animate().setListener(null)
             if (enteringCustomizing) {
                 customizing = true
             }
+            applySeparatedShadeTransition()
         }
 
         override fun onAnimationStart(animation: Animator) {
             super.onAnimationStart(animation)
+            customizerAnimating = true
             if (!enteringCustomizing) {
                 customizing = false
             }

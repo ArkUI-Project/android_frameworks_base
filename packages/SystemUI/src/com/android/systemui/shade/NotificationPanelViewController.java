@@ -1108,6 +1108,7 @@ public final class NotificationPanelViewController implements
         mConfigurationController.onConfigurationChanged(configuration);
         mView.getRootView().dispatchConfigurationChanged(configuration);
         reInflateViews();
+        mCommandQueue.recomputeDisableFlags(mDisplayId, false);
     }
 
     /** Sets a listener to be notified when the shade starts opening or finishes closing. */
@@ -2398,6 +2399,11 @@ public final class NotificationPanelViewController implements
                 && mHeadsUpAppearanceController.shouldHeadsUpStatusBarBeVisible()) {
             return false;
         }
+        if (mQsController.isDualShadeEnabled() && mBarState == SHADE) {
+            // The separated header owns the visual handoff from the collapsed status bar.
+            // Keep the native child visibility flags available underneath that transition.
+            return false;
+        }
         return !mShowIconsWhenExpanded;
     }
 
@@ -3573,6 +3579,9 @@ public final class NotificationPanelViewController implements
             // The update needs to happen after the headerSlide in above, otherwise the translation
             // would reset
             mQsController.updateQsState();
+            if (oldState != statusBarState) {
+                mCommandQueue.recomputeDisableFlags(mDisplayId, false);
+            }
         }
 
         @Override
@@ -4022,7 +4031,8 @@ public final class NotificationPanelViewController implements
                 return false;
             }
             if (!mHeadsUpTouchHelper.isTrackingHeadsUp() && mQsController.handleTouch(
-                    event, isFullyCollapsed(), isShadeOrQsHeightAnimationRunning())) {
+                    event, isFullyCollapsed(), isShadeOrQsHeightAnimationRunning(),
+                    mLastEventSynthesizedDown)) {
                 if (event.getActionMasked() != MotionEvent.ACTION_MOVE) {
                     mShadeLog.logMotionEvent(event, "onTouch: handleQsTouch handled event");
                 }

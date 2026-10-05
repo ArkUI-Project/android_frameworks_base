@@ -847,6 +847,11 @@ public class QuickSettingsControllerImpl implements QuickSettingsController, Dum
             // in split shade QS don't translate, just (un)squish and overshoot
             return 0;
         }
+        if (isDualShadeEnabled() && mBarState == SHADE && mDualShadeShowingQs) {
+            // Keep the complete page moving with the notification stack during the pull.
+            // QS expansion stays at one to avoid the QQS-to-QS tile transformation.
+            return getHeaderHeight() * (MathUtils.saturate(mShadeExpandedFraction) - 1f);
+        }
         if (mBarState == KEYGUARD && !mKeyguardBypassController.getBypassEnabled()) {
             return -mQs.getQsMinExpansionHeight();
         }
@@ -1189,6 +1194,8 @@ public class QuickSettingsControllerImpl implements QuickSettingsController, Dum
     void updateExpansion() {
         if (mQs == null) return;
         boolean dualShade = isDualShadeEnabled() && mBarState == SHADE;
+        mShadeRepository.setLegacySeparatedShadeEnabled(dualShade);
+        boolean dualControlCenter = dualShade && mDualShadeShowingQs;
         if (mQs instanceof QSFragmentCompose fragment) {
             fragment.setControlCenterEnabled(dualShade);
         }
@@ -1199,7 +1206,7 @@ public class QuickSettingsControllerImpl implements QuickSettingsController, Dum
         mNotificationStackScrollLayoutController.setHiddenForDualShade(
                 dualShade && mDualShadeShowingQs);
         final float squishiness;
-        if ((isExpandImmediate() || getExpanded()) && !mSplitShadeEnabled) {
+        if (dualControlCenter || ((isExpandImmediate() || getExpanded()) && !mSplitShadeEnabled)) {
             squishiness = 1;
         } else if (mTransitioningToFullShadeProgress > 0.0f) {
             squishiness = mLockscreenShadeTransitionController.getQsSquishTransitionFraction();
@@ -1210,7 +1217,10 @@ public class QuickSettingsControllerImpl implements QuickSettingsController, Dum
                     .getNotificationSquishinessFraction();
         }
         final float qsExpansionFraction = computeExpansionFraction();
-        final float adjustedExpansionFraction = mSplitShadeEnabled ? 1f : qsExpansionFraction;
+        // The separated page reveals the complete QS layout without morphing from QQS.
+        // Its panel fraction and clipping still follow the actual drag distance.
+        final float adjustedExpansionFraction = mSplitShadeEnabled || dualControlCenter
+                ? 1f : qsExpansionFraction;
         mQs.setQsExpansion(
                 adjustedExpansionFraction,
                 mShadeExpandedFraction,
@@ -1221,7 +1231,7 @@ public class QuickSettingsControllerImpl implements QuickSettingsController, Dum
                 && mPanelViewControllerLazy.get().mAnimateBack) {
             mPanelViewControllerLazy.get().adjustBackAnimationScale(adjustedExpansionFraction);
         }
-        mMediaHierarchyManager.setQsExpansion(qsExpansionFraction);
+        mMediaHierarchyManager.setQsExpansion(dualControlCenter ? 1f : qsExpansionFraction);
         int qsPanelBottomY = calculateBottomPosition(qsExpansionFraction);
         mScrimController.setQsPosition(qsExpansionFraction, qsPanelBottomY);
         setClippingBounds();
@@ -1249,8 +1259,9 @@ public class QuickSettingsControllerImpl implements QuickSettingsController, Dum
                 : mShadeExpandedFraction;
         mShadeHeaderController.setQsVisible(mVisible
                 || (dualShade && mShadeExpandedFraction > 0f));
+        mShadeHeaderController.setSeparatedShadeExpansion(dualShade ? mShadeExpandedHeight : 0f);
         mShadeHeaderController.setShadeExpandedFraction(shadeExpandedFraction);
-        mShadeHeaderController.setQsExpandedFraction(qsExpansionFraction);
+        mShadeHeaderController.setQsExpandedFraction(dualControlCenter ? 1f : qsExpansionFraction);
 
         // Update the light bar
         mLightBarController.setQsExpanded(mFullyExpanded);
@@ -1813,13 +1824,24 @@ public class QuickSettingsControllerImpl implements QuickSettingsController, Dum
     /** handles touches in Qs panel area */
     boolean handleTouch(MotionEvent event, boolean isFullyCollapsed,
             boolean isShadeOrQsHeightAnimationRunning) {
+        return handleTouch(event, isFullyCollapsed, isShadeOrQsHeightAnimationRunning, false);
+    }
+
+    boolean handleTouch(MotionEvent event, boolean isFullyCollapsed,
+            boolean isShadeOrQsHeightAnimationRunning, boolean synthesizedDown) {
         if (isDualShadeEnabled() && mBarState != KEYGUARD) {
+            boolean statusBarGesture = event.getY(event.getActionIndex()) < mStatusBarMinHeight
+                    || synthesizedDown;
             if (event.getActionMasked() == MotionEvent.ACTION_DOWN) {
-                mTwoFingerExpandPossible = isFullyCollapsed;
-                if (mTwoFingerExpandPossible) setDualShadeShowingQs(false);
+                mTwoFingerExpandPossible = isFullyCollapsed && statusBarGesture;
+                if (mTwoFingerExpandPossible) {
+                    // The shade may receive a transferred DOWN below the status bar.
+                    // Choose its page before the first visible frame, using the start side.
+                    setDualShadeShowingQs(isExpansionEnabled() && isOpenQsEvent(event));
+                }
             }
             if (mTwoFingerExpandPossible && isExpansionEnabled() && isOpenQsEvent(event)
-                    && event.getY(event.getActionIndex()) < mStatusBarMinHeight) {
+                    && statusBarGesture) {
                 mMetricsLogger.count(COUNTER_PANEL_OPEN_QS, 1);
                 setExpandImmediate(true);
                 if (mExpansionHeightSetToMaxListener != null) {

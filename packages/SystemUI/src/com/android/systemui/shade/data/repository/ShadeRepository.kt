@@ -117,6 +117,11 @@ interface ShadeRepository {
      */
     val legacyUseSplitShade: MutableStateFlow<Boolean>
 
+    /** Whether the legacy separated header owns the status bar in ordinary SHADE state. */
+    val legacySeparatedShadeEnabled: StateFlow<Boolean>
+
+    fun setLegacySeparatedShadeEnabled(enabled: Boolean)
+
     /** True when QS is taking up the entire screen, i.e. fully expanded on a non-unfolded phone. */
     @Deprecated("Use ShadeInteractor instead") val legacyQsFullscreen: StateFlow<Boolean>
 
@@ -246,6 +251,14 @@ class ShadeRepositoryImpl @Inject constructor(@Background val backgroundScope: C
     override val legacyExpandImmediate: StateFlow<Boolean> = _legacyExpandImmediate.asStateFlow()
 
     override val legacyUseSplitShade = MutableStateFlow(false)
+
+    private val _legacySeparatedShadeEnabled = MutableStateFlow(false)
+    override val legacySeparatedShadeEnabled: StateFlow<Boolean> =
+        _legacySeparatedShadeEnabled.asStateFlow()
+
+    override fun setLegacySeparatedShadeEnabled(enabled: Boolean) {
+        _legacySeparatedShadeEnabled.value = enabled
+    }
 
     private val _legacyQsFullscreen = MutableStateFlow(false)
     @Deprecated("Use ShadeInteractor instead")

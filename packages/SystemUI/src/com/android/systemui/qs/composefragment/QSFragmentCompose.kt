@@ -197,6 +197,10 @@ constructor(
 
     private var separatedShadeEnabled by mutableStateOf(false)
 
+    private val isQsPanelFullyExpanded: Boolean
+        get() = viewModel.isQsFullyExpanded &&
+            (!separatedShadeEnabled || viewModel.panelExpansionFraction >= 1f)
+
     fun setControlCenterEnabled(enabled: Boolean) {
         separatedShadeEnabled = enabled
     }
@@ -257,12 +261,12 @@ constructor(
         val canScrollQs =
             object : CanScrollQs {
                 override fun forward(): Boolean {
-                    return (scrollState.canScrollForward && viewModel.isQsFullyExpanded) ||
+                    return (scrollState.canScrollForward && isQsPanelFullyExpanded) ||
                         isCustomizing
                 }
 
                 override fun backward(): Boolean {
-                    return (scrollState.canScrollBackward && viewModel.isQsFullyExpanded) ||
+                    return (scrollState.canScrollBackward && isQsPanelFullyExpanded) ||
                         isCustomizing
                 }
             }
@@ -308,7 +312,7 @@ constructor(
                             .graphicsLayer {
                                 alpha = viewModel.viewAlpha
                             }
-                            .thenIf(!Flags.notificationShadeBlur()) {
+                            .thenIf(separatedShadeEnabled || !Flags.notificationShadeBlur()) {
                                 Modifier.offset {
                                     IntOffset(
                                         x = 0,
@@ -389,7 +393,7 @@ constructor(
                     }
             }
             launch {
-                snapshotFlow { viewModel.isQsFullyExpanded }
+                snapshotFlow { isQsPanelFullyExpanded }
                     .collect {
                         if (!it && viewModel.isEditing) {
                             viewModel.containerViewModel.editModeViewModel.stopEditing()
@@ -876,7 +880,11 @@ constructor(
                                     )
                                 }
                                 .onSizeChanged { viewModel.qsScrollHeight = it.height }
-                                .verticalScroll(scrollState, overscrollEffect = null)
+                                .verticalScroll(
+                                    scrollState,
+                                    enabled = !separatedShadeEnabled || isQsPanelFullyExpanded,
+                                    overscrollEffect = null,
+                                )
                                 .padding(bottom = 8.dp)
                                 .sysuiResTag(ResIdTags.qsScroll)
                     ) {
@@ -1072,6 +1080,7 @@ constructor(
             println("QQS visible", qqsVisible.value)
             println("bottom QS padding", bottomContentPadding)
             if (::viewModel.isInitialized) {
+                println("panel allows QS scrolling", isQsPanelFullyExpanded)
                 printSection("View Model") { viewModel.dump(this@run, args) }
             }
         }

@@ -17,6 +17,7 @@
 package com.android.systemui.statusbar.policy;
 
 import android.annotation.NonNull;
+import android.annotation.Nullable;
 import android.app.StatusBarManager;
 import android.content.BroadcastReceiver;
 import android.content.Context;
@@ -26,7 +27,9 @@ import android.content.pm.ActivityInfo;
 import android.content.res.Configuration;
 import android.content.res.TypedArray;
 import android.database.ContentObserver;
+import android.graphics.Canvas;
 import android.graphics.Rect;
+import android.graphics.Typeface;
 import android.icu.lang.UCharacter;
 import android.icu.text.DateTimePatternGenerator;
 import android.os.Bundle;
@@ -34,8 +37,10 @@ import android.os.Handler;
 import android.os.Parcelable;
 import android.os.SystemClock;
 import android.os.UserHandle;
+import android.text.Layout;
 import android.text.Spannable;
 import android.text.SpannableStringBuilder;
+import android.text.TextPaint;
 import android.text.TextUtils;
 import android.text.format.DateFormat;
 import android.text.style.CharacterStyle;
@@ -98,6 +103,14 @@ public class Clock extends TextView implements
     private boolean mAttached;
     private boolean mScreenReceiverRegistered;
     private int mTextSizeResourceOverride;
+    private Typeface mDrawTypeface;
+    private float mDrawLetterSpacing;
+    private Typeface mDrawSourceTypeface;
+    private Typeface mDrawTargetTypeface;
+    private float mDrawSourceLetterSpacing;
+    private float mDrawTargetLetterSpacing;
+    private int mDrawClipRightExtension;
+    private boolean mDrawingTypography;
     private Calendar mCalendar;
     private String mContentDescriptionFormatString;
     private SimpleDateFormat mClockFormat;
@@ -250,6 +263,8 @@ public class Clock extends TextView implements
 
     @Override
     protected void onDetachedFromWindow() {
+        clearDrawTypography();
+        clearDrawTypographyEndpoints();
         super.onDetachedFromWindow();
         if (mScreenReceiverRegistered) {
             mScreenReceiverRegistered = false;
@@ -412,12 +427,16 @@ public class Clock extends TextView implements
 
     /** Keep a shade-specific type role when the clock reloads its own configuration. */
     public void setTextSizeResourceOverride(int resource) {
+        clearDrawTypography();
+        clearDrawTypographyEndpoints();
         mTextSizeResourceOverride = resource;
         FontSizeUtils.updateFontSize(this,
                 resource != 0 ? resource : R.dimen.status_bar_clock_size);
     }
 
     private void reloadDimens() {
+        clearDrawTypography();
+        clearDrawTypographyEndpoints();
         FontSizeUtils.updateFontSize(this, mTextSizeResourceOverride != 0
                 ? mTextSizeResourceOverride : R.dimen.status_bar_clock_size);
 
@@ -434,9 +453,112 @@ public class Clock extends TextView implements
         }
     }
 
+    /** Change only the drawn glyphs, preserving the native layout and its measured type role. */
+    public void setDrawTypography(@NonNull Typeface typeface, float letterSpacing) {
+        if (mDrawTypeface == typeface && mDrawLetterSpacing == letterSpacing) return;
+        mDrawTypeface = typeface;
+        mDrawLetterSpacing = letterSpacing;
+        invalidate();
+    }
+
+    public void clearDrawTypography() {
+        if (mDrawTypeface == null) return;
+        mDrawTypeface = null;
+        invalidate();
+    }
+
+    @Nullable
+    public Typeface getDrawTypeface() {
+        return mDrawTypeface;
+    }
+
+    public float getDrawLetterSpacing() {
+        return mDrawLetterSpacing;
+    }
+
+    /** Reserve drawing room for both font endpoints without changing measured layout geometry. */
+    public void setDrawTypographyEndpoints(@NonNull Typeface source, float sourceLetterSpacing,
+            @NonNull Typeface target, float targetLetterSpacing) {
+        if (mDrawSourceTypeface == source && mDrawTargetTypeface == target
+                && mDrawSourceLetterSpacing == sourceLetterSpacing
+                && mDrawTargetLetterSpacing == targetLetterSpacing) return;
+        mDrawSourceTypeface = source;
+        mDrawTargetTypeface = target;
+        mDrawSourceLetterSpacing = sourceLetterSpacing;
+        mDrawTargetLetterSpacing = targetLetterSpacing;
+        updateDrawTypographyWidth();
+        invalidate();
+    }
+
+    public void clearDrawTypographyEndpoints() {
+        mDrawSourceTypeface = null;
+        mDrawTargetTypeface = null;
+        mDrawClipRightExtension = 0;
+    }
+
+    public int getDrawTypographyClipRightExtension() {
+        return mDrawClipRightExtension;
+    }
+
+    private void updateDrawTypographyWidth() {
+        if (mDrawSourceTypeface == null || mDrawTargetTypeface == null || getText() == null) {
+            mDrawClipRightExtension = 0;
+            return;
+        }
+        final TextPaint paint = new TextPaint(getPaint());
+        paint.setTypeface(mDrawTargetTypeface);
+        paint.setLetterSpacing(mDrawTargetLetterSpacing);
+        final float targetWidth = Layout.getDesiredWidth(getText(), paint);
+        paint.setTypeface(mDrawSourceTypeface);
+        paint.setLetterSpacing(mDrawSourceLetterSpacing);
+        final float sourceWidth = Layout.getDesiredWidth(getText(), paint);
+        // Keep one pixel for glyph antialiasing beyond the fractional advance. Layout itself
+        // retains the full target font's width, baseline and AM/PM span measurements.
+        mDrawClipRightExtension = (int) Math.ceil(Math.max(0f, sourceWidth - targetWidth)) + 1;
+    }
+
+    @Override
+    protected void onTextChanged(CharSequence text, int start, int lengthBefore, int lengthAfter) {
+        super.onTextChanged(text, start, lengthBefore, lengthAfter);
+        updateDrawTypographyWidth();
+    }
+
+    @Override
+    public int getCompoundPaddingRight() {
+        // TextView clips its text to this padding during super.onDraw. Only relax that clip;
+        // measurements, constraints, carrier spacing and the text's left anchor stay native.
+        return super.getCompoundPaddingRight()
+                - (mDrawingTypography ? mDrawClipRightExtension : 0);
+    }
+
+    @Override
+    protected void onDraw(Canvas canvas) {
+        // Let TextView create its layout with the target metrics before overriding its shared
+        // layout paint. Its normal renderer also preserves the clock's AM/PM character spans.
+        if (mDrawTypeface == null || getLayout() == null) {
+            super.onDraw(canvas);
+            return;
+        }
+        final TextPaint paint = getPaint();
+        final Typeface originalTypeface = paint.getTypeface();
+        final float originalLetterSpacing = paint.getLetterSpacing();
+        try {
+            paint.setTypeface(mDrawTypeface);
+            paint.setLetterSpacing(mDrawLetterSpacing);
+            mDrawingTypography = true;
+            super.onDraw(canvas);
+        } finally {
+            mDrawingTypography = false;
+            paint.setTypeface(originalTypeface);
+            paint.setLetterSpacing(originalLetterSpacing);
+        }
+    }
+
 
     @Override
     protected void onConfigurationChanged(Configuration newConfig) {
+        clearDrawTypography();
+        clearDrawTypographyEndpoints();
         super.onConfigurationChanged(newConfig);
         if (ShadeWindowGoesAround.isEnabled()) {
             final boolean shouldReloadDimensions =

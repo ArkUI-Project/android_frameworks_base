@@ -26,6 +26,7 @@ import com.android.systemui.kosmos.backgroundScope
 import com.android.systemui.kosmos.testDispatcher
 import com.android.systemui.log.table.tableLogBufferFactory
 import com.android.systemui.scene.domain.interactor.sceneInteractor
+import com.android.systemui.shade.data.repository.shadeRepository
 import com.android.systemui.shade.domain.interactor.shadeDisplaysInteractor
 import com.android.systemui.shade.domain.interactor.shadeInteractor
 import com.android.systemui.statusbar.chips.sharetoapp.ui.viewmodel.shareToAppChipViewModel
@@ -100,6 +101,7 @@ var Kosmos.homeStatusBarViewModelFactory: (Int) -> HomeStatusBarViewModel by
                 testDispatcher,
                 { shadeDisplaysInteractor },
                 uiEventLogger = statusBarChipsUiEventLogger,
+                shadeRepository = shadeRepository,
             )
         }
     }

@@ -54,6 +54,7 @@ import com.android.systemui.res.R
 import com.android.systemui.scene.shared.flag.SceneContainerFlag
 import com.android.systemui.scene.ui.view.WindowRootView
 import com.android.systemui.shade.ShadeControllerImpl
+import com.android.systemui.shade.ShadeHeaderController
 import com.android.systemui.shade.ShadeLogger
 import com.android.systemui.shade.ShadeViewController
 import com.android.systemui.shade.StatusBarLongPressGestureDetector
@@ -117,6 +118,7 @@ class PhoneStatusBarViewControllerTest(flags: FlagsParameterization) : SysuiTest
 
     private val fakeDarkIconDispatcher = kosmos.fakeDarkIconDispatcher
     @Mock private lateinit var shadeViewController: ShadeViewController
+    @Mock private lateinit var shadeHeaderController: ShadeHeaderController
     @Mock private lateinit var panelExpansionInteractor: PanelExpansionInteractor
     @Mock private lateinit var progressProvider: ScopedUnfoldTransitionProgressProvider
     @Mock private lateinit var mStatusOverlayHoverListenerFactory: StatusOverlayHoverListenerFactory
@@ -915,6 +917,7 @@ class PhoneStatusBarViewControllerTest(flags: FlagsParameterization) : SysuiTest
                 { statusBarTouchShadeDisplayPolicy },
                 { shadeDisplayRepository },
                 statusBarWindowControllerStore,
+                { shadeHeaderController },
             )
             .create(view)
             .also { it.init() }
