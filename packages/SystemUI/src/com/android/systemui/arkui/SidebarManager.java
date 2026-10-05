@@ -17,6 +17,7 @@ import android.content.ServiceConnection;
 import android.content.pm.LauncherActivityInfo;
 import android.content.pm.LauncherApps;
 import android.content.pm.PackageManager;
+import android.content.pm.UserInfo;
 import android.database.ContentObserver;
 import android.os.Binder;
 import android.os.Bundle;
@@ -76,6 +77,7 @@ public final class SidebarManager implements CoreStartable {
     private final Runnable retry = this::bind;
     private final Runnable taskRefresh = this::refreshTasks;
     private boolean taskQueryRunning, taskQueryPending;
+    private boolean foregroundIsParentUser;
     private IArkSidebar lastEnvironmentTarget;
     private boolean lastAvailable;
     private String lastForeground;
@@ -244,18 +246,24 @@ public final class SidebarManager implements CoreStartable {
         if (taskQueryRunning) { taskQueryPending = true; return; }
         taskQueryRunning = true;
         final int user = users.getUserId(), sequence = stateGeneration;
+        final List<UserInfo> profiles = users.getUserProfiles();
         final boolean recommend = configuration.getInt(RECOMMEND, 1) == 1;
         final String knownForeground = foreground;
         final String[] previousRecent = recent;
         background.execute(() -> {
             String pkg = "";
             boolean userMatches = false;
+            boolean parentUser = false;
             List<String> list = new ArrayList<>();
             try {
                 var tasks=ActivityTaskManager.getInstance().getTasks(1,false,false,Display.DEFAULT_DISPLAY);
                 ActivityManager.RunningTaskInfo top = tasks.isEmpty()?null:tasks.get(0);
-                userMatches = top != null && top.userId == user
-                        && top.displayId == Display.DEFAULT_DISPLAY && top.topActivity != null;
+                parentUser = top != null && top.userId == user;
+                userMatches = top != null
+                        && top.displayId == Display.DEFAULT_DISPLAY && top.topActivity != null
+                        && (parentUser || profiles.stream().anyMatch(profile ->
+                                profile.id == top.userId && profile.isEnabled()
+                                        && (profile.isAppTwinProfile() || profile.isCloneProfile())));
                 if (userMatches) pkg = top.topActivity.getPackageName();
                 if (recommend && (!pkg.equals(knownForeground) || previousRecent.length == 0)) {
                     for (ActivityManager.RecentTaskInfo task : ActivityTaskManager.getInstance()
@@ -269,10 +277,12 @@ public final class SidebarManager implements CoreStartable {
             } catch (RuntimeException e) { Log.w(TAG, "Cannot query recent sidebar apps", e); }
             String topPackage = pkg;
             boolean ownsForeground = userMatches;
+            boolean ownsGame = parentUser;
             main.post(() -> {
                 taskQueryRunning = false;
                 if (sequence == stateGeneration && user == users.getUserId()) {
                     foreground = topPackage; foregroundUserMatches = ownsForeground;
+                    foregroundIsParentUser = ownsGame;
                     recent = list.toArray(new String[0]); sendEnvironment();
                 }
                 if (taskQueryPending) {
@@ -287,7 +297,7 @@ public final class SidebarManager implements CoreStartable {
         IArkSidebar target = service;
         available = target != null && configuration.getInt(ENABLED, 0) == 1
                 && foregroundUserMatches && environmentAllowed();
-        game.environment(available, foreground);
+        game.environment(available && foregroundIsParentUser, foreground);
         if (target == null || (target == lastEnvironmentTarget && available == lastAvailable
                 && foreground.equals(lastForeground) && Arrays.equals(recent, lastRecent))) return;
         try {
