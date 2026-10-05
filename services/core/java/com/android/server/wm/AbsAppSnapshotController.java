@@ -311,6 +311,8 @@ abstract class AbsAppSnapshotController<TYPE extends WindowContainer<?>,
                 && !source.getDisplayContent().shouldImeAttachedToApp();
         final WindowState navWindow =
                 source.getDisplayContent().getDisplayPolicy().getNavigationBar();
+        final WindowState statusWindow =
+                source.getDisplayContent().getDisplayPolicy().getStatusBar();
         final ArrayList<SurfaceControl> excludeSurfaces = new ArrayList<>();
         if (excludeIme) {
             excludeSurfaces.add(imeWindow.getSurfaceControl());
@@ -320,6 +322,11 @@ abstract class AbsAppSnapshotController<TYPE extends WindowContainer<?>,
         // bar and we should exclude it from snapshot.
         if (navWindow != null) {
             excludeSurfaces.add(navWindow.getSurfaceControl());
+        }
+        // Status-bar following reparents the real token beneath the app leash. Exclude the
+        // entire token so a snapshot cannot retain a second bar at its animated position.
+        if (statusWindow != null && statusWindow.mToken.getSurfaceControl() != null) {
+            excludeSurfaces.add(statusWindow.mToken.getSurfaceControl());
         }
         source.forAllWindows(w -> {
             if (w.mAnimatingExit && !w.mRemoved && w.mAttrs.type != TYPE_BASE_APPLICATION) {

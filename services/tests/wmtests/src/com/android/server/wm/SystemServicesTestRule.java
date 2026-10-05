@@ -75,6 +75,7 @@ import android.util.Log;
 import android.view.DisplayInfo;
 import android.view.InputChannel;
 import android.view.SurfaceControl;
+import android.window.ScreenCaptureInternal;
 
 import com.android.dx.mockito.inline.extended.StaticMockitoSession;
 import com.android.internal.os.BackgroundThread;
@@ -212,6 +213,7 @@ public class SystemServicesTestRule implements TestRule {
                 .mockStatic(DeviceConfig.class, spyStubOnly)
                 .mockStatic(UserManager.class, spyStubOnly)
                 .mockStatic(SurfaceControl.class, mockStubOnly)
+                .spyStatic(ScreenCaptureInternal.class)
                 .mockStatic(DisplayControl.class, mockStubOnly)
                 .mockStatic(LockGuard.class, mockStubOnly)
                 .mockStatic(Watchdog.class, mockStubOnly)

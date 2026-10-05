@@ -111,11 +111,10 @@ final class SystemBarFollowController {
             WindowContainer<?> container = WindowContainer.fromBinder(
                     change.getContainer().asBinder());
             Task app = container == null ? null : container.asTask();
-            ActivityRecord activity = app == null ? null : app.getTopMostActivity();
-            WindowState window = activity == null ? null : activity.findMainWindow();
+            boolean closing = mode == TRANSIT_CLOSE || mode == TRANSIT_TO_BACK;
+            WindowState window = findWindowForTransition(app, closing);
             if (window == null) continue;
-            Rect bounds = mode == TRANSIT_CLOSE || mode == TRANSIT_TO_BACK
-                    ? change.getStartAbsBounds() : change.getEndAbsBounds();
+            Rect bounds = closing ? change.getStartAbsBounds() : change.getEndAbsBounds();
             if (bounds.isEmpty()) continue;
 
             cancelFade();
@@ -154,6 +153,40 @@ final class SystemBarFollowController {
             }
         }
         return null;
+    }
+
+    static WindowState findWindowForTransition(Task task, boolean closing) {
+        if (task == null) return null;
+        if (closing) {
+            // The outgoing activity still supplies the bars while its visible window closes.
+            ActivityRecord top = task.getTopMostActivity();
+            WindowState window = top == null ? null : top.findMainWindow(false);
+            if (window != null && window.isVisibleNow()) return window;
+        }
+
+        // A launch alias can remain above the displayed activity until the transition finishes.
+        ActivityRecord activity = task.getTopNonFinishingActivity();
+        WindowState window = activity == null ? null : activity.findMainWindow(false);
+        if (window == null && activity != null) window = activity.findMainWindow();
+        if (window != null) return window;
+
+        // A windowless launch activity must not obscure the app already drawing below it.
+        activity = task.getActivity(
+                r -> !r.finishing && r.findMainWindow(false) != null);
+        if (activity != null) return activity.findMainWindow(false);
+
+        if (closing) {
+            // Finishing the last activity still needs the visible app's bar visibility/appearance.
+            activity = task.getActivity(r -> {
+                WindowState appWindow = r.findMainWindow(false);
+                return r.finishing && appWindow != null && appWindow.isVisibleNow();
+            });
+            if (activity != null) return activity.findMainWindow(false);
+        }
+
+        // A cold launch may not have added its real app window yet.
+        activity = task.getActivity(r -> !r.finishing && r.findMainWindow() != null);
+        return activity == null ? null : activity.findMainWindow();
     }
 
     private void restoreStatusBar() {

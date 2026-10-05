@@ -49,13 +49,19 @@ import android.graphics.Point;
 import android.graphics.Rect;
 import android.hardware.HardwareBuffer;
 import android.platform.test.annotations.Presubmit;
+import android.view.SurfaceControl;
+import android.window.ScreenCaptureInternal;
 import android.window.TaskSnapshot;
 import android.window.TaskSnapshotManager;
 
 import androidx.test.filters.SmallTest;
 
+import com.android.dx.mockito.inline.extended.ExtendedMockito;
+import com.android.internal.util.ArrayUtils;
+
 import org.junit.Test;
 import org.junit.runner.RunWith;
+import org.mockito.ArgumentCaptor;
 import org.mockito.Mockito;
 
 /**
@@ -204,6 +210,75 @@ public class TaskSnapshotControllerTest extends WindowTestsBase {
         } catch (NullPointerException e) {
             fail("There should be no exception when calling createTaskSnapshot");
         }
+    }
+
+    @SetupWindows(addWindows = { W_ACTIVITY, W_STATUS_BAR, W_NAVIGATION_BAR, W_INPUT_METHOD })
+    @Test
+    public void testCreateTaskSnapshotExcludesStatusBarTokenAndOtherLayers() {
+        final Task task = mAppWindow.getTask();
+        final SurfaceControl statusTokenSurface = Mockito.mock(SurfaceControl.class);
+        final SurfaceControl statusWindowSurface = Mockito.mock(SurfaceControl.class);
+        final SurfaceControl navSurface = Mockito.mock(SurfaceControl.class);
+        final SurfaceControl imeSurface = Mockito.mock(SurfaceControl.class);
+        final SurfaceControl taskExcludedSurface = Mockito.mock(SurfaceControl.class);
+        mStatusBarWindow.mToken.setSurfaceControl(statusTokenSurface);
+        mStatusBarWindow.setSurfaceControl(statusWindowSurface);
+        mNavBarWindow.setSurfaceControl(navSurface);
+        mImeWindow.setSurfaceControl(imeSurface);
+        task.mExcludeLayersFromTaskSnapshot = new SurfaceControl[] { taskExcludedSurface };
+        spyOn(mDisplayContent);
+        doReturn(false).when(mDisplayContent).shouldImeAttachedToApp();
+        // SetupWindows creates the bars without registering them with DisplayPolicy.
+        final DisplayPolicy displayPolicy = mDisplayContent.getDisplayPolicy();
+        spyOn(displayPolicy);
+        doReturn(mStatusBarWindow).when(displayPolicy).getStatusBar();
+        doReturn(mNavBarWindow).when(displayPolicy).getNavigationBar();
+
+        final SurfaceControl[] excludedLayers = captureSnapshotExcludedLayers(task);
+
+        // Following reparents the token, so excluding only its window leaves a second bar in
+        // the snapshot. Existing exclusions must still reach the capture alongside that token.
+        assertEquals(4, excludedLayers.length);
+        assertTrue(ArrayUtils.contains(excludedLayers, statusTokenSurface));
+        assertFalse(ArrayUtils.contains(excludedLayers, statusWindowSurface));
+        assertTrue(ArrayUtils.contains(excludedLayers, navSurface));
+        assertTrue(ArrayUtils.contains(excludedLayers, imeSurface));
+        assertTrue(ArrayUtils.contains(excludedLayers, taskExcludedSurface));
+    }
+
+    @SetupWindows(addWindows = { W_ACTIVITY, W_STATUS_BAR })
+    @Test
+    public void testCreateTaskSnapshotWithoutStatusBarSurface() {
+        final Task task = mAppWindow.getTask();
+        final DisplayPolicy displayPolicy = mDisplayContent.getDisplayPolicy();
+        spyOn(displayPolicy);
+        doReturn(mStatusBarWindow).when(displayPolicy).getStatusBar();
+        doReturn(null).when(displayPolicy).getNavigationBar();
+        mStatusBarWindow.mToken.setSurfaceControl(null);
+        assertEquals(0, captureSnapshotExcludedLayers(task).length);
+
+        mStatusBarWindow.mToken.setSurfaceControl(Mockito.mock(SurfaceControl.class));
+        doReturn(null).when(displayPolicy).getStatusBar();
+        assertEquals(0, captureSnapshotExcludedLayers(task).length);
+    }
+
+    private SurfaceControl[] captureSnapshotExcludedLayers(Task task) {
+        final SurfaceControl taskSurface = task.getSurfaceControl();
+        doReturn(null).when(() -> {
+            return ScreenCaptureInternal.captureLayersExcluding(eq(taskSurface),
+                    any(Rect.class), eq(1f), anyInt(), any(SurfaceControl[].class));
+        });
+        clearInvocations(ExtendedMockito.staticMockMarker(ScreenCaptureInternal.class));
+        final TaskSnapshot.Builder builder = new TaskSnapshot.Builder();
+        mWm.mTaskSnapshotController.createSnapshot(task, 1f /* scaleFraction */,
+                new Rect() /* crop */, builder);
+        final ArgumentCaptor<SurfaceControl[]> excludedLayers =
+                ArgumentCaptor.forClass(SurfaceControl[].class);
+        ExtendedMockito.verify(() -> {
+            return ScreenCaptureInternal.captureLayersExcluding(eq(taskSurface),
+                    any(Rect.class), eq(1f), anyInt(), excludedLayers.capture());
+        });
+        return excludedLayers.getValue();
     }
 
     @SetupWindows(addWindows = W_ACTIVITY)
