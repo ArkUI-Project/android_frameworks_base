@@ -1,0 +1,9 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Copyright (C) 2026 The ArkUI Project
+     Licensed under the Apache License, Version 2.0. -->
+<resources>
+    <dimen name="ark_dual_notification_gap">8dp</dimen>
+    <dimen name="ark_dual_notification_clear_size">52dp</dimen>
+    <dimen name="ark_dual_notification_clear_top_margin">20dp</dimen>
+    <dimen name="ark_dual_notification_links_top_margin">12dp</dimen>
+</resources>

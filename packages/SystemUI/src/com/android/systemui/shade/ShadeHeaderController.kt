@@ -29,6 +29,8 @@ import android.os.Bundle
 import android.os.Trace
 import android.os.Trace.TRACE_TAG_APP
 import android.provider.AlarmClock
+import android.text.TextUtils
+import android.util.TypedValue
 import android.view.DisplayCutout
 import android.view.View
 import android.view.ViewGroup
@@ -42,6 +44,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.ComposeView
 import androidx.constraintlayout.motion.widget.MotionLayout
+import androidx.constraintlayout.widget.ConstraintSet
 import androidx.core.view.doOnLayout
 import androidx.core.view.isVisible
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
@@ -158,6 +161,7 @@ constructor(
 
         @VisibleForTesting
         internal val LARGE_SCREEN_HEADER_CONSTRAINT = R.id.large_screen_header_constraint
+        private val NOTIFICATION_HEADER_CONSTRAINT = R.id.ark_dual_notification_header_constraint
 
         @VisibleForTesting internal val DEFAULT_CLOCK_INTENT = Intent(AlarmClock.ACTION_SHOW_ALARMS)
 
@@ -166,6 +170,7 @@ constructor(
                 QQS_HEADER_CONSTRAINT -> "QQS Header"
                 QS_HEADER_CONSTRAINT -> "QS Header"
                 LARGE_SCREEN_HEADER_CONSTRAINT -> "Large Screen Header"
+                NOTIFICATION_HEADER_CONSTRAINT -> "Notification Center Header"
                 else -> "Unknown state $this"
             }
     }
@@ -183,6 +188,8 @@ constructor(
     private val mShadeCarrierGroup: ShadeCarrierGroup = header.requireViewById(R.id.carrier_group)
     private val systemIconsHoverContainer: View =
         header.requireViewById(R.id.hover_system_icons_container)
+    private val originalHeaderHeight = header.layoutParams.height
+    private val originalClockEllipsize = clock.ellipsize
 
     private var roundedCorners = 0
     private var cutout: DisplayCutout? = null
@@ -235,10 +242,80 @@ constructor(
             onHeaderStateChanged()
         }
 
-    private var shadeTailReveal: Float? = null
+    private var standalonePanel = false
+    private var privacyChipVisible = false
+    private var publishedStandaloneHeight: Int? = null
+    var onHeaderHeightChanged: (() -> Unit)? = null
+
+    val standaloneLayoutHeight: Int?
+        get() = if (standalonePanel) standaloneHeight() else null
+
+    /** Only the separated notification page uses its own header layout. */
+    fun setStandalonePanel(enabled: Boolean, showingControlCenter: Boolean) {
+        val notificationPanel = enabled && !showingControlCenter
+        if (standalonePanel == notificationPanel) return
+        standalonePanel = notificationPanel
+        updateStandaloneTypography()
+        updateCarrierGroupPadding()
+        updateTransition()
+        header.requestApplyInsets()
+    }
+
+    private fun standaloneHeight(): Int {
+        val minimum = resources.getDimensionPixelSize(
+            R.dimen.ark_dual_notification_header_height
+        )
+        val textRows = resources.getDimension(R.dimen.ark_dual_notification_clock_height) +
+            TypedValue.applyDimension(TypedValue.COMPLEX_UNIT_SP, 32f, resources.displayMetrics)
+        val spacing = 16 * resources.displayMetrics.density
+        return maxOf(minimum, (textRows + spacing).toInt()) + header.paddingTop
+    }
+
+    private fun updateStandaloneTypography() {
+        clock.setTextAppearance(R.style.TextAppearance_QS_Status_Clock)
+        date.setTextAppearance(
+            if (standalonePanel) R.style.TextAppearance_Ark_DualHeader_Date
+            else R.style.TextAppearance_QS_Status
+        )
+        clock.setTextSizeResourceOverride(if (standalonePanel)
+            R.dimen.ark_dual_notification_clock_size else 0)
+        clock.ellipsize = if (standalonePanel) TextUtils.TruncateAt.END else originalClockEllipsize
+        mShadeCarrierGroup.updateTextAppearanceAndTint(
+            if (standalonePanel) R.style.TextAppearance_Ark_DualHeader_Carrier
+            else R.style.TextAppearance_QS_Status, getFgColor(), getBgColor()
+        )
+        mShadeCarrierGroup.findViewById<TextView>(R.id.no_carrier_text)?.minimumHeight =
+            if (standalonePanel) 0 else (48 * resources.displayMetrics.density).toInt()
+        updateQQSPaddings()
+        updateStandaloneLargeFontConstraints()
+        val top = if (standalonePanel) standaloneTopInset()
+            else statusBarContentInsetsProvider?.getStatusBarContentInsetsForCurrentRotation()?.top ?: 0
+        header.setPadding(header.paddingLeft, top, header.paddingRight, header.paddingBottom)
+        updateHeaderHeight()
+    }
+
+    private fun standaloneTopInset(insets: WindowInsets? = lastInsets): Int = maxOf(
+        insets?.getInsetsIgnoringVisibility(WindowInsets.Type.statusBars())?.top ?: 0,
+        header.rootWindowInsets?.getInsetsIgnoringVisibility(WindowInsets.Type.statusBars())?.top ?: 0,
+        resources.getDimensionPixelSize(R.dimen.qs_header_height),
+    )
+
+    private fun updateHeaderHeight() {
+        val height = if (standalonePanel) standaloneHeight()
+            else originalHeaderHeight
+        if (header.layoutParams.height != height) {
+            header.layoutParams = header.layoutParams.apply { this.height = height }
+        }
+        val standaloneHeight = standaloneLayoutHeight
+        if (publishedStandaloneHeight != standaloneHeight) {
+            publishedStandaloneHeight = standaloneHeight
+            onHeaderHeightChanged?.invoke()
+        }
+    }
 
     /** Untransformed bottom of the complete phone header, including its first layout. */
     fun getExpandedHeaderBottom(): Int {
+        if (standalonePanel) return header.top + standaloneHeight()
         val estimatedHeight = maxOf(
             resources.getDimensionPixelSize(R.dimen.qs_header_height),
             2 * resources.getDimensionPixelSize(R.dimen.large_screen_shade_header_min_height) +
@@ -247,30 +324,11 @@ constructor(
         return header.top + maxOf(header.height, estimatedHeight)
     }
 
-    fun setShadeTailProgress(frame: ShadeTailMotion.Frame) {
-        val wasEnabled = shadeTailReveal != null
-        val transform = frame.transform(
-            header.top.toFloat(), header.height.toFloat(), resources.displayMetrics.density
-        )
-        shadeTailReveal = if (frame.enabled) transform.alpha else null
-        header.alpha = shadeTailReveal ?: ShadeInterpolation.getContentAlpha(shadeExpandedFraction)
-        header.translationY = transform.translationY
-        header.scaleX = transform.scale
-        header.scaleY = transform.scale
-        if (wasEnabled != frame.enabled) {
-            iconContainer.setQsExpansionTransitioning(
-                !frame.enabled && qsExpandedFraction > 0f && qsExpandedFraction < 1f
-            )
-            updatePosition()
-            updateIgnoredSlots()
-        }
-    }
-
     /** Expansion fraction of the QQS/QS shade. This is not the expansion between QQS <-> QS. */
     var shadeExpandedFraction = -1f
         set(value) {
             if (qsVisible && field != value) {
-                header.alpha = shadeTailReveal ?: ShadeInterpolation.getContentAlpha(value)
+                header.alpha = ShadeInterpolation.getContentAlpha(value)
                 field = value
                 updateIgnoredSlots()
             }
@@ -282,7 +340,7 @@ constructor(
             if (visible && field != value) {
                 field = value
                 iconContainer.setQsExpansionTransitioning(
-                    shadeTailReveal == null && value > 0f && value < 1.0f
+                    value > 0f && value < 1.0f
                 )
                 updatePosition()
                 updateIgnoredSlots()
@@ -332,6 +390,8 @@ constructor(
                 val update =
                     combinedShadeHeadersConstraintManager.privacyChipVisibilityConstraints(visible)
                 header.updateAllConstraints(update)
+                privacyChipVisible = visible
+                updateStandalonePrivacyConstraints()
             }
         }
 
@@ -382,6 +442,8 @@ constructor(
                     // the clock handles the config change itself.
                     clock.onDensityOrFontScaleChanged()
                 }
+                updateStandaloneTypography()
+                updateTransition()
             }
 
             override fun onThemeChanged() {
@@ -442,6 +504,7 @@ constructor(
             shadeCarrierGroupControllerBuilder.setShadeCarrierGroup(mShadeCarrierGroup).build()
 
         privacyIconsController.onParentVisible()
+        updateStandaloneTypography()
     }
 
     private fun getBgColor() =
@@ -508,6 +571,7 @@ constructor(
         updateCarrierGroupPadding()
 
         header.setOnApplyWindowInsetsListener(insetListener)
+        header.requestApplyInsets()
 
         clock.addOnLayoutChangeListener { v, _, _, _, _, _, _, _, _ ->
             val newPivot = if (v.isLayoutRtl) v.width.toFloat() else 0f
@@ -580,6 +644,8 @@ constructor(
         header
             .getConstraintSet(LARGE_SCREEN_HEADER_CONSTRAINT)
             .load(context, resources.getXml(R.xml.large_screen_shade_header))
+        header.getConstraintSet(NOTIFICATION_HEADER_CONSTRAINT)
+            .load(context, resources.getXml(R.xml.ark_dual_notification_header))
     }
 
     private fun updateColors() {
@@ -591,10 +657,15 @@ constructor(
             getBgColor(),
         )
         iconManager.setTint(getFgColor(), getBgColor())
+        updateStandaloneTypography()
     }
 
     private fun updateCarrierGroupPadding() {
         clock.doOnLayout {
+            if (standalonePanel) {
+                mShadeCarrierGroup.setPaddingRelative(0, 0, 0, 0)
+                return@doOnLayout
+            }
             val maxClockWidth =
                 (clock.width * resources.getFloat(R.dimen.qqs_expand_clock_scale)).toInt()
             mShadeCarrierGroup.setPaddingRelative(maxClockWidth, 0, 0, 0)
@@ -635,9 +706,52 @@ constructor(
             changes += combinedShadeHeadersConstraintManager.emptyCutoutConstraints()
         }
 
-        view.setPadding(view.paddingLeft, sbInsets.top, view.paddingRight, view.paddingBottom)
+        val top = if (standalonePanel) {
+            maxOf(sbInsets.top, standaloneTopInset(insets))
+        } else sbInsets.top
+        view.setPadding(view.paddingLeft, top, view.paddingRight, view.paddingBottom)
         view.updateAllConstraints(changes)
+        view.updateConstraints(NOTIFICATION_HEADER_CONSTRAINT) {
+            setGuidelineBegin(R.id.begin_guide,
+                maxOf((if (view.isLayoutRtl) cutoutRight else cutoutLeft) - view.paddingStart, 0))
+            setGuidelineEnd(R.id.end_guide,
+                maxOf((if (view.isLayoutRtl) cutoutLeft else cutoutRight) - view.paddingEnd, 0))
+        }
+        updateHeaderHeight()
+        updateStandalonePrivacyConstraints()
         updateBatteryMode()
+    }
+
+    private fun updateStandalonePrivacyConstraints() {
+        header.updateConstraints(NOTIFICATION_HEADER_CONSTRAINT) {
+            setAlpha(R.id.shade_header_system_icons, if (privacyChipVisible) 0f else 1f)
+        }
+    }
+
+    private fun updateStandaloneLargeFontConstraints() {
+        val largeFont = resources.configuration.fontScale > 1.3f
+        header.updateConstraints(NOTIFICATION_HEADER_CONSTRAINT) {
+            clear(R.id.carrier_group, ConstraintSet.TOP)
+            connect(R.id.carrier_group, ConstraintSet.TOP,
+                if (largeFont) R.id.clock else ConstraintSet.PARENT_ID,
+                if (largeFont) ConstraintSet.BOTTOM else ConstraintSet.TOP)
+            clear(R.id.carrier_group, ConstraintSet.START)
+            connect(R.id.carrier_group, ConstraintSet.START,
+                if (largeFont) R.id.date else R.id.clock, ConstraintSet.END,
+                (12 * resources.displayMetrics.density).toInt())
+            clear(R.id.date, ConstraintSet.END)
+            connect(R.id.date, ConstraintSet.END,
+                if (largeFont) R.id.carrier_group else R.id.end_guide,
+                if (largeFont) ConstraintSet.START else ConstraintSet.END)
+            clear(R.id.shade_header_system_icons, ConstraintSet.TOP)
+            clear(R.id.privacy_container, ConstraintSet.TOP)
+            for (id in intArrayOf(R.id.shade_header_system_icons, R.id.privacy_container)) {
+                connect(id, ConstraintSet.TOP,
+                    if (largeFont) ConstraintSet.PARENT_ID else R.id.carrier_group,
+                    if (largeFont) ConstraintSet.TOP else ConstraintSet.BOTTOM,
+                    if (largeFont) 0 else (4 * resources.displayMetrics.density).toInt())
+            }
+        }
     }
 
     private fun updateBatteryMode() {
@@ -652,7 +766,7 @@ constructor(
 
     private fun updateScrollY() {
         if (!largeScreenActive) {
-            header.scrollY = qsScrollY
+            header.scrollY = if (standalonePanel) 0 else qsScrollY
         }
     }
 
@@ -690,7 +804,11 @@ constructor(
     }
 
     private fun updateTransition() {
-        if (largeScreenActive) {
+        if (standalonePanel) {
+            header.setTransition(R.id.ark_dual_notification_header_transition)
+            systemIconsHoverContainer.setOnClickListener(null)
+            systemIconsHoverContainer.isClickable = false
+        } else if (largeScreenActive) {
             logInstantEvent("Large screen constraints set")
             header.setTransition(LARGE_SCREEN_HEADER_TRANSITION_ID)
             systemIconsHoverContainer.isClickable = true
@@ -718,7 +836,7 @@ constructor(
     }
 
     private val headerLayoutExpansion: Float
-        get() = if (shadeTailReveal != null) 1f else qsExpandedFraction
+        get() = if (standalonePanel) 1f else qsExpandedFraction
 
     private fun logInstantEvent(message: String) {
         Trace.instantForTrack(TRACE_TAG_APP, "LargeScreenHeaderController", message)
@@ -739,7 +857,7 @@ constructor(
     }
 
     private fun updateIgnoredSlots() {
-        // A collapsed motion frame can arrive from the initial user setting before onInit().
+        // The notification layout can be selected before onInit().
         if (!::carrierIconSlots.isInitialized) return
         // switching from QQS to QS state halfway through the transition
         if (singleCarrier || (!largeScreenActive && headerLayoutExpansion < 0.5)) {
@@ -758,6 +876,10 @@ constructor(
     }
 
     private fun updateQQSPaddings() {
+        if (standalonePanel) {
+            clock.setPaddingRelative(0, clock.paddingTop, 0, clock.paddingBottom)
+            return
+        }
         val clockPaddingStart =
             resources.getDimensionPixelSize(R.dimen.status_bar_left_clock_starting_padding)
         val clockPaddingEnd =
@@ -778,6 +900,8 @@ constructor(
         pw.println("qsExpandedFraction: $qsExpandedFraction")
         pw.println("qsScrollY: $qsScrollY")
         pw.println("currentState: ${header.currentState.stateToString()}")
+        pw.println("standaloneNotificationPanel: $standalonePanel")
+        pw.println("headerHeight: ${header.height}, expandedHeaderBottom: ${getExpandedHeaderBottom()}")
     }
 
     private fun MotionLayout.updateConstraints(@IdRes state: Int, update: ConstraintChange) {

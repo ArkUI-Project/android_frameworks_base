@@ -83,7 +83,6 @@ import com.android.systemui.scene.ui.view.WindowRootView;
 import com.android.systemui.shade.QSHeaderBoundsProvider;
 import com.android.systemui.shade.ShadeController;
 import com.android.systemui.shade.ShadeDisplayAware;
-import com.android.systemui.shade.ShadeTailMotion;
 import com.android.systemui.shade.ShadeViewController;
 import com.android.systemui.statusbar.CommandQueue;
 import com.android.systemui.statusbar.DragDownHelper;
@@ -1618,8 +1617,8 @@ public class NotificationStackScrollLayoutController implements Dumpable {
         updateVisibility(mRequestedVisible);
     }
 
-    public void setShadeMotion(ShadeTailMotion.Frame frame) {
-        mView.setShadeMotion(frame);
+    public void setDualShadeEnabled(boolean enabled) {
+        mView.setDualShadeEnabled(enabled);
     }
 
     public boolean isShowingEmptyShadeView() {

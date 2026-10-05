@@ -99,6 +99,11 @@ public class StackScrollAlgorithm {
         updateResources(context);
     }
 
+    /** Keep positions and scroll range in agreement when the separated shade changes its gap. */
+    public void setPaddingBetweenElements(int padding) {
+        mPaddingBetweenElements = padding;
+    }
+
     private void updateResources(Context context) {
         Resources res = context.getResources();
         mPaddingBetweenElements = res.getDimensionPixelSize(

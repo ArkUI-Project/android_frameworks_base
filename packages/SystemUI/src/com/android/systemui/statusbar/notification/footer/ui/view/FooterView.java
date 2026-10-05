@@ -30,16 +30,19 @@ import android.content.Context;
 import android.content.res.ColorStateList;
 import android.content.res.Configuration;
 import android.content.res.Resources;
+import android.content.res.TypedArray;
 import android.graphics.Color;
 import android.graphics.ColorFilter;
 import android.graphics.PorterDuffColorFilter;
 import android.graphics.drawable.Drawable;
 import android.util.AttributeSet;
 import android.util.IndentingPrintWriter;
+import android.view.Gravity;
 import android.view.View;
 import android.widget.TextView;
 
 import androidx.annotation.NonNull;
+import androidx.constraintlayout.widget.ConstraintLayout;
 
 import com.android.internal.graphics.ColorUtils;
 import com.android.systemui.common.shared.colors.SurfaceEffectColors;
@@ -68,6 +71,17 @@ public class FooterView extends StackScrollerDecorView {
     private FooterViewButton mHistoryButton;
     private boolean mShouldBeHidden;
     private boolean mIsBlurSupported;
+    private boolean mDualNotificationLayout;
+    private ConstraintLayout.LayoutParams mOriginalClearLayout;
+    private ConstraintLayout.LayoutParams mOriginalManageLayout;
+    private ConstraintLayout.LayoutParams mOriginalSettingsLayout;
+    private ConstraintLayout.LayoutParams mOriginalHistoryLayout;
+    private Drawable[] mOriginalClearDrawables;
+    private Drawable mOriginalClearForeground;
+    private int mOriginalClearForegroundGravity;
+    private CharSequence mOriginalClearText;
+    private int mOriginalClearGravity;
+    private final int[] mOriginalClearPadding = new int[4];
 
     // Footer label
     private TextView mSeenNotifsFooterTextView;
@@ -159,6 +173,7 @@ public class FooterView extends StackScrollerDecorView {
         DumpUtilsKt.withIncreasedIndent(pw, () -> {
             // TODO: b/375010573 - update dumps for redesign
             pw.println("visibility: " + DumpUtilsKt.visibilityString(getVisibility()));
+            pw.println("dualNotificationLayout: " + mDualNotificationLayout);
             if (mManageOrHistoryButton != null)
                 pw.println("mManageOrHistoryButton visibility: "
                         + DumpUtilsKt.visibilityString(mManageOrHistoryButton.getVisibility()));
@@ -181,7 +196,8 @@ public class FooterView extends StackScrollerDecorView {
         if (mClearAllButtonTextId == 0) {
             return; // not initialized yet
         }
-        mClearAllButton.setText(getContext().getString(mClearAllButtonTextId));
+        mClearAllButton.setText(mDualNotificationLayout ? ""
+                : getContext().getString(mClearAllButtonTextId));
     }
 
     /** Set the accessibility content description for the "Clear all" button. */
@@ -293,6 +309,19 @@ public class FooterView extends StackScrollerDecorView {
             mManageOrHistoryButton = findViewById(R.id.manage_text);
         }
         mSeenNotifsFooterTextView = findViewById(R.id.unlock_prompt_footer);
+        mOriginalClearLayout = copyLayout(mClearAllButton);
+        mOriginalManageLayout = copyLayout(mManageOrHistoryButton);
+        mOriginalSettingsLayout = copyLayout(mSettingsButton);
+        mOriginalHistoryLayout = copyLayout(mHistoryButton);
+        mOriginalClearDrawables = mClearAllButton.getCompoundDrawablesRelative();
+        mOriginalClearForeground = mClearAllButton.getForeground();
+        mOriginalClearForegroundGravity = mClearAllButton.getForegroundGravity();
+        mOriginalClearText = mClearAllButton.getText();
+        mOriginalClearGravity = mClearAllButton.getGravity();
+        mOriginalClearPadding[0] = mClearAllButton.getPaddingLeft();
+        mOriginalClearPadding[1] = mClearAllButton.getPaddingTop();
+        mOriginalClearPadding[2] = mClearAllButton.getPaddingRight();
+        mOriginalClearPadding[3] = mClearAllButton.getPaddingBottom();
         updateContent();
         updateColors();
     }
@@ -435,12 +464,126 @@ public class FooterView extends StackScrollerDecorView {
         }
         mSeenNotifsFooterTextView.setTextColor(onSurface);
         mSeenNotifsFooterTextView.setCompoundDrawableTintList(ColorStateList.valueOf(onSurface));
+        applyDualNotificationStyle();
         ColorUpdateLogger colorUpdateLogger = ColorUpdateLogger.getInstance();
         if (colorUpdateLogger != null) {
             colorUpdateLogger.logEvent("Footer.updateColors()",
                     "textColor(onSurface)=" + hexColorString(onSurface)
                             + " backgroundTint(surfaceContainerHigh)=" + hexColorString(scHigh)
                             + " background=" + DrawableDumpKt.dumpToString(settingsBg));
+        }
+    }
+
+    /** Use the real clear-all action as a centered circular Material button in separated shade. */
+    public void setDualNotificationLayout(boolean enabled) {
+        if (mDualNotificationLayout == enabled) return;
+        mDualNotificationLayout = enabled;
+        if (mClearAllButton == null) return;
+        if (!enabled) {
+            restoreLayout(mClearAllButton, mOriginalClearLayout);
+            restoreLayout(mManageOrHistoryButton, mOriginalManageLayout);
+            restoreLayout(mSettingsButton, mOriginalSettingsLayout);
+            restoreLayout(mHistoryButton, mOriginalHistoryLayout);
+            mClearAllButton.setGravity(mOriginalClearGravity);
+            mClearAllButton.setPadding(mOriginalClearPadding[0], mOriginalClearPadding[1],
+                    mOriginalClearPadding[2], mOriginalClearPadding[3]);
+            mClearAllButton.setCompoundDrawablesRelative(mOriginalClearDrawables[0],
+                    mOriginalClearDrawables[1], mOriginalClearDrawables[2],
+                    mOriginalClearDrawables[3]);
+            mClearAllButton.setForeground(mOriginalClearForeground);
+            mClearAllButton.setForegroundGravity(mOriginalClearForegroundGravity);
+            mClearAllButton.setText(mClearAllButtonTextId == 0 ? mOriginalClearText
+                    : getContext().getString(mClearAllButtonTextId));
+        }
+        updateColors();
+        requestLayout();
+    }
+
+    private static ConstraintLayout.LayoutParams copyLayout(View button) {
+        return button == null ? null
+                : new ConstraintLayout.LayoutParams((ConstraintLayout.LayoutParams)
+                        button.getLayoutParams());
+    }
+
+    private static void restoreLayout(View button, ConstraintLayout.LayoutParams original) {
+        if (button != null && original != null) {
+            button.setLayoutParams(new ConstraintLayout.LayoutParams(original));
+        }
+    }
+
+    private void applyDualNotificationStyle() {
+        if (!mDualNotificationLayout || mOriginalClearLayout == null) return;
+        int size = getResources().getDimensionPixelSize(R.dimen.ark_dual_notification_clear_size);
+        ConstraintLayout.LayoutParams clear = new ConstraintLayout.LayoutParams(size, size);
+        clear.startToStart = ConstraintLayout.LayoutParams.PARENT_ID;
+        clear.endToEnd = ConstraintLayout.LayoutParams.PARENT_ID;
+        clear.topToTop = ConstraintLayout.LayoutParams.PARENT_ID;
+        clear.topMargin = getResources().getDimensionPixelSize(
+                R.dimen.ark_dual_notification_clear_top_margin);
+        mClearAllButton.setLayoutParams(clear);
+        mClearAllButton.setText("");
+        mClearAllButton.setGravity(Gravity.CENTER);
+        mClearAllButton.setPadding(0, 0, 0, 0);
+        mClearAllButton.setBackground(getContext().getDrawable(
+                R.drawable.ark_dual_notification_clear_background));
+        mClearAllButton.setCompoundDrawablesRelative(null, null, null, null);
+        Drawable clearIcon = getContext().getDrawable(
+                R.drawable.ark_dual_notification_clear).mutate();
+        clearIcon.setTint(getContext().getColor(
+                com.android.internal.R.color.materialColorOnPrimaryContainer));
+        mClearAllButton.setForeground(clearIcon);
+        mClearAllButton.setForegroundGravity(Gravity.CENTER);
+        styleSecondaryLink(mManageOrHistoryButton);
+        styleSecondaryLink(mSettingsButton);
+        styleSecondaryLink(mHistoryButton);
+        if (mSettingsButton != null && mHistoryButton != null) {
+            ConstraintLayout.LayoutParams history =
+                    (ConstraintLayout.LayoutParams) mHistoryButton.getLayoutParams();
+            ConstraintLayout.LayoutParams settings =
+                    (ConstraintLayout.LayoutParams) mSettingsButton.getLayoutParams();
+            history.endToEnd = ConstraintLayout.LayoutParams.UNSET;
+            history.endToStart = mSettingsButton.getId();
+            history.horizontalChainStyle = ConstraintLayout.LayoutParams.CHAIN_PACKED;
+            settings.startToStart = ConstraintLayout.LayoutParams.UNSET;
+            settings.startToEnd = mHistoryButton.getId();
+            int gap = getResources().getDimensionPixelSize(R.dimen.ark_dual_notification_gap);
+            history.setMarginEnd(gap);
+            settings.setMarginStart(gap);
+            mHistoryButton.setLayoutParams(history);
+            mSettingsButton.setLayoutParams(settings);
+        }
+    }
+
+    private void styleSecondaryLink(FooterViewButton button) {
+        if (button == null) return;
+        ConstraintLayout.LayoutParams link = new ConstraintLayout.LayoutParams(
+                ConstraintLayout.LayoutParams.WRAP_CONTENT,
+                Math.round(48f * getResources().getDisplayMetrics().density));
+        link.startToStart = ConstraintLayout.LayoutParams.PARENT_ID;
+        link.endToEnd = ConstraintLayout.LayoutParams.PARENT_ID;
+        link.topToBottom = mClearAllButton.getId();
+        link.topMargin = getResources().getDimensionPixelSize(
+                R.dimen.ark_dual_notification_links_top_margin);
+        button.setLayoutParams(link);
+        TypedArray appearance = getContext().obtainStyledAttributes(
+                new int[] {android.R.attr.selectableItemBackground});
+        try {
+            button.setBackground(appearance.getDrawable(0));
+        } finally {
+            appearance.recycle();
+        }
+        int onSurfaceVariant = getContext().getColor(
+                com.android.internal.R.color.materialColorOnSurfaceVariant);
+        button.setTextColor(onSurfaceVariant);
+        button.setCompoundDrawableTintList(ColorStateList.valueOf(onSurfaceVariant));
+    }
+
+    @Override
+    protected void onSizeChanged(int width, int height, int oldWidth, int oldHeight) {
+        super.onSizeChanged(width, height, oldWidth, oldHeight);
+        if (height != oldHeight && oldHeight > 0) {
+            // The separated footer has a second row; update scroll range after it is measured.
+            notifyHeightChanged(/* needsAnimation= */ false);
         }
     }
 

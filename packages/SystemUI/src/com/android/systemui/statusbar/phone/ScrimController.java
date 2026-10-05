@@ -255,8 +255,6 @@ public class ScrimController implements ViewTreeObserver.OnPreDrawListener, Dump
     private float mPanelScrimMinFraction;
     // Calculated based on mRawPanelExpansionFraction and mPanelScrimMinFraction
     private float mPanelExpansionFraction = 1f; // Assume shade is expanded during initialization
-    private boolean mDualShadeBackdropEnabled;
-    private float mDualShadeBackdropProgress;
     private float mQsExpansion;
     private boolean mQsBottomVisible;
     private boolean mAnimatingPanelExpansionOnUnlock; // don't animate scrim
@@ -820,19 +818,6 @@ public class ScrimController implements ViewTreeObserver.OnPreDrawListener, Dump
         calculateAndUpdatePanelExpansion();
     }
 
-    /** Shares the blur's early backdrop progress while retaining the actual panel fraction. */
-    public void setDualShadeBackdropProgress(boolean enabled, float progress) {
-        if (isNaN(progress)) {
-            throw new IllegalArgumentException("dual shade backdrop progress should not be NaN");
-        }
-        float nextProgress = enabled ? MathUtils.saturate(progress) : 0f;
-        if (mDualShadeBackdropEnabled == enabled
-                && mDualShadeBackdropProgress == nextProgress) return;
-        mDualShadeBackdropEnabled = enabled;
-        mDualShadeBackdropProgress = nextProgress;
-        if (mState == ScrimState.UNLOCKED) applyAndDispatchState();
-    }
-
     /** See {@link NotificationPanelViewController#setPanelScrimMinFraction(float)}. */
     public void setPanelScrimMinFraction(float minFraction) {
         if (isNaN(minFraction)) {
@@ -1088,22 +1073,19 @@ public class ScrimController implements ViewTreeObserver.OnPreDrawListener, Dump
                     mBehindAlpha = 1;
                     mNotificationsAlpha = behindFraction * getDefaultScrimAlpha();
                 } else {
-                    final float backdropFraction = mDualShadeBackdropEnabled
-                            && mState == ScrimState.UNLOCKED
-                            ? mDualShadeBackdropProgress : mPanelExpansionFraction;
                     if (Flags.notificationShadeBlur() && isBlurCurrentlySupported()) {
                         // TODO (b/390730594): match any spec for controlling alpha based on shade
                         //  expansion fraction.
-                        mBehindAlpha = mState.getBehindAlpha() * backdropFraction;
+                        mBehindAlpha = mState.getBehindAlpha() * mPanelExpansionFraction;
                         mBehindTint = mState.getBehindTint();
-                        mNotificationsAlpha = mState.getNotifAlpha() * backdropFraction;
+                        mNotificationsAlpha = mState.getNotifAlpha() * mPanelExpansionFraction;
                         mNotificationsTint = mState.getNotifTint();
                     } else {
                         mBehindAlpha = mLargeScreenShadeInterpolator.getBehindScrimAlpha(
-                                backdropFraction * getDefaultScrimAlpha());
+                                mPanelExpansionFraction * getDefaultScrimAlpha());
                         mNotificationsAlpha =
                                 mLargeScreenShadeInterpolator.getNotificationScrimAlpha(
-                                        backdropFraction);
+                                        mPanelExpansionFraction);
                     }
                 }
                 mBehindTint = mState.getBehindTint();
@@ -1759,10 +1741,6 @@ public class ScrimController implements ViewTreeObserver.OnPreDrawListener, Dump
         pw.println(getDefaultScrimAlpha());
         pw.print("  mPanelExpansionFraction=");
         pw.println(mPanelExpansionFraction);
-        pw.print("  mDualShadeBackdropEnabled=");
-        pw.println(mDualShadeBackdropEnabled);
-        pw.print("  mDualShadeBackdropProgress=");
-        pw.println(mDualShadeBackdropProgress);
         pw.print("  mExpansionAffectsAlpha=");
         pw.println(mExpansionAffectsAlpha);
     }

@@ -134,6 +134,7 @@ constructor(
     }
 
     public override fun onViewAttached() {
+        shadeHeaderController.onHeaderHeightChanged = { updateConstraints() }
         updateResources()
         launcherProxyService.addCallback(taskbarVisibilityListener)
         mView.setInsetsChangedListener(delayedInsetSetter)
@@ -143,6 +144,7 @@ constructor(
     }
 
     override fun onViewDetached() {
+        shadeHeaderController.onHeaderHeightChanged = null
         launcherProxyService.removeCallback(taskbarVisibilityListener)
         mView.removeOnInsetsChangedListener()
         mView.removeQSFragmentAttachedListener()
@@ -282,7 +284,10 @@ constructor(
     }
 
     private fun setLargeScreenShadeHeaderConstraints(constraintSet: ConstraintSet) {
-        if (largeScreenShadeHeaderActive) {
+        val standaloneHeight = shadeHeaderController.standaloneLayoutHeight
+        if (standaloneHeight != null) {
+            constraintSet.constrainHeight(R.id.split_shade_status_bar, standaloneHeight)
+        } else if (largeScreenShadeHeaderActive) {
             constraintSet.constrainHeight(R.id.split_shade_status_bar, largeScreenShadeHeaderHeight)
         } else {
             constraintSet.constrainHeight(R.id.split_shade_status_bar, shadeHeaderHeight)

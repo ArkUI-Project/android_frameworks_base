@@ -36,9 +36,6 @@ import android.widget.FrameLayout
 import androidx.annotation.VisibleForTesting
 import androidx.compose.animation.core.tween
 import androidx.compose.foundation.ScrollState
-import androidx.compose.foundation.background
-import androidx.compose.foundation.gestures.awaitEachGesture
-import androidx.compose.foundation.gestures.awaitFirstDown
 import androidx.compose.foundation.isSystemInDarkTheme
 import androidx.compose.foundation.layout.Arrangement.spacedBy
 import androidx.compose.foundation.layout.Box
@@ -55,8 +52,6 @@ import androidx.compose.foundation.layout.systemBars
 import androidx.compose.foundation.layout.windowInsetsBottomHeight
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.Text
-import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.DisposableEffect
@@ -73,8 +68,6 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.graphicsLayer
-import androidx.compose.ui.input.pointer.PointerEventPass
-import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.layout.approachLayout
 import androidx.compose.ui.layout.layout
 import androidx.compose.ui.layout.onLayoutRectChanged
@@ -164,10 +157,6 @@ import com.android.systemui.qs.ui.composable.QuickSettingsShade.systemGestureExc
 import com.android.systemui.qs.ui.composable.QuickSettingsTheme
 import com.android.systemui.res.R
 import com.android.systemui.shade.ShadeDisplayAware
-import com.android.systemui.shade.ShadeTailMotion
-import com.android.systemui.shade.ui.composable.LocalShadeTailMotion
-import com.android.systemui.shade.ui.composable.ShadeTailState
-import com.android.systemui.shade.ui.composable.shadeTail
 import com.android.systemui.shade.shared.flag.ShadeWindowGoesAround
 import com.android.systemui.statusbar.policy.ConfigurationController
 import com.android.systemui.statusbar.policy.ConfigurationController.ConfigurationListener
@@ -204,17 +193,12 @@ constructor(
     @Background private val backgroundDispatcher: CoroutineDispatcher,
     private val mediaLogger: MediaViewLogger,
     @ShadeDisplayAware private val configurationController: ConfigurationController,
-) : LifecycleFragment(), QS, Dumpable, ShadeTailMotion.Listener {
+) : LifecycleFragment(), QS, Dumpable {
 
-    private val shadeMotion = ShadeTailState()
-    private var useControlCenterLayout by mutableStateOf(false)
+    private var separatedShadeEnabled by mutableStateOf(false)
 
-    override fun setControlCenterEnabled(enabled: Boolean) {
-        useControlCenterLayout = enabled
-    }
-
-    override fun onShadeMotion(frame: ShadeTailMotion.Frame) {
-        shadeMotion.update(frame)
+    fun setControlCenterEnabled(enabled: Boolean) {
+        separatedShadeEnabled = enabled
     }
 
     private val scrollListener = MutableStateFlow<QS.ScrollListener?>(null)
@@ -305,11 +289,6 @@ constructor(
         return frame
     }
 
-    override fun onDestroyView() {
-        shadeMotion.reset()
-        super.onDestroyView()
-    }
-
     @Composable
     private fun Content(modifier: Modifier = Modifier) {
         PlatformTheme(isDarkTheme = if (notificationShadeBlur()) isSystemInDarkTheme() else true) {
@@ -327,15 +306,13 @@ constructor(
                                 }
                             }
                             .graphicsLayer {
-                                alpha = if (shadeMotion.enabled) 1f
-                                    else viewModel.viewAlpha
+                                alpha = viewModel.viewAlpha
                             }
                             .thenIf(!Flags.notificationShadeBlur()) {
                                 Modifier.offset {
                                     IntOffset(
                                         x = 0,
-                                        y = if (shadeMotion.enabled) 0
-                                            else viewModel.viewTranslationY.fastRoundToInt(),
+                                        y = viewModel.viewTranslationY.fastRoundToInt(),
                                     )
                                 }
                             }
@@ -345,9 +322,7 @@ constructor(
                             // by the composables.
                             .thenIf(viewModel.showingMirror) { Modifier.gesturesDisabled() }
                 ) {
-                    CompositionLocalProvider(LocalShadeTailMotion provides shadeMotion) {
-                        CollapsableQuickSettingsSTL()
-                    }
+                    CollapsableQuickSettingsSTL()
                 }
             }
         }
@@ -433,26 +408,8 @@ constructor(
                 LaunchedEffect(Unit) { viewModel.onQQSOpen() }
                 // Cannot pass the element modifier in because the top element has a `testTag`
                 // and this would overwrite it.
-                Element(
-                    QuickQuickSettings.rootElementKey,
-                    Modifier
-                        .pointerInput(shadeMotion) {
-                            awaitEachGesture {
-                                val down =
-                                    awaitFirstDown(
-                                        requireUnconsumed = false,
-                                        pass = PointerEventPass.Initial,
-                                    )
-                                if (shadeMotion.enabled) down.consume()
-                            }
-                        }
-                        .graphicsLayer { alpha = if (shadeMotion.enabled) 0f else 1f },
-                ) {
-                    // Both scenes stay composed. QQS must neither register duplicate tile rows
-                    // nor draw during the frame before the full-QS scene has finished snapping.
-                    CompositionLocalProvider(LocalShadeTailMotion provides null) {
-                        QuickQuickSettingsElement()
-                    }
+                Element(QuickQuickSettings.rootElementKey, Modifier) {
+                    QuickQuickSettingsElement()
                 }
             }
 
@@ -873,12 +830,7 @@ constructor(
     @Composable
     private fun ContentScope.QuickSettingsElement(modifier: Modifier = Modifier) {
         val qqsPadding = viewModel.qqsHeaderHeight
-        val controlCenter = useControlCenterLayout
-        val qsExtraPadding = when {
-            !controlCenter -> dimensionResource(R.dimen.qs_panel_padding_top)
-            LocalConfiguration.current.orientation == Configuration.ORIENTATION_LANDSCAPE -> 0.dp
-            else -> 48.dp
-        }
+        val qsExtraPadding = dimensionResource(R.dimen.qs_panel_padding_top)
         Column(
             modifier =
                 modifier.collapseExpandSemanticAction(
@@ -888,8 +840,12 @@ constructor(
             if (viewModel.isQsEnabled) {
                 Element(Elements.QuickSettingsContent, modifier = Modifier.weight(1f)) {
                     // scrollState never changes
-                    LaunchedEffect(Unit) {
-                        snapshotFlow { viewModel.isQsFullyCollapsed }
+                    LaunchedEffect(separatedShadeEnabled) {
+                        if (separatedShadeEnabled) scrollState.scrollTo(0)
+                        snapshotFlow {
+                            viewModel.isQsFullyCollapsed ||
+                                (separatedShadeEnabled && !viewModel.isQsVisibleAndAnyShadeExpanded)
+                        }
                             .collect { collapsed ->
                                 if (collapsed) {
                                     scrollState.scrollTo(0)
@@ -920,7 +876,7 @@ constructor(
                                     )
                                 }
                                 .onSizeChanged { viewModel.qsScrollHeight = it.height }
-                                .verticalScroll(scrollState)
+                                .verticalScroll(scrollState, overscrollEffect = null)
                                 .padding(bottom = 8.dp)
                                 .sysuiResTag(ResIdTags.qsScroll)
                     ) {
@@ -986,16 +942,7 @@ constructor(
                                         end = qsHorizontalMargin(),
                                     )
                         ) {
-                            if (controlCenter) {
-                                ControlCenterLayout(
-                                    brightness = BrightnessSlider,
-                                    tiles = TileGrid,
-                                    media = Media,
-                                    brightnessVisible = viewModel.isBrightnessSliderVisible,
-                                    mediaVisible = viewModel.qsMediaVisible,
-                                    mediaInRow = viewModel.qsMediaInRow,
-                                )
-                            } else QuickSettingsLayout(
+                            QuickSettingsLayout(
                                 brightness =
                                     if (viewModel.isBrightnessSliderVisible) {
                                         { BrightnessSlider() }
@@ -1012,7 +959,7 @@ constructor(
                 QuickSettingsTheme {
                     Element(
                         Elements.FooterActions,
-                        Modifier.sysuiResTag(ResIdTags.qsFooterActions).shadeTail(),
+                        Modifier.sysuiResTag(ResIdTags.qsFooterActions),
                     ) {
                         FooterActions(viewModel = viewModel.footerActionsViewModel)
                     }
@@ -1124,12 +1071,6 @@ constructor(
             }
             println("QQS visible", qqsVisible.value)
             println("bottom QS padding", bottomContentPadding)
-            printSection("Shade tail motion") {
-                println("enabled", shadeMotion.enabled)
-                println("target", shadeMotion.frame.target)
-                println("upper progress", shadeMotion.frame.progressAt(0f))
-                println("lower progress", shadeMotion.frame.progressAt(1f))
-            }
             if (::viewModel.isInitialized) {
                 printSection("View Model") { viewModel.dump(this@run, args) }
             }
@@ -1648,60 +1589,6 @@ fun QuickSettingsLayout(
         if (!mediaInRow) {
             media()
         }
-    }
-}
-
-@Composable
-private fun ControlCenterLayout(
-    brightness: @Composable () -> Unit,
-    tiles: @Composable () -> Unit,
-    media: @Composable () -> Unit,
-    brightnessVisible: Boolean,
-    mediaVisible: Boolean,
-    mediaInRow: Boolean,
-) {
-    val brightnessSettings = rememberQsBrightnessSettings()
-    val compact = LocalConfiguration.current.orientation == Configuration.ORIENTATION_LANDSCAPE
-    val brightnessCard: @Composable () -> Unit = {
-        if (brightnessVisible && brightnessSettings.showSlider != 0) {
-            val cardModifier = Modifier.fillMaxWidth().shadeTail()
-                .background(
-                    MaterialTheme.colorScheme.surfaceContainerHigh,
-                    RoundedCornerShape(32.dp),
-                ).padding(if (compact) 8.dp else 16.dp)
-            val label: @Composable () -> Unit = {
-                Text(
-                    stringResource(R.string.quick_settings_brightness_dialog_title),
-                    style = MaterialTheme.typography.titleSmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    modifier = Modifier.padding(horizontal = 8.dp),
-                )
-            }
-            if (compact) {
-                Row(cardModifier, verticalAlignment = Alignment.CenterVertically) {
-                    label()
-                    Box(Modifier.weight(1f)) { brightness() }
-                }
-            } else {
-                Column(cardModifier, verticalArrangement = spacedBy(12.dp)) {
-                    label()
-                    brightness()
-                }
-            }
-        }
-    }
-    Column(verticalArrangement = spacedBy(if (compact) 12.dp else 16.dp)) {
-        if (brightnessSettings.sliderAtTop) brightnessCard()
-        if (mediaInRow && mediaVisible) {
-            Row(horizontalArrangement = spacedBy(16.dp)) {
-                Box(Modifier.weight(1f)) { tiles() }
-                Box(Modifier.weight(1f).shadeTail()) { media() }
-            }
-        } else {
-            if (mediaVisible) Box(Modifier.shadeTail()) { media() }
-            tiles()
-        }
-        if (!brightnessSettings.sliderAtTop) brightnessCard()
     }
 }
 

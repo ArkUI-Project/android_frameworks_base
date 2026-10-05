@@ -97,6 +97,7 @@ public class Clock extends TextView implements
 
     private boolean mAttached;
     private boolean mScreenReceiverRegistered;
+    private int mTextSizeResourceOverride;
     private Calendar mCalendar;
     private String mContentDescriptionFormatString;
     private SimpleDateFormat mClockFormat;
@@ -409,18 +410,28 @@ public class Clock extends TextView implements
         reloadDimens();
     }
 
+    /** Keep a shade-specific type role when the clock reloads its own configuration. */
+    public void setTextSizeResourceOverride(int resource) {
+        mTextSizeResourceOverride = resource;
+        FontSizeUtils.updateFontSize(this,
+                resource != 0 ? resource : R.dimen.status_bar_clock_size);
+    }
+
     private void reloadDimens() {
-        FontSizeUtils.updateFontSize(this, R.dimen.status_bar_clock_size);
+        FontSizeUtils.updateFontSize(this, mTextSizeResourceOverride != 0
+                ? mTextSizeResourceOverride : R.dimen.status_bar_clock_size);
 
         // Note: The padding for the clock in the shade is controlled by ShadeHeaderController so
         // this just affects the status bar clock.
-        setPaddingRelative(
-                mContext.getResources().getDimensionPixelSize(
-                        R.dimen.status_bar_clock_starting_padding),
-                0,
-                mContext.getResources().getDimensionPixelSize(
-                        R.dimen.status_bar_clock_end_padding),
-                0);
+        if (mTextSizeResourceOverride == 0) {
+            setPaddingRelative(
+                    mContext.getResources().getDimensionPixelSize(
+                            R.dimen.status_bar_clock_starting_padding),
+                    0,
+                    mContext.getResources().getDimensionPixelSize(
+                            R.dimen.status_bar_clock_end_padding),
+                    0);
+        }
     }
 
 

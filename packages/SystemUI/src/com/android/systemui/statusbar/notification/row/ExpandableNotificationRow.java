@@ -180,6 +180,7 @@ public class ExpandableNotificationRow extends ActivatableNotificationView
     public static final float DEFAULT_HEADER_VISIBLE_AMOUNT = 1.0f;
     private static final long RECENTLY_ALERTED_THRESHOLD_MS = TimeUnit.SECONDS.toMillis(30);
     private static final SourceType BASE_VALUE = SourceType.from("BaseValue");
+    private static final SourceType ARK_DUAL_NOTIFICATION = SourceType.from("ArkDualNotification");
     private static final SourceType FROM_PARENT = SourceType.from("FromParent(ENR)");
     private static final long INITIALIZATION_DELAY = 400;
 
@@ -545,6 +546,8 @@ public class ExpandableNotificationRow extends ActivatableNotificationView
     private Runnable mOnIntrinsicHeightReachedRunnable;
 
     private final float mSmallRoundness;
+    private boolean mDualNotificationLayout;
+    private final ArkDualNotificationIcons mDualNotificationIcons;
 
     private final ListenerSet<DismissButtonTargetVisibilityListener>
             mDismissButtonTargetVisibilityListeners = new ListenerSet<>();
@@ -2276,6 +2279,7 @@ public class ExpandableNotificationRow extends ActivatableNotificationView
     private ExpandableNotificationRow(Context sysUiContext, AttributeSet attrs,
             Context userContext) {
         super(sysUiContext, attrs);
+        mDualNotificationIcons = new ArkDualNotificationIcons(this, userContext);
         mImageResolver = new NotificationInlineImageResolver(userContext,
                 new NotificationInlineImageCache());
         float radius = getResources().getDimension(R.dimen.notification_corner_radius_small);
@@ -3318,6 +3322,7 @@ public class ExpandableNotificationRow extends ActivatableNotificationView
         final boolean wasExpanded = isExpanded();
 
         super.setOnKeyguard(onKeyguard);
+        updateDualNotificationRoundness();
 
         onExpansionChanged(false /* userAction */, wasExpanded);
         if (wasExpanded != isExpanded()) {
@@ -4530,6 +4535,10 @@ public class ExpandableNotificationRow extends ActivatableNotificationView
             canvas.clipPath(mExpandingClipPath);
         }
         super.dispatchDraw(canvas);
+        if (mDualNotificationLayout && !mOnKeyguard && !mExpandAnimationRunning
+                && mContentTransformationAmount == 0f) {
+            mDualNotificationIcons.draw(canvas);
+        }
         if (mSmallWindowGesture != null) mSmallWindowGesture.drawHandle(canvas);
         canvas.restore();
     }
@@ -4856,6 +4865,23 @@ public class ExpandableNotificationRow extends ActivatableNotificationView
             requestRoundnessReset(BASE_VALUE);
         } else {
             requestRoundness(mSmallRoundness, mSmallRoundness, BASE_VALUE);
+        }
+        updateDualNotificationRoundness();
+    }
+
+    /** Separated shade rows are individual Material cards; grouped children keep their geometry. */
+    public void setDualNotificationLayout(boolean enabled) {
+        if (mDualNotificationLayout == enabled) return;
+        mDualNotificationLayout = enabled;
+        updateDualNotificationRoundness();
+        invalidate();
+    }
+
+    private void updateDualNotificationRoundness() {
+        if (mDualNotificationLayout && !isChildInGroup() && !mOnKeyguard) {
+            requestRoundness(1f, 1f, ARK_DUAL_NOTIFICATION, /* animate= */ false);
+        } else {
+            requestRoundnessReset(ARK_DUAL_NOTIFICATION, /* animate= */ false);
         }
     }
 

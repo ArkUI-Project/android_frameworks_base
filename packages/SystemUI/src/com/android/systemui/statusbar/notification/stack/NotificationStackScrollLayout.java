@@ -99,7 +99,6 @@ import com.android.systemui.qs.flags.QSComposeFragment;
 import com.android.systemui.res.R;
 import com.android.systemui.scene.shared.flag.SceneContainerFlag;
 import com.android.systemui.shade.QSHeaderBoundsProvider;
-import com.android.systemui.shade.ShadeTailMotion;
 import com.android.systemui.shade.TouchLogger;
 import com.android.systemui.statusbar.NotificationShelf;
 import com.android.systemui.statusbar.StatusBarState;
@@ -726,9 +725,9 @@ public class NotificationStackScrollLayout
      * Set the overexpansion of the panel to be applied to the view.
      */
     void setOverExpansion(float margin) {
-        mAmbientState.setOverExpansion(margin);
+        mAmbientState.setOverExpansion(0f);
         if (!SceneContainerFlag.isEnabled()) {
-            setRoundingClippingYTranslation(mShouldUseSplitNotificationShade ? (int) margin : 0);
+            setRoundingClippingYTranslation(0);
         }
         updateStackPosition();
         requestChildrenUpdate();
@@ -995,6 +994,10 @@ public class NotificationStackScrollLayout
         mAmbientState.reload(context);
         mPaddingBetweenElements = Math.max(1,
                 res.getDimensionPixelSize(R.dimen.notification_divider_height));
+        if (mDualNotificationLayout) {
+            mPaddingBetweenElements = res.getDimensionPixelSize(R.dimen.ark_dual_notification_gap);
+        }
+        mStackScrollAlgorithm.setPaddingBetweenElements(mPaddingBetweenElements);
         mMinimumSpacingBetweenChildren = Math.max(1,
                 res.getDimensionPixelSize(R.dimen.notification_minimum_spacing_between_children));
         mMinTopOverScrollToEscape = res.getDimensionPixelSize(
@@ -1806,12 +1809,10 @@ public class NotificationStackScrollLayout
             updateStackEndHeightAndStackHeight(mAmbientState.getExpansionFraction());
             return;
         }
-        float topOverscrollAmount = mShouldUseSplitNotificationShade
-                ? getCurrentOverScrollAmount(true /* top */) : 0f;
-        final float endTopPosition = getTopPadding() + mExtraTopInsetForFullShadeTransition
-                + mAmbientState.getOverExpansion()
-                + topOverscrollAmount
-                - getCurrentOverScrollAmount(false /* top */);
+        // The native overscroll state still drives QS expansion and fling callbacks. Draw the
+        // notification stack only within its scroll range, without a visual edge displacement.
+        mAmbientState.setScrollY(MathUtils.constrain(getOwnScrollY(), 0, getScrollRange()));
+        final float endTopPosition = getTopPadding() + mExtraTopInsetForFullShadeTransition;
         float fraction = mAmbientState.getExpansionFraction();
         // If we are on quick settings, we need to quickly hide it to show the bouncer to avoid an
         // overlap. Otherwise, we maintain the normal fraction for smoothness.
@@ -2270,8 +2271,7 @@ public class NotificationStackScrollLayout
         for (int childIdx = 0; childIdx < count; childIdx++) {
             ExpandableView slidingChild = getChildAtIndex(childIdx);
             if (slidingChild.getVisibility() != VISIBLE
-                    || (ignoreDecors && slidingChild instanceof StackScrollerDecorView)
-                    || isShadeChildTransparent(slidingChild)) {
+                    || (ignoreDecors && slidingChild instanceof StackScrollerDecorView)) {
                 continue;
             }
             float childTop = slidingChild.getTranslationY();
@@ -2575,6 +2575,10 @@ public class NotificationStackScrollLayout
     }
 
     private void setMaxOverScrollFromCurrentVelocity() {
+        if (mDualShadeEnabled) {
+            mMaxOverScroll = 0f;
+            return;
+        }
         float currVelocity = mScroller.getCurrVelocity();
         if (currVelocity >= mMinimumVelocity) {
             mMaxOverScroll = Math.abs(currVelocity) / 1000 * mOverflingDistance;
@@ -2595,6 +2599,7 @@ public class NotificationStackScrollLayout
      * @param maxOverScrollY The current (unsigned) limit on number of pixels to overscroll by.
      */
     private void customOverScrollBy(int deltaY, int scrollY, int scrollRangeY, int maxOverScrollY) {
+        if (mDualShadeEnabled) maxOverScrollY = 0;
         int newScrollY = scrollY + deltaY;
         final int top = -maxOverScrollY;
         final int bottom = maxOverScrollY + scrollRangeY;
@@ -2672,6 +2677,10 @@ public class NotificationStackScrollLayout
     private void setOverScrollAmountInternal(float amount, boolean onTop, boolean animate,
                                              boolean isRubberbanded) {
         SceneContainerFlag.assertInLegacyMode();
+        if (mDualShadeEnabled) {
+            amount = 0f;
+            animate = false;
+        }
         amount = Math.max(0, amount);
         if (animate) {
             mStateAnimator.animateOverScrollToAmount(amount, onTop, isRubberbanded);
@@ -2752,6 +2761,11 @@ public class NotificationStackScrollLayout
      */
     private void springBack() {
         int scrollRange = getScrollRange();
+        if (mDualShadeEnabled) {
+            setOwnScrollY(MathUtils.constrain(getOwnScrollY(), 0, scrollRange));
+            mScroller.forceFinished(true);
+            return;
+        }
         boolean overScrolledTop = getOwnScrollY() <= 0;
         boolean overScrolledBottom = getOwnScrollY() >= scrollRange;
         if (overScrolledTop || overScrolledBottom) {
@@ -3083,7 +3097,8 @@ public class NotificationStackScrollLayout
                 minScrollY = Math.min(minScrollY, mMaxScrollAfterExpand);
             }
             mScroller.fling(mScrollX, getOwnScrollY(), 1, velocityY, 0, 0, 0, minScrollY, 0,
-                    mExpandedInThisMotion && getOwnScrollY() >= 0 ? 0 : Integer.MAX_VALUE / 2);
+                    mDualShadeEnabled || mExpandedInThisMotion && getOwnScrollY() >= 0
+                            ? 0 : Integer.MAX_VALUE / 2);
 
             animateScroll();
         }
@@ -3095,7 +3110,7 @@ public class NotificationStackScrollLayout
      */
     private boolean shouldOverScrollFling(int initialVelocity) {
         float topOverScroll = getCurrentOverScrollAmount(true);
-        return mScrolledToTopOnFirstDown
+        return !mDualShadeEnabled && mScrolledToTopOnFirstDown
                 && !mExpandedInThisMotion
                 && !mShouldUseSplitNotificationShade
                 && (initialVelocity > mMinimumVelocity
@@ -3534,6 +3549,7 @@ public class NotificationStackScrollLayout
         updateAnimationState(child);
         updateChronometerForChild(child);
         if (child instanceof ExpandableNotificationRow row) {
+            row.setDualNotificationLayout(mDualNotificationLayout);
             row.setDismissUsingRowTranslationX(mDismissUsingRowTranslationX, /* force= */ true);
         }
     }
@@ -3976,19 +3992,6 @@ public class NotificationStackScrollLayout
         if (mTouchHandler != null && mTouchHandler.onInterceptTouchEvent(ev)) {
             return true;
         }
-        if (ev.getActionMasked() == ACTION_DOWN) {
-            for (int i = getChildCount() - 1; i >= 0; i--) {
-                ExpandableView child = getChildAtIndex(i);
-                if (child.getVisibility() == VISIBLE && isShadeChildTransparent(child)
-                        && ev.getX() >= child.getLeft() && ev.getX() <= child.getRight()
-                        && ev.getY() >= child.getY()
-                        && ev.getY() <= child.getY() + child.getActualHeight()) {
-                    // Drawing alpha alone does not remove a row's buttons from View hit testing.
-                    // Keep this down in the container so the panel can still handle the drag.
-                    return true;
-                }
-            }
-        }
         return super.onInterceptTouchEvent(ev);
     }
 
@@ -4094,9 +4097,6 @@ public class NotificationStackScrollLayout
 
     @Override
     public boolean dispatchTouchEvent(MotionEvent ev) {
-        if (ev.getActionMasked() == ACTION_DOWN) {
-            captureShadeTouchTransform(ev.getX(), ev.getY());
-        }
         if (SceneContainerFlag.isEnabled()) {
             int action = ev.getActionMasked();
             boolean isTouchInGuts = mController.isTouchInGutsView(ev);
@@ -4135,18 +4135,6 @@ public class NotificationStackScrollLayout
             }
         }
         // dispatch all touches to TouchHandlers, so they can decide whether they want to handle it.
-        if (mShadeTransformedTouch) {
-            MotionEvent transformed = MotionEvent.obtain(ev);
-            transformed.transform(mShadeTouchInverse);
-            try {
-                return TouchLogger.logDispatchTouch(TAG, ev, super.dispatchTouchEvent(transformed));
-            } finally {
-                transformed.recycle();
-                if (ev.getActionMasked() == ACTION_UP || ev.getActionMasked() == ACTION_CANCEL) {
-                    mShadeTransformedTouch = false;
-                }
-            }
-        }
         return TouchLogger.logDispatchTouch(TAG, ev, super.dispatchTouchEvent(ev));
     }
 
@@ -4892,6 +4880,7 @@ public class NotificationStackScrollLayout
         mAmbientState.setShadeExpanded(isExpanded);
         mStateAnimator.setShadeExpanded(isExpanded);
         mSwipeHelper.setIsExpanded(isExpanded);
+        updateDualNotificationLayout();
         if (changed) {
             mWillExpand = false;
             if (mIsExpanded) {
@@ -5311,6 +5300,7 @@ public class NotificationStackScrollLayout
             removeView(mFooterView);
         }
         mFooterView = footerView;
+        mFooterView.setDualNotificationLayout(mDualNotificationLayout);
         addView(mFooterView, index);
     }
 
@@ -5701,7 +5691,7 @@ public class NotificationStackScrollLayout
             // We still want to call the normal scrolled changed for accessibility reasons
             onScrollChanged(mScrollX, ownScrollY, mScrollX, getOwnScrollY());
             mOwnScrollY = ownScrollY;
-            mAmbientState.setScrollY(getOwnScrollY());
+            mAmbientState.setScrollY(MathUtils.constrain(getOwnScrollY(), 0, getScrollRange()));
             updateOnScrollChange();
             updateStackPosition(animateStackYChangeListener);
         }
@@ -5846,6 +5836,7 @@ public class NotificationStackScrollLayout
     public void setStatusBarState(int statusBarState) {
         mStatusBarState = statusBarState;
         mAmbientState.setStatusBarState(statusBarState);
+        updateDualNotificationLayout();
         if (!SceneContainerFlag.isEnabled()) {
             mShelf.setOnKeyguard(statusBarState == StatusBarState.KEYGUARD);
         }
@@ -5978,6 +5969,8 @@ public class NotificationStackScrollLayout
             println(pw, "translationZ", getTranslationZ());
             println(pw, "skinnyNotifsInLandscape", mSkinnyNotifsInLandscape);
             println(pw, "minimumPaddings", mMinimumPaddings);
+            println(pw, "dualNotificationLayout", mDualNotificationLayout);
+            println(pw, "notificationDividerHeight", mPaddingBetweenElements);
             println(pw, "qsTilePadding", mQsTilePadding);
             println(pw, "sidePaddings", mSidePaddings);
             println(pw, "elapsedRealtime", elapsedRealtime);
@@ -6728,8 +6721,6 @@ public class NotificationStackScrollLayout
 
     @Override
     protected void dispatchDraw(@NonNull Canvas canvas) {
-        mShadeGeometryDirty = true;
-        prepareShadeTransforms();
         if (mBlurEffect != null) {
             spewLog("Applying blur RenderEffect to NotificationStackScrollLayout");
             // reuse the cached RenderNode to blur
@@ -6775,117 +6766,59 @@ public class NotificationStackScrollLayout
         }
     }
 
-    @Override
-    protected boolean drawChild(Canvas canvas, View child, long drawingTime) {
-        if (!mShadeFrame.enabled || mShadeFrame.fullyExpanded || mLaunchingNotification
-                || shouldSkipBlurForChild(child)) {
-            return drawShadeChild(canvas, child, drawingTime);
-        }
-        final ShadeTailMotion.Transform transform = getShadeTransform(child);
-        if (transform.alpha <= 0f) return false;
-        final int save = canvas.save();
-        final float top = child.getY();
-        final float scale = transform.scale;
-        float height = child instanceof ExpandableView expandable
-                ? expandable.getActualHeight() : child.getHeight();
-        canvas.translate(0f, transform.translationY);
-        canvas.scale(scale, scale, getWidth() / 2f, top + height / 2f);
-        final float alpha = transform.alpha;
-        if (alpha < 1f) {
-            final float outset = 16f * getResources().getDisplayMetrics().density;
-            canvas.saveLayerAlpha(-outset, top - outset, getWidth() + outset,
-                    top + height + outset, Math.round(alpha * 255f));
-        }
-        boolean result = drawShadeChild(canvas, child, drawingTime);
-        canvas.restoreToCount(save);
-        return result;
-    }
+    private boolean mDualShadeEnabled;
+    private boolean mDualNotificationLayout;
 
-    private ShadeTailMotion.Frame mShadeFrame = ShadeTailMotion.Frame.DISABLED;
-    private boolean mShadeGeometryDirty = true;
-    private final ArrayList<View> mShadeRows = new ArrayList<>();
-    private final Map<View, ShadeTailMotion.Transform> mShadeTransforms = new HashMap<>();
-    private final android.graphics.Matrix mShadeTouchInverse = new android.graphics.Matrix();
-    private boolean mShadeTransformedTouch;
-
-    private void prepareShadeTransforms() {
-        if (!mShadeGeometryDirty) return;
-        mShadeGeometryDirty = false;
-        mShadeTransforms.clear();
-        mShadeRows.clear();
-        if (!mShadeFrame.enabled || mShadeFrame.fullyExpanded || mLaunchingNotification) return;
-        for (int i = 0; i < getChildCount(); i++) {
-            View child = getChildAt(i);
-            if (child.getVisibility() == VISIBLE && !shouldSkipBlurForChild(child)) {
-                mShadeRows.add(child);
-            }
+    public void setDualShadeEnabled(boolean enabled) {
+        if (mDualShadeEnabled == enabled) return;
+        mDualShadeEnabled = enabled;
+        if (enabled) {
+            mStateAnimator.cancelOverScrollAnimators(true);
+            mStateAnimator.cancelOverScrollAnimators(false);
+            mOverScrolledTopPixels = 0f;
+            mOverScrolledBottomPixels = 0f;
+            mAmbientState.setOverScrollAmount(0f, true);
+            mAmbientState.setOverScrollAmount(0f, false);
+            mAmbientState.setOverExpansion(0f);
+            mMaxOverScroll = 0f;
+            mExpandHelper.onlyObserveMovements(false);
+            setOwnScrollY(MathUtils.constrain(getOwnScrollY(), 0, getScrollRange()));
+            updateStackPosition();
         }
-        int count = mShadeRows.size();
-        float[] tops = new float[count];
-        float[] heights = new float[count];
-        for (int i = 0; i < count; i++) {
-            View child = mShadeRows.get(i);
-            tops[i] = getY() + child.getY();
-            heights[i] = child instanceof ExpandableView expandable
-                    ? expandable.getActualHeight() : child.getHeight();
-        }
-        ShadeTailMotion.Transform[] fitted = mShadeFrame.transforms(tops, heights,
-                getResources().getDisplayMetrics().density);
-        for (int i = 0; i < count; i++) mShadeTransforms.put(mShadeRows.get(i), fitted[i]);
-    }
-
-    private ShadeTailMotion.Transform getShadeTransform(View child) {
-        prepareShadeTransforms();
-        return mShadeTransforms.getOrDefault(child, ShadeTailMotion.Transform.IDENTITY);
-    }
-
-    private boolean isShadeChildTransparent(ExpandableView child) {
-        return mShadeFrame.enabled && !mShadeFrame.fullyExpanded && !mLaunchingNotification
-                && !shouldSkipBlurForChild(child)
-                && getShadeTransform(child).alpha <= 0f;
-    }
-
-    /** Keep a gesture in the touched card's coordinates while its visual tail settles. */
-    private void captureShadeTouchTransform(float x, float y) {
-        mShadeTransformedTouch = false;
-        if (!mShadeFrame.enabled || mShadeFrame.fullyExpanded || mLaunchingNotification) return;
-        mShadeGeometryDirty = true;
-        prepareShadeTransforms();
-        for (int i = getChildCount() - 1; i >= 0; i--) {
-            ExpandableView child = getChildAtIndex(i);
-            if (child.getVisibility() != VISIBLE || shouldSkipBlurForChild(child)
-                    || isShadeChildTransparent(child)) continue;
-            float top = child.getY();
-            float height = child.getActualHeight();
-            ShadeTailMotion.Transform transform = getShadeTransform(child);
-            float scale = transform.scale;
-            float shift = transform.translationY;
-            float drawnTop = top + height * (1f - scale) / 2f + shift;
-            float drawnLeft = getWidth() / 2f + (child.getLeft() - getWidth() / 2f) * scale;
-            if (x >= drawnLeft && x <= drawnLeft + child.getWidth() * scale
-                    && y >= drawnTop + child.getClipTopAmount() * scale
-                    && y <= drawnTop + (height - child.getClipBottomAmount()) * scale) {
-                mShadeTouchInverse.setScale(scale, scale, getWidth() / 2f, top + height / 2f);
-                mShadeTouchInverse.postTranslate(0f, shift);
-                mShadeTransformedTouch = mShadeTouchInverse.invert(mShadeTouchInverse);
-                return;
-            }
-        }
-    }
-
-    public void setShadeMotion(ShadeTailMotion.Frame frame) {
-        if (mShadeFrame == frame) return;
-        mShadeFrame = frame;
-        mShadeGeometryDirty = true;
-        if (!frame.enabled) {
-            mShadeTransforms.clear();
-            mShadeRows.clear();
-            mShadeTransformedTouch = false;
-        }
+        updateDualNotificationLayout();
         invalidate();
     }
 
-    private boolean drawShadeChild(Canvas canvas, View child, long drawingTime) {
+    /** Physical spacing shared by layout, size calculation, hit testing and scroll bounds. */
+    public float getNotificationDividerHeight() {
+        return mPaddingBetweenElements;
+    }
+
+    public boolean isDualNotificationLayout() {
+        return mDualNotificationLayout;
+    }
+
+    private void updateDualNotificationLayout() {
+        boolean enabled = mDualShadeEnabled && mStatusBarState == StatusBarState.SHADE
+                && mIsExpanded;
+        if (mDualNotificationLayout == enabled) return;
+        mDualNotificationLayout = enabled;
+        mPaddingBetweenElements = Math.max(1, getResources().getDimensionPixelSize(enabled
+                ? R.dimen.ark_dual_notification_gap : R.dimen.notification_divider_height));
+        mStackScrollAlgorithm.setPaddingBetweenElements(mPaddingBetweenElements);
+        for (int i = 0; i < getChildCount(); i++) {
+            if (getChildAt(i) instanceof ExpandableNotificationRow row) {
+                row.setDualNotificationLayout(enabled);
+            }
+        }
+        if (mFooterView != null) mFooterView.setDualNotificationLayout(enabled);
+        if (mNotificationStackSizeCalculator != null) updateContentHeight();
+        requestChildrenUpdate();
+        requestLayout();
+    }
+
+    @Override
+    protected boolean drawChild(Canvas canvas, View child, long drawingTime) {
         boolean shouldUseClipping =
                 mShouldUseRoundedRectClipping || mShouldUseNegativeRoundedRectClipping;
         if (mBlurEffect != null) {

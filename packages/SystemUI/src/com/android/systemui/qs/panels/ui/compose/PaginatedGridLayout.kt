@@ -54,7 +54,6 @@ import com.android.systemui.qs.panels.ui.viewmodel.PaginatedGridViewModel
 import com.android.systemui.qs.panels.ui.viewmodel.TileViewModel
 import com.android.systemui.qs.panels.ui.viewmodel.toolbar.EditModeButtonViewModel
 import com.android.systemui.res.R
-import com.android.systemui.shade.ui.composable.shadeTail
 import javax.inject.Inject
 
 class PaginatedGridLayout
@@ -187,7 +186,7 @@ private fun FooterBar(
     // * On the end side, we place the edit mode button, with the same constraints as for
     //   BuildNumber (but it will usually fit, as it's just a square button).
     Row(
-        modifier = Modifier.requiredHeight(FooterHeight).fillMaxWidth().shadeTail(),
+        modifier = Modifier.requiredHeight(FooterHeight).fillMaxWidth(),
         verticalAlignment = Alignment.CenterVertically,
         horizontalArrangement = spacedBy(8.dp),
     ) {

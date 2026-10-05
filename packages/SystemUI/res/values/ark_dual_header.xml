@@ -1,0 +1,14 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Copyright (C) 2026 The ArkUI Project
+     Licensed under the Apache License, Version 2.0. -->
+<resources>
+    <dimen name="ark_dual_notification_header_height">112dp</dimen>
+    <dimen name="ark_dual_notification_clock_size">56sp</dimen>
+    <dimen name="ark_dual_notification_clock_height">64sp</dimen>
+    <style name="TextAppearance.Ark.DualHeader.Date" parent="TextAppearance.QS.Status">
+        <item name="android:textSize">16sp</item>
+    </style>
+    <style name="TextAppearance.Ark.DualHeader.Carrier" parent="TextAppearance.QS.Status">
+        <item name="android:textSize">14sp</item>
+    </style>
+</resources>

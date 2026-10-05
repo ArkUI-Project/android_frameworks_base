@@ -108,4 +108,8 @@
     <Include app:constraintSet="@xml/qs_header"/>
 
     <Include app:constraintSet="@xml/qqs_header"/>
+    <Transition android:id="@+id/ark_dual_notification_header_transition"
+        app:constraintSetStart="@id/ark_dual_notification_header_constraint"
+        app:constraintSetEnd="@id/ark_dual_notification_header_constraint" />
+    <Include app:constraintSet="@xml/ark_dual_notification_header" />
 </MotionScene>
