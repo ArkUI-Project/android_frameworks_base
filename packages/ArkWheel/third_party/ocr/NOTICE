@@ -11,6 +11,12 @@ https://github.com/tesseract-ocr/tessdata_fast
 The eng, chi_sim and chi_tra models are unmodified from revision
 87416418657359cb625c412a48b6e1d6d41c29bd.
 
+The eng_best model is the unmodified English floating-point LSTM model from
+https://github.com/tesseract-ocr/tessdata_best
+revision e12c65a915945e4c28e237a9b52bc4a8f39a0cec, renamed from eng.traineddata
+to distinguish it from the fast model. It is licensed under the Apache
+License, Version 2.0 (LICENSE.apache2).
+
 The upstream native binaries include Leptonica (LICENSE.leptonica),
 libpng (LICENSE.libpng), and libjpeg (LICENSE.jpeg).
 This software is based in part on the work of the Independent JPEG Group.

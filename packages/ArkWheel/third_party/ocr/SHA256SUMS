@@ -18,3 +18,4 @@ efbba9d3d9b6fbf688d6027b976406822dacca8d81f67972a3378a5fd30769f0  jni/x86_64/lib
 a5fcb6f0db1e1d6d8522f39db4e848f05984669172e584e8d76b6b3141e1f730  ../../assets/tessdata/chi_sim.traineddata
 529c5b5797d64b126065cd55f2bb4c7fd7b15790798091b1ff259941a829330b  ../../assets/tessdata/chi_tra.traineddata
 7d4322bd2a7749724879683fc3912cb542f19906c83bcc1a52132556427170b2  ../../assets/tessdata/eng.traineddata
+8280aed0782fe27257a68ea10fe7ef324ca0f8d85bd2fd145d1c2b560bcb66ba  ../../assets/tessdata/eng_best.traineddata

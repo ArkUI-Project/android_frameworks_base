@@ -4,6 +4,7 @@ package org.arkui.wheel;
 import static org.junit.Assert.*;
 import android.graphics.Bitmap;
 import android.graphics.Rect;
+import android.content.pm.LauncherApps;
 import android.os.Bundle;
 import android.view.accessibility.AccessibilityNodeInfo;
 import androidx.test.platform.app.InstrumentationRegistry;
@@ -30,6 +31,8 @@ public final class RecognitionTests {
             assertNotNull(result);
             assertTrue(result.text, result.text.replace(" ", "").contains("你好"));
             assertTrue(result.text, result.text.contains("offline"));
+            assertTrue("A brand name must not be discarded with its entire low-confidence word: " + result.text,
+                    result.text.contains("ArkUI"));
             assertTrue(result.text, result.text.contains("12345"));
             assertTrue("Picture region should be discovered", !result.images.isEmpty());
             assertTrue("Photo must be bounded near the fixture photo", result.images.stream().anyMatch(r -> Rect.intersects(r, new Rect(60, 540, 660, 1060)) && r.width() > 400 && r.height() > 300));
@@ -49,7 +52,9 @@ public final class RecognitionTests {
             });
             File dir = new File(context.getCacheDir(), "extracted"); dir.mkdirs();
             try (var out = new FileOutputStream(new File(dir, "recognition-test.png"))) { image.compress(Bitmap.CompressFormat.PNG, 100, out); }
-            android.util.Log.i("ArkRecognitionTest", "Recognized " + result.glyphs.size() + " symbols and " + result.images.size() + " images in " + result.elapsed + " ms");
+            android.util.Log.i("ArkRecognitionTest", "Recognized " + result.glyphs.size()
+                    + " symbols and " + result.images.size() + " images in " + result.elapsed
+                    + " ms; text=" + result.text.replace('\n', '|'));
         } finally { image.recycle(); }
     }
     @Test public void recognizesDarkBackgroundAndCancelsBeforeStarting() throws Exception {
@@ -61,5 +66,147 @@ public final class RecognitionTests {
             RecognitionEngine cancelled = new RecognitionEngine(context); cancelled.cancel();
             assertNull(cancelled.recognize(image));
         } finally { image.recycle(); }
+    }
+
+    @Test public void recognizesSmallMixedLabelsAndKeepsSelectionInOriginalCoordinates() throws Exception {
+        var instrumentation = InstrumentationRegistry.getInstrumentation();
+        var context = instrumentation.getTargetContext();
+        for (boolean dark : new boolean[] {false, true}) {
+            Bitmap image = RecognitionFixtureActivity.smallMixedFixture(dark);
+            try {
+                RecognitionResult result = new RecognitionEngine(context).recognize(image);
+                assertNotNull(result);
+                android.util.Log.i("ArkRecognitionTest", "Small mixed " + (dark ? "dark" : "light")
+                        + " in " + result.elapsed + " ms; text=" + result.text.replace('\n', '|'));
+                assertTrue(result.text, result.text.contains("ArkUI offline OCR"));
+                assertTrue(result.text, result.text.replace(" ", "").contains("你好ArkUI12345"));
+                assertTrue(result.text, result.text.contains("67890"));
+                assertTrue(result.text, result.text.contains("support@example.com"));
+                Rect labels = new Rect(30, 65, 400, 385);
+                for (var glyph : result.glyphs) {
+                    assertTrue("Upscaled OCR bounds must map back to the original bitmap: " + glyph.bounds,
+                            labels.contains(glyph.bounds));
+                }
+                instrumentation.runOnMainSync(() -> {
+                    RecognitionCanvas canvas = new RecognitionCanvas(context, image,
+                            new RecognitionCanvas.Listener() {
+                                public void changed(boolean selected) { }
+                                public void selectionChanged(Rect anchor) { }
+                            });
+                    canvas.layout(0, 0, 720, 520); canvas.result(result);
+                    int start = result.text.indexOf("ArkUI");
+                    Bundle args = new Bundle();
+                    args.putInt(AccessibilityNodeInfo.ACTION_ARGUMENT_SELECTION_START_INT, start);
+                    args.putInt(AccessibilityNodeInfo.ACTION_ARGUMENT_SELECTION_END_INT, start + 5);
+                    assertTrue(canvas.performAccessibilityAction(AccessibilityNodeInfo.ACTION_SET_SELECTION, args));
+                    assertEquals("ArkUI", canvas.selectedText());
+                    canvas.dispose();
+                });
+                assertFalse("Preprocessing must retain the shared screenshot", image.isRecycled());
+            } finally { image.recycle(); }
+        }
+    }
+
+    @Test public void localVocabularyRecognizesAppNamesWithoutRewritingOrdinaryText() throws Exception {
+        var context = InstrumentationRegistry.getInstrumentation().getTargetContext();
+        // This name comes from a real installed launchable activity, not the screenshot result.
+        assertTrue(context.getSystemService(LauncherApps.class)
+                .getActivityList("org.arkui.wheel.tests", android.os.Process.myUserHandle())
+                .stream().anyMatch(app -> "IllyNote".contentEquals(app.getLabel())));
+        Bitmap image = RecognitionFixtureActivity.lexiconFixture();
+        try {
+            RecognitionResult guided = new RecognitionEngine(context, true, true).recognize(image);
+            RecognitionResult noLexicon = new RecognitionEngine(context, false, true).recognize(image);
+            RecognitionResult fast = new RecognitionEngine(context, true, false).recognize(image);
+            String[] names = {"IllyNote", "GitHub", "WiFi"};
+            RecognitionResult[] variants = {guided, noLexicon, fast};
+            String[] descriptions = {"lexicon+best", "no-lexicon+best", "lexicon+fast"};
+            for (int i = 0; i < variants.length; i++) {
+                RecognitionResult result = variants[i];
+                assertNotNull(result);
+                int correct = 0;
+                for (String name : names) if (result.text.contains(name)) correct++;
+                android.util.Log.i("ArkRecognitionTest", descriptions[i] + ": exact names="
+                        + correct + "/" + names.length + "; " + result.elapsed
+                        + " ms; text=" + result.text.replace('\n', '|'));
+            }
+            for (RecognitionResult result : new RecognitionResult[] {guided, noLexicon, fast}) {
+                String compact = result.text.replaceAll("\\s+", "");
+                assertTrue("Common text must retain its original spelling: " + result.text,
+                        compact.contains("Thequickbrownfox24680"));
+                assertTrue("Unknown text must not become a dictionary word: " + result.text,
+                        compact.contains("QZXV47291"));
+                assertTrue(result.text, result.text.contains("Copy this text"));
+            }
+            for (String name : names) assertTrue(guided.text, guided.text.contains(name));
+        } finally { image.recycle(); }
+    }
+
+    @Test public void comparesBestAndFastWeightsOnIdenticalLightAndDarkPixels() throws Exception {
+        var context = InstrumentationRegistry.getInstrumentation().getTargetContext();
+        for (int round = 0; round < 2; round++) {
+            for (boolean small : new boolean[] {false, true}) {
+                for (boolean dark : new boolean[] {false, true}) {
+                    Bitmap image = small ? RecognitionFixtureActivity.smallMixedFixture(dark)
+                            : RecognitionFixtureActivity.fixture(dark);
+                    String expected = small
+                            ? "ArkUI offline OCR\n你好 ArkUI 12345\nCopy this text 67890\nsupport@example.com"
+                            : "你好，世界\nArkUI offline OCR\nCopy this text 12345";
+                    String[] terms = small
+                            ? new String[] {"ArkUIofflineOCR", "你好ArkUI12345", "67890", "support@example.com"}
+                            : new String[] {"你好", "ArkUI", "offline", "12345"};
+                    try {
+                        // Reverse the order in round two to expose initialization/cache bias.
+                        for (boolean best : round == 0 ? new boolean[] {true, false}
+                                : new boolean[] {false, true}) {
+                            RecognitionResult result = new RecognitionEngine(context, true, best).recognize(image);
+                            assertNotNull(result);
+                            String compact = result.text.replaceAll("\\s+", "");
+                            int correct = 0;
+                            for (String term : terms) if (compact.contains(term)) correct++;
+                            android.util.Log.i("ArkRecognitionTest", "weight-pair round=" + (round + 1)
+                                    + " fixture=" + (small ? "small" : "original") + "/" + (dark ? "dark" : "light")
+                                    + " model=" + (best ? "best" : "fast")
+                                    + " editDistance=" + editDistance(expected.replaceAll("\\s+", ""), compact)
+                                    + " exactTerms=" + correct + "/" + terms.length
+                                    + " elapsed=" + result.elapsed + " ms; text=" + result.text.replace('\n', '|'));
+                            assertFalse("Both models must return usable text", result.text.isBlank());
+                            assertFalse("Both models must return selectable glyphs", result.glyphs.isEmpty());
+                            Rect source = new Rect(0, 0, image.getWidth(), image.getHeight());
+                            for (var glyph : result.glyphs) {
+                                assertTrue("Glyph coordinates must remain in the source image: " + glyph.bounds,
+                                        source.contains(glyph.bounds));
+                                assertTrue(glyph.start >= 0 && glyph.end > glyph.start && glyph.end <= result.text.length());
+                            }
+                            if (best) {
+                                for (String term : terms) assertTrue(result.text, compact.contains(term));
+                                int start = result.text.indexOf("ArkUI");
+                                Rect brandLine = small ? new Rect(30, 65, 400, 100) : new Rect(60, 210, 660, 290);
+                                for (var glyph : result.glyphs) {
+                                    if (glyph.start < start + 5 && glyph.end > start)
+                                        assertTrue("Brand selection must cover the original line: " + glyph.bounds,
+                                                brandLine.contains(glyph.bounds));
+                                }
+                            }
+                        }
+                        assertFalse("Model comparison must preserve the shared screenshot", image.isRecycled());
+                    } finally { image.recycle(); }
+                }
+            }
+        }
+    }
+
+    private static int editDistance(String expected, String actual) {
+        int[] previous = new int[actual.length() + 1], current = new int[actual.length() + 1];
+        for (int j = 0; j <= actual.length(); j++) previous[j] = j;
+        for (int i = 1; i <= expected.length(); i++) {
+            current[0] = i;
+            for (int j = 1; j <= actual.length(); j++) {
+                current[j] = Math.min(Math.min(previous[j] + 1, current[j - 1] + 1),
+                        previous[j - 1] + (expected.charAt(i - 1) == actual.charAt(j - 1) ? 0 : 1));
+            }
+            int[] swap = previous; previous = current; current = swap;
+        }
+        return previous[actual.length()];
     }
 }
