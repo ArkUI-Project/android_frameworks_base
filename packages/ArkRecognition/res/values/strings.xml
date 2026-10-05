@@ -1,0 +1,21 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Copyright (C) 2026 The ArkUI Project; SPDX-License-Identifier: Apache-2.0 -->
+<resources>
+    <string name="app_name">Screen recognition</string>
+    <string name="text_mode">Words</string>
+    <string name="image_mode">Images</string>
+    <string name="more">More</string>
+    <string name="details">Details</string>
+    <string name="close">Close</string>
+    <string name="unavailable">This action is unavailable</string>
+    <string name="save_video">Save video</string>
+    <string name="save_frame">Save frame</string>
+    <string name="share_video">Share video</string>
+    <string name="video_saved">Saved to Movies/ArkUI</string>
+    <string name="media_failed">Could not save this media</string>
+    <string name="saving_media">Saving…</string>
+    <string name="recognition_details">%1$d text symbols · %2$d images and videos</string>
+    <string name="select_image">Select image</string>
+    <string name="select_video">Select video</string>
+    <string name="media_protected">This media cannot be saved</string>
+</resources>

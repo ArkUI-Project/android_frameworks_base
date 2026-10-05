@@ -1,0 +1,33 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Copyright (C) 2026 The ArkUI Project; SPDX-License-Identifier: Apache-2.0 -->
+<resources>
+    <string name="recognize">识屏</string>
+    <string name="recognition_summary">原位选字、提取图片，全程离线识别</string>
+    <string name="recognition_intro">从侧边栏或轮盘开启识屏，在画面原位选择文字，保存图片与视频。也可以在这里打开图片，或接收其他应用分享的图片。</string>
+    <string name="recognition_running">正在本地识别…</string>
+    <string name="recognition_ready">长按文字，自由选择</string>
+    <string name="recognition_empty">未识别到文字，仍可提取图片</string>
+    <string name="recognition_failed">未能识别，请尝试更清晰的图片</string>
+    <string name="recognition_capture_failed">当前画面不支持截取</string>
+    <string name="extract_images">提取图片</string>
+    <string name="select_text">选择文字</string>
+    <string name="crop_image">调整选区</string>
+    <string name="crop_hint">拖动四角，调整图片范围</string>
+    <string name="images_hint">点选图片，或手动调整选区</string>
+    <string name="save_image">保存图片</string>
+    <string name="copy_image">复制图片</string>
+    <string name="share_image">分享图片</string>
+    <string name="image_saved">已保存至 Pictures/ArkUI</string>
+    <string name="image_copied">已复制图片</string>
+    <string name="image_failed">未能导出图片</string>
+    <string name="text_copied">已复制文字</string>
+    <string name="all_text">全部文字</string>
+    <string name="ocr_language">识别语言</string>
+    <string name="ocr_simplified">简体中文和英语</string>
+    <string name="ocr_traditional">繁体中文和英语</string>
+    <string name="ocr_english">英语</string>
+    <string name="recognition_wave">识屏动画</string>
+    <string name="recognition_dim">识屏背景暗度</string>
+    <string name="open_picture">打开图片</string>
+    <string name="recognition_close">关闭识屏</string>
+</resources>

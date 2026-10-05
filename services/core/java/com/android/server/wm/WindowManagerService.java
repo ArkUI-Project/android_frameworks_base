@@ -789,6 +789,8 @@ public class WindowManagerService extends IWindowManager.Stub
 
     final H mH = new H();
 
+    private VisibleScreenContentCaptureController mVisibleScreenContentCaptureController;
+
     /**
      * Handler for things to run that have direct impact on an animation, i.e. animation tick,
      * layout, starting window creation, whereas {@link H} runs things that are still important, but
@@ -10598,6 +10600,36 @@ public class WindowManagerService extends IWindowManager.Stub
             // parcelling occurs in this case.
             layerCaptureArgs.release();
         }
+    }
+
+    @Override
+    public void requestVisibleScreenContent(int displayId, String callingPackage,
+            android.view.IScreenContentCallback callback) {
+        if (!checkCallingPermission("android.permission.CAPTURE_VISIBLE_CONTENT",
+                "requestVisibleScreenContent()")) {
+            throw new SecurityException("Requires CAPTURE_VISIBLE_CONTENT permission");
+        }
+        if (callback == null || callingPackage == null) {
+            throw new IllegalArgumentException("A package and callback are required");
+        }
+        int uid = Binder.getCallingUid();
+        mAppOps.checkPackage(uid, callingPackage);
+        final VisibleScreenContentCaptureController controller;
+        final int targetUser;
+        synchronized (mGlobalLock) {
+            targetUser = mCurrentUserId;
+            if (mVisibleScreenContentCaptureController == null) {
+                mVisibleScreenContentCaptureController =
+                        new VisibleScreenContentCaptureController(this);
+            }
+            controller = mVisibleScreenContentCaptureController;
+        }
+        if (UserHandle.getUserId(uid) != targetUser
+                && !checkCallingPermission(Manifest.permission.INTERACT_ACROSS_USERS_FULL,
+                "requestVisibleScreenContent()")) {
+            throw new SecurityException("Requires INTERACT_ACROSS_USERS_FULL permission");
+        }
+        controller.request(displayId, callingPackage, uid, targetUser, callback);
     }
 
     @Override

@@ -1,0 +1,20 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Copyright (C) 2026 The ArkUI Project; SPDX-License-Identifier: Apache-2.0 -->
+<manifest xmlns:android="http://schemas.android.com/apk/res/android" package="org.arkui.recognition.tests">
+    <uses-permission android:name="org.arkui.recognition.permission.CONTROL_RECOGNITION" />
+    <application android:label="Recognition tests">
+        <activity android:name="org.arkui.recognition.VideoFixtureActivity" android:exported="true" android:theme="@android:style/Theme.Material.Light.NoActionBar" />
+        <activity android:name="org.arkui.recognition.VisibleContentFixtureActivity" android:exported="true" android:theme="@android:style/Theme.Material.Light.NoActionBar" />
+        <activity android:name="org.arkui.recognition.RecognitionFixtureActivity" android:exported="true" android:theme="@android:style/Theme.Material.Light.NoActionBar" />
+        <activity-alias android:name="org.arkui.recognition.LexiconFixtureApp"
+            android:targetActivity="org.arkui.recognition.RecognitionFixtureActivity"
+            android:label="IllyNote" android:exported="true">
+            <intent-filter>
+                <action android:name="android.intent.action.MAIN" />
+                <category android:name="android.intent.category.LAUNCHER" />
+            </intent-filter>
+        </activity-alias>
+    </application>
+    <instrumentation android:name="androidx.test.runner.AndroidJUnitRunner" android:targetPackage="org.arkui.recognition" />
+    <instrumentation android:name="org.arkui.recognition.VisibleMediaSourceTests$Runner" android:targetPackage="org.arkui.recognition.tests" />
+</manifest>

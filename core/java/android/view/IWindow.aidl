@@ -18,6 +18,8 @@
 package android.view;
 
 import android.graphics.Point;
+import android.graphics.Rect;
+import android.graphics.Region;
 import android.os.Bundle;
 import android.os.ParcelFileDescriptor;
 import android.util.MergedConfiguration;
@@ -26,6 +28,7 @@ import android.view.DragEvent;
 import android.view.InsetsSourceControl;
 import android.view.InsetsState;
 import android.view.IScrollCaptureResponseListener;
+import android.view.IScreenContentCallback;
 import android.view.KeyEvent;
 import android.view.MotionEvent;
 import android.view.inputmethod.ImeTracker;
@@ -119,6 +122,10 @@ oneway interface IWindow {
      * @param callbacks to receive responses
      */
     void requestScrollCapture(in IScrollCaptureResponseListener callbacks);
+
+    /** System-only, current-window content request. Coordinates are in logical display space. */
+    void requestVisibleScreenContent(int displayId, int rotation, in Rect windowBounds,
+            in Region visibleRegion, in IScreenContentCallback callback);
 
     /**
      * Dump the details of a window.

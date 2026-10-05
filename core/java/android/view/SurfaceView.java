@@ -941,6 +941,14 @@ public class SurfaceView extends View implements ViewRootImpl.SurfaceChangedCall
     }
 
     /**
+     * Whether this SurfaceView forbids screen-content export.
+     * @hide
+     */
+    public boolean isSecureForScreenContent() {
+        return (mSurfaceFlags & SurfaceControl.SECURE) != 0;
+    }
+
+    /**
      * Control whether the surface view's content should be treated as secure,
      * preventing it from appearing in screenshots or from being viewed on
      * non-secure displays.

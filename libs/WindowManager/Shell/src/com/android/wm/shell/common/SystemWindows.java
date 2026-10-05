@@ -22,16 +22,20 @@ import android.annotation.NonNull;
 import android.annotation.Nullable;
 import android.content.Context;
 import android.content.res.Configuration;
+import android.graphics.Rect;
 import android.graphics.Region;
+import android.os.Binder;
 import android.os.Bundle;
 import android.os.IBinder;
 import android.os.ParcelFileDescriptor;
+import android.os.Process;
 import android.os.RemoteException;
 import android.util.Slog;
 import android.util.SparseArray;
 import android.view.Display;
 import android.view.DragEvent;
 import android.view.IScrollCaptureResponseListener;
+import android.view.IScreenContentCallback;
 import android.view.IWindow;
 import android.view.IWindowManager;
 import android.view.IWindowSession;
@@ -39,6 +43,7 @@ import android.view.IWindowSessionCallback;
 import android.view.InsetsSourceControl;
 import android.view.InsetsState;
 import android.view.ScrollCaptureResponse;
+import android.view.ScreenContent;
 import android.view.SurfaceControl;
 import android.view.SurfaceControlViewHost;
 import android.view.View;
@@ -399,6 +404,16 @@ public class SystemWindows {
             } catch (RemoteException ex) {
                 // ignore
             }
+        }
+
+        @Override
+        public void requestVisibleScreenContent(int displayId, int rotation, Rect windowBounds,
+                Region visibleRegion, IScreenContentCallback callback) {
+            if (Binder.getCallingUid() != Process.SYSTEM_UID) {
+                throw new SecurityException("Visible content requests must come from system server");
+            }
+            try { callback.onScreenContent(new ScreenContent()); }
+            catch (RemoteException ignored) { }
         }
 
         @Override

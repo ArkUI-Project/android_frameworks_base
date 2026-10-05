@@ -14,7 +14,6 @@ import android.content.SharedPreferences;
 import android.content.pm.PackageManager;
 import android.content.res.Configuration;
 import android.graphics.Canvas;
-import android.graphics.Bitmap;
 import android.graphics.Insets;
 import android.graphics.Paint;
 import android.graphics.PixelFormat;
@@ -60,9 +59,7 @@ public final class WheelService extends Service implements SharedPreferences.OnS
     private WindowManager windows;
     private Context themed;
     private WheelPanel panel;
-    private RecognitionPanel recognition;
     private boolean capturing, externalRecognition;
-    private int captureId;
     private final Runnable captureTimeout = () -> { capturing = false; refresh(); };
     private List<WheelCatalog.Item> apps = List.of();
     private Set<String> excluded = Set.of();
@@ -115,20 +112,6 @@ public final class WheelService extends Service implements SharedPreferences.OnS
         } else if (message.what == WheelProtocol.RECOGNITION_VISIBILITY && host != null) {
             externalRecognition = message.arg1 == 1;
             if (externalRecognition) hide();
-            refresh();
-        } else if (message.what == WheelProtocol.CAPTURE_RESULT && host != null) {
-            Bundle data = message.getData();
-            Bitmap bitmap = data.getParcelable(WheelProtocol.BITMAP, Bitmap.class);
-            if (!capturing || data.getInt(WheelProtocol.CAPTURE_ID) != captureId || !canShow()) {
-                if (bitmap != null) bitmap.recycle(); return true;
-            }
-            capturing = false; main.removeCallbacks(captureTimeout);
-            if (bitmap == null) android.widget.Toast.makeText(this, R.string.recognition_capture_failed, android.widget.Toast.LENGTH_SHORT).show();
-            else {
-                recognition = new RecognitionPanel(themed, bitmap, () -> { recognition = null; refresh(); });
-                try { recognition.show(windows); }
-                catch (RuntimeException e) { recognition.dispose(); recognition = null; }
-            }
             refresh();
         } else if (message.what == WheelProtocol.ENVIRONMENT && host != null) {
             Bundle state = message.getData();
@@ -232,7 +215,7 @@ public final class WheelService extends Service implements SharedPreferences.OnS
                 if (item.action == WheelProtocol.RECOGNIZE) {
                     hide(); capturing = true;
                     Bundle data = new Bundle(); data.putInt("action", WheelProtocol.RECOGNIZE);
-                    data.putInt(WheelProtocol.CAPTURE_ID, ++captureId); send(WheelProtocol.ACTION, data);
+                    send(WheelProtocol.ACTION, data);
                     main.postDelayed(captureTimeout, 6000); return;
                 }
                 Bundle data = new Bundle();
@@ -297,8 +280,7 @@ public final class WheelService extends Service implements SharedPreferences.OnS
         @Override protected void onDetachedFromWindow() { removeCallbacks(hold); tracking = false; super.onDetachedFromWindow(); }
     }
     private void hide() {
-        capturing = false; ++captureId; main.removeCallbacks(captureTimeout);
-        if (recognition != null) { RecognitionPanel old = recognition; recognition = null; old.dispose(); }
+        capturing = false; main.removeCallbacks(captureTimeout);
         if (panel != null) { WheelPanel old = panel; panel = null; old.dismissImmediately(); }
         for (Trigger trigger : triggers) windows.removeViewImmediate(trigger);
         triggers.clear();

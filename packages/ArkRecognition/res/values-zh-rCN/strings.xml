@@ -1,0 +1,21 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Copyright (C) 2026 The ArkUI Project; SPDX-License-Identifier: Apache-2.0 -->
+<resources>
+    <string name="app_name">识屏</string>
+    <string name="text_mode">分词文本</string>
+    <string name="image_mode">图片</string>
+    <string name="more">更多</string>
+    <string name="details">详情</string>
+    <string name="close">关闭</string>
+    <string name="unavailable">当前无法使用此操作</string>
+    <string name="save_video">保存视频</string>
+    <string name="save_frame">保存当前帧</string>
+    <string name="share_video">分享视频</string>
+    <string name="video_saved">已保存至 Movies/ArkUI</string>
+    <string name="media_failed">未能保存媒体</string>
+    <string name="saving_media">正在保存…</string>
+    <string name="recognition_details">%1$d 个文字字符 · %2$d 个图片与视频</string>
+    <string name="select_image">选取图片</string>
+    <string name="select_video">选取视频</string>
+    <string name="media_protected">当前媒体不支持保存</string>
+</resources>

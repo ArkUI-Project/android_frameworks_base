@@ -1,0 +1,44 @@
+// Copyright (C) 2026 The ArkUI Project; SPDX-License-Identifier: Apache-2.0
+package {
+    default_applicable_licenses: ["ArkRecognition_license"],
+}
+license {
+    name: "ArkRecognition_license",
+    visibility: [":__subpackages__"],
+    license_kinds: ["SPDX-license-identifier-Apache-2.0"],
+    license_text: ["NOTICE", "third_party/ocr/LICENSE.apache2", "third_party/ocr/NOTICE"],
+}
+java_library {
+    name: "ArkRecognitionProtocol",
+    srcs: ["protocol/**/*.java"],
+}
+android_app {
+    name: "ArkRecognition",
+    defaults: ["platform_app_defaults"],
+    srcs: ["src/**/*.java"],
+    platform_apis: true,
+    certificate: "platform",
+    privileged: true,
+    system_ext_specific: true,
+    required: ["privapp-permissions-org.arkui.recognition.xml"],
+    static_libs: [
+        "ArkRecognitionProtocol",
+        "ArkWheelOfflineOcr",
+        "SettingsLibCollapsingToolbarBaseActivity",
+        "SettingsLibSettingsTheme",
+        "SettingsLibAppPreference",
+        "SettingsLibSliderPreference",
+        "SettingsLibTopIntroPreference",
+        "androidx.preference_preference",
+        "androidx.recyclerview_recyclerview",
+    ],
+    jni_libs: ["libarkwheel_ocr_jpeg", "libarkwheel_ocr_png", "libarkwheel_ocr_leptonica", "libarkwheel_ocr_tesseract"],
+    use_embedded_native_libs: false,
+    aaptflags: ["-0", "traineddata"],
+}
+prebuilt_etc {
+    name: "privapp-permissions-org.arkui.recognition.xml",
+    src: "permissions/privapp-permissions-org.arkui.recognition.xml",
+    sub_dir: "permissions",
+    system_ext_specific: true,
+}

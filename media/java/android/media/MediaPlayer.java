@@ -634,6 +634,7 @@ public class MediaPlayer extends PlayerBase
     private long mNativeSurfaceTexture;  // accessed by native methods
     private int mListenerContext; // accessed by native methods
     private SurfaceHolder mSurfaceHolder;
+    private final VisibleMediaSource mVisibleMediaSource = new VisibleMediaSource();
     @UnsupportedAppUsage
     private EventHandler mEventHandler;
     private PowerManager.WakeLock mWakeLock = null;
@@ -805,7 +806,9 @@ public class MediaPlayer extends PlayerBase
         } else {
             surface = null;
         }
+        mVisibleMediaSource.setSurface(null);
         _setVideoSurface(surface);
+        mVisibleMediaSource.setSurface(surface);
         updateSurfaceScreenOn();
     }
 
@@ -834,7 +837,9 @@ public class MediaPlayer extends PlayerBase
             Log.w(TAG, "setScreenOnWhilePlaying(true) is ineffective for Surface");
         }
         mSurfaceHolder = null;
+        mVisibleMediaSource.setSurface(null);
         _setVideoSurface(surface);
+        mVisibleMediaSource.setSurface(surface);
         updateSurfaceScreenOn();
     }
 
@@ -1230,6 +1235,7 @@ public class MediaPlayer extends PlayerBase
                 path,
                 keys,
                 values);
+            mVisibleMediaSource.clearSource();
             return;
         }
 
@@ -1296,11 +1302,9 @@ public class MediaPlayer extends PlayerBase
     public void setDataSource(FileDescriptor fd, long offset, long length)
             throws IOException, IllegalArgumentException, IllegalStateException {
         try (ParcelFileDescriptor modernFd = FileUtils.convertToModernFd(fd)) {
-            if (modernFd == null) {
-                _setDataSource(fd, offset, length);
-            } else {
-                _setDataSource(modernFd.getFileDescriptor(), offset, length);
-            }
+            FileDescriptor actualFd = modernFd == null ? fd : modernFd.getFileDescriptor();
+            _setDataSource(actualFd, offset, length);
+            mVisibleMediaSource.setDataSource(actualFd, offset, length);
         } catch (IOException e) {
             Log.w(TAG, "Ignoring IO error while setting data source", e);
         }
@@ -1319,6 +1323,7 @@ public class MediaPlayer extends PlayerBase
     public void setDataSource(MediaDataSource dataSource)
             throws IllegalArgumentException, IllegalStateException {
         _setDataSource(dataSource);
+        mVisibleMediaSource.clearSource();
     }
 
     private native void _setDataSource(MediaDataSource dataSource)
@@ -1348,6 +1353,8 @@ public class MediaPlayer extends PlayerBase
         // DrmInfo, if any, has been resolved by now.
         synchronized (mDrmLock) {
             mDrmInfoResolved = true;
+            mVisibleMediaSource.setPrepared(mDrmInfo == null && !mActiveDrmScheme
+                    && !mPrepareDrmInProgress);
         }
 
     }
@@ -2239,6 +2246,7 @@ public class MediaPlayer extends PlayerBase
      * <p>You must call this method once the instance is no longer required.
      */
     public void release() {
+        mVisibleMediaSource.release();
         baseRelease();
         stayAwake(false);
         updateSurfaceScreenOn();
@@ -2283,6 +2291,7 @@ public class MediaPlayer extends PlayerBase
      * data source and calling prepare().
      */
     public void reset() {
+        mVisibleMediaSource.clearSource();
         mSelectedSubtitleTrackIndex = -1;
         synchronized(mOpenSubtitleSources) {
             for (final InputStream is: mOpenSubtitleSources) {
@@ -3473,6 +3482,7 @@ public class MediaPlayer extends PlayerBase
 
     @Override
     protected void finalize() {
+        if (mVisibleMediaSource != null) mVisibleMediaSource.release();
         tryToDisableNativeRoutingCallback();
         baseRelease();
         native_finalize();
@@ -3853,6 +3863,14 @@ public class MediaPlayer extends PlayerBase
         }
 
         switch (what) {
+        case MEDIA_SET_VIDEO_SIZE:
+            mp.mVisibleMediaSource.setVideoSize(arg1, arg2);
+            break;
+
+        case MEDIA_ERROR:
+            mp.mVisibleMediaSource.clearSource();
+            break;
+
         case MEDIA_INFO:
             if (arg1 == MEDIA_INFO_STARTED_AS_NEXT) {
                 new Thread(new Runnable() {
@@ -3867,6 +3885,7 @@ public class MediaPlayer extends PlayerBase
             break;
 
         case MEDIA_DRM_INFO:
+            mp.mVisibleMediaSource.markProtected();
             // We need to derive mDrmInfo before prepare() returns so processing it here
             // before the notification is sent to EventHandler below. EventHandler runs in the
             // notification looper so its handleMessage might process the event after prepare()
@@ -3890,6 +3909,8 @@ public class MediaPlayer extends PlayerBase
             // so we also set mDrmInfoResolved in prepare().
             synchronized (mp.mDrmLock) {
                 mp.mDrmInfoResolved = true;
+                mp.mVisibleMediaSource.setPrepared(mp.mDrmInfo == null && !mp.mActiveDrmScheme
+                        && !mp.mPrepareDrmInProgress);
             }
             break;
 

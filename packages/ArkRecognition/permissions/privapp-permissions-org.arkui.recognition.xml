@@ -1,0 +1,8 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Copyright (C) 2026 The ArkUI Project; SPDX-License-Identifier: Apache-2.0 -->
+<permissions>
+    <privapp-permissions package="org.arkui.recognition">
+        <permission name="android.permission.CAPTURE_VISIBLE_CONTENT" />
+        <permission name="android.permission.SYSTEM_APPLICATION_OVERLAY" />
+    </privapp-permissions>
+</permissions>

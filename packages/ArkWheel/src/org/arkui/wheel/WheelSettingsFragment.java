@@ -87,6 +87,9 @@ public final class WheelSettingsFragment extends SettingsBasePreferenceFragment 
         p.setOnPreferenceClickListener(v -> { run.run(); return true; }); root.addPreference(p); return p;
     }
     private void navigate(String page) { ((WheelSettingsActivity) requireActivity()).navigate(page, true); }
+    private void openRecognitionSettings() {
+        startActivity(new Intent("org.arkui.recognition.SETTINGS").setPackage("org.arkui.recognition"));
+    }
     private void toggle(PreferenceGroup root, String key, int title, int summary, boolean fallback) {
         AppSwitchPreference p = new AppSwitchPreference(c()); configure(p, key, title);
         if (summary != 0) p.setSummary(summary); p.setChecked(prefs.on(key, fallback));
@@ -114,10 +117,9 @@ public final class WheelSettingsFragment extends SettingsBasePreferenceFragment 
         switch (page) {
             case "recognition":
                 help(root, R.string.recognition_intro);
-                link(root, R.string.open_picture, 0, () -> startActivity(new Intent(c(), RecognitionActivity.class)));
-                choice(root, "ocr_language", R.string.ocr_language, 0, R.string.ocr_simplified, R.string.ocr_traditional, R.string.ocr_english);
-                toggle(root, "recognition_wave", R.string.recognition_wave, 0, true);
-                slider(root, "recognition_dim", R.string.recognition_dim, 40, 10, 70, "%");
+                link(root, R.string.open_picture, 0, () -> startActivity(new Intent().setComponent(
+                        new android.content.ComponentName("org.arkui.recognition", "org.arkui.recognition.RecognitionActivity"))));
+                link(root, R.string.recognize, R.string.recognition_summary, this::openRecognitionSettings);
                 break;
             case "appearance":
                 slider(root, RADIUS, R.string.radius, 280, 180, 360, " dp");
@@ -153,7 +155,7 @@ public final class WheelSettingsFragment extends SettingsBasePreferenceFragment 
                 link(root, R.string.preview, R.string.preview_summary, () -> requireContext().sendBroadcast(
                         new Intent(WheelService.PREVIEW).setPackage(requireContext().getPackageName()))).setEnabled(prefs.enabled());
                 link(root, R.string.items, R.string.items_summary, () -> navigate(ITEMS));
-                link(root, R.string.recognize, R.string.recognition_summary, () -> navigate("recognition"));
+                link(root, R.string.recognize, R.string.recognition_summary, this::openRecognitionSettings);
                 link(root, R.string.invocation_title, R.string.invocation_summary, () -> navigate("invocation"));
                 link(root, R.string.appearance, R.string.appearance_summary, () -> navigate("appearance"));
                 link(root, R.string.behavior, R.string.behavior_summary, () -> navigate("behavior"));

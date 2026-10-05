@@ -516,6 +516,7 @@ android_library {
     defaults: ["SystemUI-srcs-defaults"],
     static_libs: [
         "ArkWheelProtocol",
+        "ArkRecognitionProtocol",
         "ArkGameProtocol",
         "//frameworks/libs/systemui:compilelib",
         "com.android.systemui.pods-api-aosp-handheld",

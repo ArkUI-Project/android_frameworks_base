@@ -12106,6 +12106,40 @@ public final class ViewRootImpl implements ViewParent,
         }
 
         @Override
+        public void requestVisibleScreenContent(int displayId, int rotation, Rect windowBounds,
+                android.graphics.Region visibleRegion, IScreenContentCallback callback) {
+            if (Binder.getCallingUid() != android.os.Process.SYSTEM_UID) {
+                throw new SecurityException("Visible content requests must come from system server");
+            }
+            final ViewRootImpl root = mViewAncestor.get();
+            if (root == null) {
+                try { callback.onScreenContent(new ScreenContent()); }
+                catch (RemoteException ignored) { }
+                return;
+            }
+            final Rect expected = new Rect(windowBounds);
+            final android.graphics.Region clip = new android.graphics.Region(visibleRegion);
+            root.mHandler.post(() -> {
+                ScreenContent content;
+                try {
+                    content = VisibleScreenContentCollector.collect(root, displayId,
+                            rotation, expected, clip);
+                } catch (RuntimeException e) {
+                    content = new ScreenContent();
+                    content.partial = true;
+                }
+                boolean delivered = false;
+                try {
+                    callback.onScreenContent(content);
+                    delivered = true;
+                } catch (RemoteException | RuntimeException ignored) { }
+                finally {
+                    if (!delivered || !(callback.asBinder() instanceof Binder)) content.close();
+                }
+            });
+        }
+
+        @Override
         public void dumpWindow(ParcelFileDescriptor pfd) {
             final ViewRootImpl viewAncestor = mViewAncestor.get();
             if (viewAncestor == null) {

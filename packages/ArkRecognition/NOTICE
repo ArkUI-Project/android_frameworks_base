@@ -1,0 +1,34 @@
+Copyright (C) 2026 The ArkUI Project
+
+Licensed under the Apache License, Version 2.0 (the "License");
+you may not use this file except in compliance with the License.
+You may obtain a copy of the License at
+
+    http://www.apache.org/licenses/LICENSE-2.0
+
+Unless required by applicable law or agreed to in writing, software
+distributed under the License is distributed on an "AS IS" BASIS,
+WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+See the License for the specific language governing permissions and
+limitations under the License.
+
+Android Open Source Project test video
+
+tests/assets/visible_media_fixture.mp4 is an unmodified copy of the local
+frameworks/base test asset:
+media/tests/contents/media_api/videoeditor/H264_BP_640x480_12.5fps_256kbps_AACLC_16khz_24kbps_s_0_26.mp4
+
+Upstream source commit: 31d19c80c7caefe2d2cbc623f6618f1010cd79a5
+(VideoEditor Test contents: Issue ID:3396697)
+https://android.googlesource.com/platform/frameworks/base/+/31d19c80c7caefe2d2cbc623f6618f1010cd79a5/media/tests/contents/media_api/videoeditor/H264_BP_640x480_12.5fps_256kbps_AACLC_16khz_24kbps_s_0_26.mp4
+SHA256: bb349f94ba829c1ad6f43f9da29488f34e7dd62bf9d9b5f0335a843ea8a9d30f
+
+The upstream media package declares the Apache License, Version 2.0 under
+frameworks_base_license. The upstream frameworks/base NOTICE includes this
+Android attribution, retained here:
+
+Android Code
+Copyright 2005-2008 The Android Open Source Project
+
+This product includes software developed as part of
+The Android Open Source Project (http://source.android.com).

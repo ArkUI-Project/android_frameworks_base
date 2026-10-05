@@ -6,7 +6,7 @@ license {
     name: "ArkWheel_license",
     visibility: [":__subpackages__"],
     license_kinds: ["SPDX-license-identifier-Apache-2.0"],
-    license_text: ["NOTICE", "third_party/ocr/LICENSE.apache2", "third_party/ocr/NOTICE"],
+    license_text: ["NOTICE"],
 }
 java_library {
     name: "ArkWheelProtocol",
@@ -21,7 +21,6 @@ android_app {
     system_ext_specific: true,
     static_libs: [
         "ArkWheelProtocol",
-        "ArkWheelOfflineOcr",
         "SettingsLibCollapsingToolbarBaseActivity",
         "SettingsLibSettingsTheme",
         "SettingsLibMainSwitchPreference",
@@ -31,7 +30,4 @@ android_app {
         "androidx.preference_preference",
         "androidx.recyclerview_recyclerview",
     ],
-    jni_libs: ["libarkwheel_ocr_jpeg", "libarkwheel_ocr_png", "libarkwheel_ocr_leptonica", "libarkwheel_ocr_tesseract"],
-    use_embedded_native_libs: false,
-    aaptflags: ["-0", "traineddata"],
 }

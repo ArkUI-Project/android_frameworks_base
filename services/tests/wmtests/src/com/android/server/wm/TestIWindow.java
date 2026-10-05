@@ -22,10 +22,12 @@ import android.os.ParcelFileDescriptor;
 import android.os.RemoteException;
 import android.view.DragEvent;
 import android.view.IScrollCaptureResponseListener;
+import android.view.IScreenContentCallback;
 import android.view.IWindow;
 import android.view.InsetsSourceControl;
 import android.view.InsetsState;
 import android.view.ScrollCaptureResponse;
+import android.view.ScreenContent;
 import android.view.WindowRelayoutResult;
 import android.view.inputmethod.ImeTracker;
 
@@ -123,5 +125,12 @@ public class TestIWindow extends IWindow.Stub {
     @Override
     public void dumpWindow(ParcelFileDescriptor pfd) {
 
+    }
+
+    @Override
+    public void requestVisibleScreenContent(int displayId, int rotation,
+            android.graphics.Rect windowBounds, android.graphics.Region visibleRegion,
+            IScreenContentCallback callback) throws RemoteException {
+        callback.onScreenContent(new ScreenContent());
     }
 }

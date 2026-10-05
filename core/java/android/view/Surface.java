@@ -22,6 +22,7 @@ import android.annotation.FlaggedApi;
 import android.annotation.FloatRange;
 import android.annotation.IntDef;
 import android.annotation.NonNull;
+import android.annotation.Nullable;
 import android.annotation.SuppressLint;
 import android.compat.annotation.UnsupportedAppUsage;
 import android.content.pm.ActivityInfo;
@@ -48,6 +49,7 @@ import dalvik.system.VMRuntime;
 
 import java.lang.annotation.Retention;
 import java.lang.annotation.RetentionPolicy;
+import java.lang.ref.WeakReference;
 
 /**
  * Handle onto a raw buffer that is being managed by the screen compositor.
@@ -141,6 +143,8 @@ public class Surface implements Parcelable {
     @UnsupportedAppUsage(maxTargetSdk = Build.VERSION_CODES.R, trackingBug = 170729553)
     private long mLockedObject;
     private int mGenerationId; // incremented each time mNativeObject changes
+    private WeakReference<SurfaceTexture> mSurfaceTexture;
+    private int mSurfaceTextureGenerationId;
     private final Canvas mCanvas = new CompatibleCanvas();
 
     // A matrix to scale the matrix set by application. This is set to null for
@@ -388,8 +392,27 @@ public class Surface implements Parcelable {
         synchronized (mLock) {
             mName = surfaceTexture.toString();
             setNativeObjectLocked(nativeCreateFromSurfaceTexture(surfaceTexture));
+            mSurfaceTexture = new WeakReference<>(surfaceTexture);
+            mSurfaceTextureGenerationId = mGenerationId;
         }
         registerNativeMemoryUsage();
+    }
+
+    /**
+     * Returns the local consumer while this Surface still refers to its original producer.
+     * The association does not keep the consumer alive and is not transferred across parcels.
+     * @hide
+     */
+    @Nullable
+    public SurfaceTexture getSurfaceTexture() {
+        synchronized (mLock) {
+            if (mNativeObject == 0 || mGenerationId != mSurfaceTextureGenerationId
+                    || mSurfaceTexture == null) {
+                return null;
+            }
+            SurfaceTexture texture = mSurfaceTexture.get();
+            return texture != null && !texture.isReleased() ? texture : null;
+        }
     }
 
     /* called from android_view_Surface_createFromIGraphicBufferProducer() */

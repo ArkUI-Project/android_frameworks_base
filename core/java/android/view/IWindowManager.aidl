@@ -45,6 +45,7 @@ import android.view.IDisplayChangeWindowController;
 import android.view.IOnKeyguardExitResult;
 import android.view.IPinnedTaskListener;
 import android.view.IScrollCaptureResponseListener;
+import android.view.IScreenContentCallback;
 import android.view.RemoteAnimationAdapter;
 import android.view.IRotationWatcher;
 import android.view.ISystemGestureExclusionListener;
@@ -1201,4 +1202,8 @@ interface IWindowManager
      * Returns whether the display with {@code displayId} ignores orientation request.
      */
     boolean getIgnoreOrientationRequest(int displayId);
+
+    /** Capture current visible content for a signature-authorized system application. */
+    oneway void requestVisibleScreenContent(int displayId, String callingPackage,
+            in IScreenContentCallback callback);
 }
