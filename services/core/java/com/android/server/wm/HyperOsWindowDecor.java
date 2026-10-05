@@ -71,6 +71,11 @@ final class HyperOsWindowDecor {
 
     boolean applyTransaction(Task task, SurfaceControl.Transaction transaction,
             Rect surfaceBounds, float surfaceScale) {
+        return applyTransaction(task, transaction, surfaceBounds, surfaceScale, Float.NaN);
+    }
+
+    boolean applyTransaction(Task task, SurfaceControl.Transaction transaction,
+            Rect surfaceBounds, float surfaceScale, float decorExpansion) {
         synchronized (mService.mGlobalLock) {
             if (!canShow(task) || task.mSurfaceControl == null
                     || !task.mSurfaceControl.isValid()) {
@@ -79,8 +84,8 @@ final class HyperOsWindowDecor {
             }
             final Snapshot snapshot = new Snapshot(task,
                     task.mWindowContainerExt.getTaskWindowSurfaceInfo(),
-                    surfaceBounds, surfaceScale);
-            if (!snapshot.pinned && !snapshot.closing) {
+                    surfaceBounds, surfaceScale, decorExpansion);
+            if (snapshot.expansion == 1f && !snapshot.closing) {
                 // Round the complete outer window, with content joining both bands at
                 // straight seams. A crop equal to app bounds rounds those seams instead.
                 final int width = task.getBounds().width();
@@ -90,6 +95,12 @@ final class HyperOsWindowDecor {
                                 new Rect(0, -header, width, task.getBounds().height() + footer))
                         .setCornerRadius(task.mSurfaceControl,
                                 width * SmallWindowBounds.HYPER_OS_CORNER_RADIUS_RATIO);
+            } else if (!snapshot.closing) {
+                transaction.setWindowCrop(task.mSurfaceControl,
+                                task.getBounds().width(), task.getBounds().height())
+                        .setCornerRadius(task.mSurfaceControl, task.mWindowContainerExt
+                                .getTaskWindowSurfaceInfo().getHyperOsPreviewCornerRadius()
+                                * (1f - snapshot.expansion));
             }
             final SurfaceFrame previous = mFrames.get(task.mTaskId);
             if (previous != null && previous.surface == task.mSurfaceControl
@@ -224,13 +235,13 @@ final class HyperOsWindowDecor {
         DecorView view = mViews.get(task.mTaskId);
         if (frame == null && view != null
                 && !snapshot.docked && view.mSnapshot.display.equals(snapshot.display)
-                && view.mSnapshot.pinned == snapshot.pinned
                 && view.mSnapshot.docked == snapshot.docked
                 && view.mSnapshot.displayId == snapshot.displayId) {
             // Animation callbacks can publish the next position before its surface
             // transaction is ready. A state-only refresh must keep displayed geometry.
             snapshot.bounds.set(view.mSnapshot.bounds);
             snapshot.radius = view.mSnapshot.radius;
+            snapshot.expansion = view.mSnapshot.expansion;
         }
         if (view != null && view.mSnapshot.displayId != snapshot.displayId) {
             removeView(task.mTaskId);
@@ -306,12 +317,14 @@ final class HyperOsWindowDecor {
         final String packageName;
         final float scale;
         float radius;
+        float expansion;
 
         Snapshot(Task task, TaskWindowSurfaceInfo info) {
-            this(task, info, null, 0f);
+            this(task, info, null, 0f, Float.NaN);
         }
 
-        Snapshot(Task task, TaskWindowSurfaceInfo info, Rect surfaceBounds, float surfaceScale) {
+        Snapshot(Task task, TaskWindowSurfaceInfo info, Rect surfaceBounds, float surfaceScale,
+                float decorExpansion) {
             bounds = surfaceBounds != null && !info.isDockedToEdge()
                     ? new Rect(surfaceBounds) : info.getHyperOsDecorBounds();
             display = new Rect(task.mDisplayContent.getBounds());
@@ -330,8 +343,11 @@ final class HyperOsWindowDecor {
             transitionAnimating = info.isDecorTransitionAnimating();
             closing = info.isHyperOsClosing();
             scale = info.getWindowSurfaceScale();
-            radius = info.getCornerRadius() * (surfaceBounds != null
-                    ? surfaceScale : info.getWindowSurfaceRealScale());
+            expansion = Float.isNaN(decorExpansion)
+                    ? info.getHyperOsDecorExpansion() : decorExpansion;
+            final float realScale = surfaceBounds != null ? surfaceScale
+                    : (float) bounds.width() / Math.max(1, task.getBounds().width());
+            radius = info.getHyperOsPreviewCornerRadius() * realScale * (1f - expansion);
             final ActivityRecord activity = task.getTopNonFinishingActivity();
             packageName = activity != null ? activity.packageName : "";
         }
@@ -467,6 +483,8 @@ final class HyperOsWindowDecor {
                     || mSnapshot.docked != snapshot.docked
                     || mSnapshot.animating != snapshot.animating
                     || mSnapshot.transitionAnimating != snapshot.transitionAnimating
+                    || mSnapshot.expansion != snapshot.expansion
+                    || mSnapshot.radius != snapshot.radius
                     || mSnapshot.closing != snapshot.closing
                     || !mSnapshot.packageName.equals(snapshot.packageName);
             mSnapshot = snapshot;
@@ -482,6 +500,7 @@ final class HyperOsWindowDecor {
             if (snapshot.pinned || snapshot.docked) mMenuVisible = false;
             if (changed) {
                 updateRegions();
+                requestLayout();
                 setContentDescription(getContext().getString(snapshot.pinned || snapshot.docked
                         ? R.string.hyperos_window_restore : R.string.hyperos_window_controls));
                 invalidate();
@@ -591,40 +610,40 @@ final class HyperOsWindowDecor {
                 drawIcon(canvas, b.centerX(), b.centerY(), b.width() * .71f);
                 return;
             }
-            if (mSnapshot.pinned) {
-                // The reference preview has an even translucent surround, not scaled
-                // caption and navigation bands from the interactive window.
-                final float surround = b.width() * SmallWindowBounds.HYPER_OS_PREVIEW_BORDER_RATIO;
-                final RectF preview = new RectF(b);
-                preview.inset(-surround, -surround);
-                mPaint.setAlpha(150);
-                mContentOutline.rewind();
-                mContentOutline.addRoundRect(new RectF(b), mSnapshot.radius,
-                        mSnapshot.radius, Path.Direction.CW);
-                canvas.save();
-                canvas.clipOutPath(mContentOutline);
-                canvas.drawRoundRect(preview, mSnapshot.radius + surround,
-                        mSnapshot.radius + surround, mPaint);
-                canvas.restore();
-                mPaint.setAlpha(255);
-                return;
-            }
-            // The bands sit outside app content so they never cover navigation or input fields.
-            final RectF frame = new RectF(b.left, mTop.top, b.right, mBottom.bottom);
+            // Morph the preview surround into caption/footer bands on the very same frame
+            // as the app transform. Controls fade in as the bands grow, without a blank frame.
+            final float expansion = mSnapshot.expansion;
+            final float surround = b.width() * SmallWindowBounds.HYPER_OS_PREVIEW_BORDER_RATIO
+                    * (1f - expansion);
+            final RectF frame = new RectF(b.left - surround,
+                    b.top - surround - (b.top - mTop.top) * expansion,
+                    b.right + surround,
+                    b.bottom + surround + (mBottom.bottom - b.bottom) * expansion);
+            final float outerRadius = mSnapshot.radius + surround + radius * expansion;
+            mPaint.setAlpha(Math.round(150 + 105 * expansion));
+            mContentOutline.rewind();
+            mContentOutline.addRoundRect(new RectF(b), mSnapshot.radius,
+                    mSnapshot.radius, Path.Direction.CW);
             canvas.save();
-            canvas.clipOutRect(b);
-            canvas.drawRoundRect(frame, radius, radius, mPaint);
+            canvas.clipOutPath(mContentOutline);
+            canvas.drawRoundRect(frame, outerRadius, outerRadius, mPaint);
             canvas.restore();
+            mPaint.setAlpha(255);
+            if (expansion == 0f) return;
             mPaint.setColor(mHandleColor);
+            mPaint.setAlpha(Math.round(255 * expansion));
             final float dot = b.width() * .007f;
             for (int i = -1; i <= 1; i++) {
-                canvas.drawCircle(b.centerX() + i * dot * 4, mTop.centerY(), dot, mPaint);
+                canvas.drawCircle(b.centerX() + i * dot * 4,
+                        (frame.top + b.top) / 2f, dot, mPaint);
             }
             final float halfBar = b.width() * .16f;
             final float barRadius = Math.max(1f, b.width() * .006f);
-            canvas.drawRoundRect(b.centerX() - halfBar, mBottom.centerY() - barRadius,
-                    b.centerX() + halfBar, mBottom.centerY() + barRadius,
+            final float barY = (b.bottom + frame.bottom) / 2f;
+            canvas.drawRoundRect(b.centerX() - halfBar, barY - barRadius,
+                    b.centerX() + halfBar, barY + barRadius,
                     barRadius, barRadius, mPaint);
+            mPaint.setAlpha(255);
             if (mTarget == TARGET_FULLSCREEN) {
                 mPaint.setColor(mPreviewColor);
                 canvas.drawRoundRect(frame, radius, radius, mPaint);

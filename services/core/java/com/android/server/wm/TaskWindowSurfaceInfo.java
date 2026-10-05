@@ -158,6 +158,32 @@ class TaskWindowSurfaceInfo {
                 || mTask.mTransitionController.inPlayingTransition(mTask);
     }
 
+    float getHyperOsDecorExpansion() {
+        final float expansion = mPopUpAnimationController.getDecorExpansion();
+        return Float.isNaN(expansion)
+                ? (mTask.getWindowConfiguration().isPinnedExtWindowMode() ? 0f : 1f)
+                : expansion;
+    }
+
+    float getHyperOsPreviewCornerRadius() {
+        return mPinnedWindowCornerRadius;
+    }
+
+    void playHyperOsModeAnimation(Rect start, float startScale, float startExpansion) {
+        final Rect end = getTaskWindowSurfaceBounds();
+        final boolean pinned = mTask.getWindowConfiguration().isPinnedExtWindowMode();
+        mPopUpAnimationController.playToggleResizeWindowAnimation(
+                new Point(start.left, start.top), new Point(end.left, end.top),
+                startScale, getWindowSurfaceRealScale(), startExpansion,
+                pinned ? 0f : 1f, () -> {
+                    synchronized (mService.mGlobalLock) {
+                        invalidateHyperOsSurface();
+                        mService.requestTraversal();
+                    }
+                    updateDecor();
+                });
+    }
+
     void setHyperOsInitialPlacement(Point center) {
         if (mTask.mDisplayContent == null) return;
         mHyperOsDisplayBounds.set(mTask.mDisplayContent.getBounds());

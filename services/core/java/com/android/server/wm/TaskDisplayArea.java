@@ -524,8 +524,9 @@ final class TaskDisplayArea extends DisplayArea<WindowContainer> {
         if (rootTask.isActivityTypeDream()) return 3;
         if (rootTask.inPinnedWindowingMode()) return 2;
         if (rootTask.getWindowConfiguration().isPinnedExtWindowMode()
-                && !PopUpSettingsConfig.getInstance().isHyperOsMode()
                 && rootTask.isAlwaysOnTop()) {
+            // A non-interactive preview must remain reachable when another popup gains
+            // focus. Its trusted restore overlay follows the task's relative layer.
             return 2;
         }
         if (rootTask.isAlwaysOnTop()) return 1;

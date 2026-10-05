@@ -10,6 +10,7 @@ import android.animation.ValueAnimator;
 import android.app.KeyguardManager;
 import android.app.PendingIntent;
 import android.content.Context;
+import android.content.pm.UserInfo;
 import android.database.ContentObserver;
 import android.graphics.Canvas;
 import android.graphics.ColorFilter;
@@ -24,6 +25,7 @@ import android.graphics.drawable.Drawable;
 import android.os.Handler;
 import android.os.Looper;
 import android.os.UserHandle;
+import android.os.UserManager;
 import android.provider.Settings;
 import android.service.notification.StatusBarNotification;
 import android.view.MotionEvent;
@@ -125,7 +127,7 @@ final class SmallWindowNotificationGesture {
                 : mNotification.getNotification().contentIntent;
         mEligible = SmallWindowSettings.isNotificationDragEnabled(mContext)
                 && intent != null && intent.isActivity() && !mBubble
-                && mNotification.getUserId() == android.app.ActivityManager.getCurrentUser()
+                && isCurrentUserOrAppTwin(mNotification.getUserId())
                 && intent.getCreatorUserHandle().getIdentifier() == mNotification.getUserId()
                 && mContext.getDisplayId() == android.view.Display.DEFAULT_DISPLAY
                 && SmallWindowSettings.isPackageAllowed(mContext, mNotification.getPackageName())
@@ -134,6 +136,17 @@ final class SmallWindowNotificationGesture {
                         mContext.getContentResolver(), Settings.System.POP_UP_NOTIFICATION_BLACKLIST,
                         mNotification.getUserId()), mNotification.getPackageName());
         mRow.invalidate();
+    }
+
+    private boolean isCurrentUserOrAppTwin(int userId) {
+        final int currentUser = android.app.ActivityManager.getCurrentUser();
+        if (userId == currentUser) return true;
+        for (UserInfo profile : mContext.getSystemService(UserManager.class)
+                .getProfiles(currentUser)) {
+            if (profile.id == userId && profile.isEnabled()
+                    && (profile.isAppTwinProfile() || profile.isCloneProfile())) return true;
+        }
+        return false;
     }
 
     boolean isAvailable() {

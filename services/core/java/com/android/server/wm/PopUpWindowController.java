@@ -1275,13 +1275,22 @@ public class PopUpWindowController {
             }
             final boolean firstEntry = !root.getWindowConfiguration().isPopUpWindowMode()
                     || !root.isAlwaysOnTop() || !info.hasHyperOsPlacement();
+            // Both popup modes keep the same app layout. Animate their surface and chrome
+            // together on the existing frame path instead of hiding chrome for a Shell resize.
+            final boolean animateDecor = !firstEntry && !info.isDockedToEdge()
+                    && !root.mTransitionController.isCollecting()
+                    && !root.mTransitionController.inPlayingTransition(root);
+            final Rect startBounds = info.getHyperOsDecorBounds();
+            final float startScale = (float) startBounds.width()
+                    / Math.max(1, root.getBounds().width());
+            final float startExpansion = info.getHyperOsDecorExpansion();
             if (info.isDockedToEdge()) info.restoreFromDocked();
             info.cancelPopUpViewAnimation();
             final Rect bounds = new Rect(root.getBounds());
             WindowResizingAlgorithm.getPopUpViewDefalutBounds(bounds);
             mAtmService.deferWindowLayout();
             try {
-                root.mWindowContainerExt.prepareTransition();
+                if (!animateDecor) root.mWindowContainerExt.prepareTransition();
                 // A fullscreen root discards override bounds. Enter popup mode first so
                 // the app is laid out at the popup aspect ratio, including direct previews.
                 root.setWindowingMode(windowingMode);
@@ -1302,7 +1311,11 @@ public class PopUpWindowController {
                     }
                     updateFocusedApp();
                 }
-                root.mWindowContainerExt.scheduleTransition();
+                if (animateDecor) {
+                    info.playHyperOsModeAnimation(startBounds, startScale, startExpansion);
+                } else {
+                    root.mWindowContainerExt.scheduleTransition();
+                }
             } finally {
                 mAtmService.continueWindowLayout();
             }
@@ -1549,34 +1562,28 @@ public class PopUpWindowController {
             return;
         }
 
-        final String currentTopFullscreenPackage = TopActivityRecorder.getInstance().getTopFullscreenPackage();
-        final String currentTopMiniPackage = TopActivityRecorder.getInstance().getTopMiniWindowPackage();
-        final String currentTopPinnedPackage = TopActivityRecorder.getInstance().getTopPinnedWindowPackage();
+        final TopActivityRecorder recorder = TopActivityRecorder.getInstance();
+        final int targetUser = request.activityInfo != null
+                ? UserHandle.getUserId(request.activityInfo.applicationInfo.uid) : request.userId;
+        final boolean fullscreenTarget = isTaskApplication(
+                recorder.getTopFullscreenTask(), targetPackage, targetUser);
+        final boolean miniTarget = isTaskApplication(
+                recorder.getTopMiniWindowTask(), targetPackage, targetUser);
+        final boolean pinnedTarget = isTaskApplication(
+                recorder.getTopPinnedWindowTask(), targetPackage, targetUser);
 
-        if (!TextUtils.isEmpty(targetPackage)
-                && request.activityOptions != null
-                && request.activityOptions.isPopUpWindowMode()
-                && !request.activityOptions.isFromNotification()
-                && (targetPackage.equals(currentTopFullscreenPackage)
-                        || targetPackage.equals(currentTopMiniPackage)
-                        || targetPackage.equals(currentTopPinnedPackage))) {
-            if (DEBUG_POP_UP) {
-                Slog.d(TAG, "computeBeforeExecuteRequest, skip: " + targetPackage
-                        + " already visible, refusing to open itself in pop-up");
-            }
-            request.activityOptions.setLaunchWindowingMode(WINDOWING_MODE_UNDEFINED);
-            return;
-        }
+        // Keep explicit sidebar/recents requests even when this instance is visible:
+        // selecting its icon can restore a preview or convert fullscreen to a popup.
+        // SafeActivityOptions still enforces the trusted caller and package policy.
 
         if (request.activityOptions != null && request.activityOptions.isFromNotification()
                 && request.activityOptions.isMiniWindowingMode()) {
-            if (currentTopMiniPackage.equals(targetPackage)) {
+            if (miniTarget) {
                 return;
             }
 
             if (!request.activityOptions.isSmallWindowGesture()
-                    && (currentTopFullscreenPackage.equals(targetPackage)
-                            || currentTopPinnedPackage.equals(targetPackage))) {
+                    && (fullscreenTarget || pinnedTarget)) {
                 request.activityOptions.setLaunchWindowingMode(WINDOWING_MODE_UNDEFINED);
                 return;
             }
@@ -1594,7 +1601,8 @@ public class PopUpWindowController {
             return;
         }
 
-        if (currentTopMiniPackage.equals(callerPackage)) {
+        if (isTaskApplication(recorder.getTopMiniWindowTask(), callerPackage,
+                UserHandle.getUserId(request.callingUid))) {
             if (!TextUtils.isEmpty(targetPackage) && targetPackage.equals(callerPackage)) {
                 if (DEBUG_POP_UP) {
                     Slog.d(TAG, "computeBeforeExecuteRequest, skip: in-mini caller "
@@ -1608,6 +1616,15 @@ public class PopUpWindowController {
             }
             // Let normal task/intent rules handle launches into other applications.
             // Only privileged system entry points may request the custom window modes.
+        }
+    }
+
+    private boolean isTaskApplication(Task task, String packageName, int userId) {
+        synchronized (mService.mGlobalLock) {
+            final ActivityRecord activity = task != null && task.isAttached()
+                    ? task.getTopNonFinishingActivity() : null;
+            return activity != null && activity.mUserId == userId
+                    && activity.packageName.equals(packageName);
         }
     }
 

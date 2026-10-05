@@ -75,12 +75,18 @@ class PopUpAnimationController {
         final int x;
         final int y;
         final float scale;
+        final float decorExpansion;
         final Rect bounds;
 
         AnimationPosition(float x, float y, float scale, Rect taskBounds) {
+            this(x, y, scale, taskBounds, Float.NaN);
+        }
+
+        AnimationPosition(float x, float y, float scale, Rect taskBounds, float decorExpansion) {
             this.x = Math.round(x);
             this.y = Math.round(y);
             this.scale = scale;
+            this.decorExpansion = decorExpansion;
             bounds = new Rect(this.x, this.y,
                     this.x + Math.round(taskBounds.width() * scale),
                     this.y + Math.round(taskBounds.height() * scale));
@@ -101,6 +107,8 @@ class PopUpAnimationController {
     private float mStartScale;
     private Point mEndPos;
     private float mEndScale;
+    private float mStartDecorExpansion = Float.NaN;
+    private float mEndDecorExpansion = Float.NaN;
     private float mWindowScale;
     private float mVelX;
     private float mVelY;
@@ -189,8 +197,13 @@ class PopUpAnimationController {
     }
 
     private void updateHyperOsPosition(float x, float y, float scale) {
+        updateHyperOsPosition(x, y, scale, Float.NaN);
+    }
+
+    private void updateHyperOsPosition(float x, float y, float scale, float decorExpansion) {
         if (!PopUpSettingsConfig.getInstance().isHyperOsMode()) return;
-        mHyperOsAnimationPosition = new AnimationPosition(x, y, scale, mTask.getBounds());
+        mHyperOsAnimationPosition = new AnimationPosition(
+                x, y, scale, mTask.getBounds(), decorExpansion);
         HyperOsWindowDecor.getInstance().update(mTask);
     }
 
@@ -259,7 +272,7 @@ class PopUpAnimationController {
                 return;
             }
             HyperOsWindowDecor.getInstance().applyTransaction(
-                    mTask, frame, position.bounds, position.scale);
+                    mTask, frame, position.bounds, position.scale, position.decorExpansion);
         } else {
             mFrameTransaction.apply();
         }
@@ -445,6 +458,13 @@ class PopUpAnimationController {
 
     void playToggleResizeWindowAnimation(Point startPos, Point endPos,
             float startWinScale, float endWinScale, OnAnimationEndCallback callback) {
+        playToggleResizeWindowAnimation(startPos, endPos, startWinScale, endWinScale,
+                Float.NaN, Float.NaN, callback);
+    }
+
+    void playToggleResizeWindowAnimation(Point startPos, Point endPos,
+            float startWinScale, float endWinScale, float startExpansion, float endExpansion,
+            OnAnimationEndCallback callback) {
         cancelAnimation();
         if (DEBUG_POP_UP) {
             Slog.d(TAG, "playToggleResizeWindowAnimation");
@@ -456,8 +476,11 @@ class PopUpAnimationController {
         mEndPos = endPos;
         mStartScale = startWinScale;
         mEndScale = endWinScale;
+        mStartDecorExpansion = startExpansion;
+        mEndDecorExpansion = endExpansion;
         mCallback = callback;
         mIsAnimating = true;
+        updateHyperOsPosition(startPos.x, startPos.y, startWinScale, startExpansion);
         mChoreographer.postFrameCallback(mFrameToggleResizeCallback);
     }
 
@@ -467,6 +490,9 @@ class PopUpAnimationController {
         final Point endPos = mEndPos;
         final float startScale = mStartScale;
         final float endScale = mEndScale;
+        final float startExpansion = mStartDecorExpansion;
+        final float endExpansion = mEndDecorExpansion;
+        final OnAnimationEndCallback callback = mCallback;
         mToggleResizeAnimator = ValueAnimator.ofFloat(0.0f, 1.0f);
         mToggleResizeAnimator.addUpdateListener(animation -> {
             synchronized (mLock) {
@@ -490,7 +516,8 @@ class PopUpAnimationController {
                             mFrameTransaction.setPosition(leash, currentPosX, currentPosY);
                             mFrameTransaction.setScale(leash, currentScale, currentScale);
                             mFrameTransaction.setCornerRadius(leash, cornerRadius);
-                            updateHyperOsPosition(currentPosX, currentPosY, currentScale);
+                            updateHyperOsPosition(currentPosX, currentPosY, currentScale,
+                                    startExpansion + (endExpansion - startExpansion) * progress);
                         }
                     }
                 }
@@ -520,12 +547,12 @@ class PopUpAnimationController {
                                 mFrameTransaction.setPosition(leash, endPos.x, endPos.y);
                                 mFrameTransaction.setScale(leash, endScale, endScale);
                                 mFrameTransaction.setCornerRadius(leash, cornerRadius);
-                                updateHyperOsPosition(endPos.x, endPos.y, endScale);
+                                updateHyperOsPosition(endPos.x, endPos.y, endScale, endExpansion);
                             }
                         }
                         mService.mAnimationHandler.post(() -> {
-                            if (mCallback != null) {
-                                mCallback.onAnimationEnded();
+                            if (callback != null) {
+                                callback.onAnimationEnded();
                             }
                         });
                     }
@@ -537,7 +564,9 @@ class PopUpAnimationController {
                 notifyHyperOsAnimationFinished();
             }
         });
-        mToggleResizeAnimator.setDuration(hyperOs ? 320L : ANIMATION_RESIZE);
+        mToggleResizeAnimator.setDuration(hyperOs
+                ? (Float.isNaN(endExpansion) ? 320L : endExpansion == 1f ? 420L : 360L)
+                : ANIMATION_RESIZE);
         mToggleResizeAnimator.setInterpolator(hyperOs ? HYPER_OS_INTERPOLATOR
                 : new PathInterpolator(0.2f, 0f, 0f, 1f));
         mToggleResizeAnimator.start();
@@ -731,6 +760,11 @@ class PopUpAnimationController {
     void clearAnimPosition() {
         mHyperOsAnimationPosition = null;
         mHasAnimPosition = false;
+    }
+
+    float getDecorExpansion() {
+        final AnimationPosition position = mHyperOsAnimationPosition;
+        return position != null ? position.decorExpansion : Float.NaN;
     }
 
     boolean isAnimating() {

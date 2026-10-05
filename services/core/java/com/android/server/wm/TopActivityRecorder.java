@@ -77,7 +77,8 @@ public class TopActivityRecorder {
                     || windowingMode == WindowConfiguration.WINDOWING_MODE_FULLSCREEN) {
                 final ComponentName oldComponent = getTopFullscreenComponentLocked();
                 final ComponentName newComponent = newFocus.mActivityComponent;
-                if (!newComponent.equals(oldComponent)) {
+                if (!newComponent.equals(oldComponent)
+                        || mTopFullscreenActivity.task != newTask) {
                     if (mTopFullscreenActivity != null &&
                             mTopFullscreenActivity.task == newTask) {
                         mTopFullscreenActivity.componentName = newFocus.mActivityComponent;
