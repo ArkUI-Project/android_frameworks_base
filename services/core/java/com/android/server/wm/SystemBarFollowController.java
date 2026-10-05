@@ -32,7 +32,6 @@ import java.util.ArrayList;
 
 /** Bar visuals inherit the app leash transform; input windows always stay on the display. */
 final class SystemBarFollowController {
-    private static final long STATUS_FADE_DURATION_MS = 360;
     private final WindowManagerService mService;
     private int mGeneration;
     private SurfaceControl mFadingHandle;
@@ -160,7 +159,7 @@ final class SystemBarFollowController {
     private void restoreStatusBar() {
         if (mStatusSession == null) return;
         try (var transaction = new SurfaceControl.Transaction()) {
-            mStatusSession.restoreStatusBar(transaction);
+            mStatusSession.revokeStatusBar(transaction);
             transaction.apply();
         }
     }
@@ -220,9 +219,13 @@ final class SystemBarFollowController {
         boolean followingHandleFading;
         WindowToken statusToken;
         SurfaceControl statusSurface;
+        SurfaceControl statusAppLeash;
         SurfaceControl followingStatus;
+        int statusRotation;
         boolean statusStarted;
         boolean statusRestored;
+        boolean statusMotionRunning = true;
+        boolean statusRevoked;
 
         Session(int generation, int user, DisplayContent display, boolean navigation, boolean dark) {
             this.generation = generation; this.user = user; this.display = display;
@@ -234,6 +237,8 @@ final class SystemBarFollowController {
                 SurfaceControl.Transaction cleanup) {
             statusToken = token;
             statusSurface = token.getSurfaceControl();
+            statusAppLeash = appLeash;
+            statusRotation = display.getRotation();
             followingStatus = mService.makeSurfaceBuilder()
                     .setName("ArkUI following original status bar").setParent(appLeash)
                     .setContainerLayer().setCallsite("SystemBarFollowController.attachStatusBar")
@@ -250,23 +255,15 @@ final class SystemBarFollowController {
             writeStatusBarRestore(cleanup);
             finish.reparent(followingStatus, null);
             cleanup.reparent(followingStatus, null);
-            // A transition may wait behind another animation. Fade only once its start transaction
-            // actually appears, rather than spending its fade time in Shell's pending queue.
+            // Motion can settle while this start waits in Shell's queue. Replay its latest intent
+            // after presentation, rather than starting an independent, timed status-bar fade.
             start.addTransactionCommittedListener(new HandlerExecutor(mService.mH), () -> {
                 synchronized (mService.mGlobalLock) {
                     if (mStatusSession != this || followingStatus == null
                             || !followingStatus.isValid()) return;
+                    statusStarted = true;
                     try (var transaction = new SurfaceControl.Transaction()) {
-                        if (statusRestored || display.isKeyguardLocked() || display.isRemoved()
-                                || user != mService.mCurrentUserId
-                                || mService.getAnimationScale(1) == 0
-                                || !SystemBarFollowSettings.statusEnabled(
-                                        display.getDisplayUiContext(), user)) {
-                            restoreStatusBar(transaction);
-                        } else {
-                            statusStarted = true;
-                            fadeStatusBar(transaction);
-                        }
+                        updateStatusBarMotion(transaction);
                         transaction.apply();
                     }
                 }
@@ -322,23 +319,43 @@ final class SystemBarFollowController {
             // transaction still restores the original token and must never steal a newer owner.
         }
 
-        private void fadeStatusBar(SurfaceControl.Transaction transaction) {
-            if (followingStatus == null || statusRestored || mStatusSession != this) return;
-            mService.mSurfaceAnimationRunner.onAnimationCancelled(followingStatus);
-            long duration = Math.max(1, Math.round(
-                    STATUS_FADE_DURATION_MS * mService.getAnimationScale(1)));
-            mService.mSurfaceAnimationRunner.startAnimation(new LocalAnimationAdapter.AnimationSpec() {
-                @Override public long getDuration() { return duration; }
-                @Override public void apply(SurfaceControl.Transaction t, SurfaceControl leash,
-                        long time) {
-                    float progress = Math.min(1f, time / (float) duration);
-                    t.setAlpha(leash, (1 - progress) * (1 - progress));
-                }
-                @Override public void dump(PrintWriter pw, String prefix) {
-                    pw.println(prefix + "ArkUI original status bar fade");
-                }
-                @Override public void dumpDebugInner(ProtoOutputStream proto) { }
-            }, followingStatus, transaction, () -> { });
+        void revokeStatusBar(SurfaceControl.Transaction transaction) {
+            statusRevoked = true;
+            statusMotionRunning = false;
+            restoreStatusBar(transaction);
+        }
+
+        private boolean canFollowStatusBar() {
+            return mStatusSession == this && !statusRevoked
+                    && followingStatus != null && followingStatus.isValid()
+                    && statusSurface != null && statusSurface.isValid()
+                    && statusAppLeash != null && statusAppLeash.isValid()
+                    && statusToken != null && statusToken.getSurfaceControl() == statusSurface
+                    && statusToken.getParent() != null && statusToken.getDisplayContent() == display
+                    && statusToken.getAnimationLeash() == null
+                    && !display.isKeyguardLocked() && !display.isRemoved()
+                    && display.getAsyncRotationController() == null
+                    && display.getRotation() == statusRotation
+                    && user == mService.mCurrentUserId && mService.getAnimationScale(1) != 0
+                    && SystemBarFollowSettings.statusEnabled(display.getDisplayUiContext(), user);
+        }
+
+        private void updateStatusBarMotion(SurfaceControl.Transaction transaction) {
+            if (!canFollowStatusBar()) {
+                revokeStatusBar(transaction);
+                return;
+            }
+            if (!statusMotionRunning) {
+                restoreStatusBar(transaction);
+                return;
+            }
+            // The same recents session can resume after an idle card. Reattach the real bar to
+            // the existing fitted container; Launcher continues to own its matrix and position.
+            if (statusRestored) {
+                transaction.reparent(statusSurface, followingStatus).setLayer(statusSurface, 0);
+            }
+            transaction.setAlpha(followingStatus, 1).show(followingStatus);
+            statusRestored = false;
         }
 
         void remove() {
@@ -348,24 +365,25 @@ final class SystemBarFollowController {
                 followingHandle = null;
             }
             try (var transaction = new SurfaceControl.Transaction()) {
-                restoreStatusBar(transaction);
+                revokeStatusBar(transaction);
                 for (SurfaceControl surface : surfaces) if (surface.isValid()) transaction.remove(surface);
                 transaction.apply();
             }
             if (mStatusSession == this) mStatusSession = null;
             followingStatus = null;
             statusSurface = null;
+            statusAppLeash = null;
             statusToken = null;
             for (SurfaceControl surface : surfaces) surface.release();
             surfaces.clear();
         }
 
         void setStatusAnimating(boolean running) {
-            if (running && statusStarted && followingStatus != null && !statusRestored) {
-                try (var transaction = new SurfaceControl.Transaction()) {
-                    fadeStatusBar(transaction);
-                    transaction.apply();
-                }
+            statusMotionRunning = running;
+            if (!statusStarted || mStatusSession != this) return;
+            try (var transaction = new SurfaceControl.Transaction()) {
+                updateStatusBarMotion(transaction);
+                transaction.apply();
             }
         }
 
