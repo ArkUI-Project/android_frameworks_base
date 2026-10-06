@@ -414,6 +414,7 @@ private fun addStartSideComposable(
 
     val composeView =
         ComposeView(context).apply {
+            id = R.id.arkui_compose_activity_chips
             val showDate = Flags.statusBarDate() && statusBarViewModel.useDesktopStatusBar
 
             layoutParams =

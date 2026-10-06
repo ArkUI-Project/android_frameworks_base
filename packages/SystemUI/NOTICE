@@ -1,4 +1,19 @@
 
+ArkUI native proactive intelligence, SMS code suggestions and status bar lyrics
+Matching rules and feature behavior adapted from AviumUseful (revision
+d023567cb06318a231b28f46ac22f5495167657b) and AviumLyricBarCore (revision
+57bb8a51de9243085afd257dc386ffcedcc5a44d), branches avium-16.2.
+https://github.com/AviumUI/android_packages_apps_AviumUseful
+https://github.com/AviumUI/android_packages_apps_AviumLyricBarCore
+Copyright (C) 2025-2026 The AviumUI Project
+Copyright (C) 2026 The ArkUI Project (native integration and modifications)
+Licensed under the Apache License, Version 2.0, reproduced below.
+ArkUI replaces the helper services with native event-driven SystemUI components,
+adds per-user controls, sensitive clipboard handling, guarded SMS/power events,
+local LRC synchronization and lifecycle-aware status bar rendering.
+No lyrics database or third-party lyric text is bundled. Lyrics remain subject to
+their authors' and providers' rights.
+
 ArkUI keyguard depth wallpaper
 DepthWallpaperRenderer derives its screen-aligned masking from OccludingMaskLayout in
 https://github.com/AviumUI/android_frameworks_base

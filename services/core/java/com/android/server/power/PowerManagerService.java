@@ -2390,6 +2390,19 @@ public final class PowerManagerService extends SystemService
                 }
             } else {
                 if (eventTime > powerGroup.getLastUserActivityTimeLocked()) {
+                    // ArkUI: offer temporary keep-awake after a real touch relights a dim screen.
+                    // Dispatch outside the power lock; SystemUI owns user settings and consent.
+                    if (groupId == Display.DEFAULT_DISPLAY_GROUP
+                            && event == PowerManager.USER_ACTIVITY_EVENT_TOUCH
+                            && (powerGroup.getUserActivitySummaryLocked()
+                                    & USER_ACTIVITY_SCREEN_DIM) != 0) {
+                        final int userId = mUserId;
+                        mHandler.post(() -> mContext.sendBroadcastAsUser(
+                                new Intent("org.arkui.action.SCREEN_DIM_REENGAGED")
+                                        .setPackage("com.android.systemui")
+                                        .putExtra(Intent.EXTRA_USER_HANDLE, userId),
+                                UserHandle.of(userId), "com.android.systemui.permission.SELF"));
+                    }
                     powerGroup.setButtonPressedLocked(
                             event == PowerManager.USER_ACTIVITY_EVENT_BUTTON);
                     if (eventTime == powerGroup.getLastWakeTimeLocked() ||

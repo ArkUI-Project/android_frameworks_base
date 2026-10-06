@@ -344,6 +344,12 @@ public abstract class SystemUIModule {
     @ClassKey(com.android.systemui.arkui.WheelManager.class)
     abstract CoreStartable bindArkWheel(com.android.systemui.arkui.WheelManager manager);
 
+    @Binds
+    @IntoMap
+    @ClassKey(com.android.systemui.arkui.intelligence.ProactiveSuggestionController.class)
+    abstract CoreStartable bindArkIntelligence(
+            com.android.systemui.arkui.intelligence.ProactiveSuggestionController controller);
+
     @Multibinds
     @Dependencies
     abstract Map<Class<?>, Set<Class<? extends CoreStartable>>> startableDependencyMap();

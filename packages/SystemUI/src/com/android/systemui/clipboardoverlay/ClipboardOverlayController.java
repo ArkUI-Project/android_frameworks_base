@@ -260,8 +260,10 @@ public class ClipboardOverlayController implements ClipboardListener.ClipboardOv
         mView.setMinimized(false);
         switch (model.getType()) {
             case TEXT:
-                if (model.isRemote() || DeviceConfig.getBoolean(
-                        DeviceConfig.NAMESPACE_SYSTEMUI, CLIPBOARD_OVERLAY_SHOW_ACTIONS, false)) {
+                if (!model.isSensitive() && !model.isRemote()) {
+                    showProactiveAction(model);
+                } else if (!model.isSensitive() && (model.isRemote() || DeviceConfig.getBoolean(
+                        DeviceConfig.NAMESPACE_SYSTEMUI, CLIPBOARD_OVERLAY_SHOW_ACTIONS, false))) {
                     if (model.getTextLinks() != null) {
                         classifyText(model);
                     }
@@ -349,6 +351,25 @@ public class ClipboardOverlayController implements ClipboardListener.ClipboardOv
                                     () -> finish(CLIPBOARD_OVERLAY_ACTION_TAPPED)));
                 });
             }
+        });
+    }
+
+    private void showProactiveAction(ClipboardModel model) {
+        final int user = mUserTracker.getUserId();
+        mBgExecutor.execute(() -> {
+            final RemoteAction action = com.android.systemui.arkui.intelligence.ProactiveClipboardActions
+                    .resolve(mContext, user, model.getText().toString(), model.getSource());
+            mView.post(() -> {
+                if (model != mClipboardModel || mUserTracker.getUserId() != user) return;
+                if (action != null) {
+                    mClipboardLogger.logUnguarded(CLIPBOARD_OVERLAY_ACTION_SHOWN);
+                    mView.resetActionChips();
+                    mView.setActionChip(action, () -> finish(CLIPBOARD_OVERLAY_ACTION_TAPPED));
+                } else if (model.getTextLinks() != null && DeviceConfig.getBoolean(
+                        DeviceConfig.NAMESPACE_SYSTEMUI, CLIPBOARD_OVERLAY_SHOW_ACTIONS, false)) {
+                    classifyText(model);
+                }
+            });
         });
     }
 

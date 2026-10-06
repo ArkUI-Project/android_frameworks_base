@@ -1,0 +1,22 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Copyright (C) 2026 The ArkUI Project; SPDX-License-Identifier: Apache-2.0 -->
+<resources>
+    <string name="arkui_suggest_open_app">打开%1$s</string>
+    <string name="arkui_suggest_open_link">打开链接</string>
+    <string name="arkui_suggest_delivery">查询快递</string>
+    <string name="arkui_suggest_sms">短信验证码</string>
+    <string name="arkui_suggest_sms_detail">点击复制验证码</string>
+    <string name="arkui_suggest_copy">复制</string>
+    <string name="arkui_suggest_dismiss">忽略建议</string>
+    <string name="arkui_suggest_headphones">耳机已连接</string>
+    <string name="arkui_suggest_headphones_detail">打开音乐，开始聆听</string>
+    <string name="arkui_suggest_open">打开</string>
+    <string name="arkui_suggest_torch">手电筒仍在开启</string>
+    <string name="arkui_suggest_torch_detail">使用完毕后可直接关闭</string>
+    <string name="arkui_suggest_turn_off">关闭</string>
+    <string name="arkui_suggest_awake">临时保持屏幕常亮</string>
+    <string name="arkui_suggest_awake_detail">保持亮屏，直到手动按电源键熄屏</string>
+    <string name="arkui_suggest_enable">开启</string>
+    <string name="arkui_suggest_awake_active">临时屏幕常亮已开启</string>
+    <string name="arkui_suggest_awake_stop">点击结束常亮，也可按电源键熄屏</string>
+</resources>

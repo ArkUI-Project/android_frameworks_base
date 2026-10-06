@@ -1,0 +1,24 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Copyright (C) 2026 The ArkUI Project; SPDX-License-Identifier: Apache-2.0 -->
+<resources>
+    <item type="id" name="arkui_compose_activity_chips" />
+    <style name="Theme.Arkui.Suggestion" parent="Theme.Material3Expressive.DynamicColors.DayNight.NoActionBar" />
+    <string name="arkui_suggest_open_app">Open %1$s</string>
+    <string name="arkui_suggest_open_link">Open link</string>
+    <string name="arkui_suggest_delivery">Track parcel</string>
+    <string name="arkui_suggest_sms">SMS verification code</string>
+    <string name="arkui_suggest_sms_detail">Tap to copy the code</string>
+    <string name="arkui_suggest_copy">Copy</string>
+    <string name="arkui_suggest_dismiss">Dismiss suggestion</string>
+    <string name="arkui_suggest_headphones">Headphones connected</string>
+    <string name="arkui_suggest_headphones_detail">Ready for some music?</string>
+    <string name="arkui_suggest_open">Open</string>
+    <string name="arkui_suggest_torch">Flashlight is still on</string>
+    <string name="arkui_suggest_torch_detail">Turn it off when you are done</string>
+    <string name="arkui_suggest_turn_off">Turn off</string>
+    <string name="arkui_suggest_awake">Keep screen on</string>
+    <string name="arkui_suggest_awake_detail">Stay on until you press the power button</string>
+    <string name="arkui_suggest_enable">Enable</string>
+    <string name="arkui_suggest_awake_active">Temporary screen-on is active</string>
+    <string name="arkui_suggest_awake_stop">Tap to stop keeping the screen on</string>
+</resources>

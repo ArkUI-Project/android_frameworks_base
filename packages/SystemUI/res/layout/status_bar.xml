@@ -111,6 +111,15 @@
                         android:id="@+id/ongoing_activity_chip_secondary"
                         android:visibility="gone"/>
 
+                    <com.android.systemui.arkui.intelligence.StatusBarLyricView
+                        android:id="@+id/arkui_status_bar_lyrics"
+                        android:layout_width="wrap_content"
+                        android:layout_height="wrap_content"
+                        android:layout_gravity="center_vertical"
+                        android:layout_marginEnd="4dp"
+                        android:singleLine="true"
+                        android:visibility="gone" />
+
                     <com.android.systemui.statusbar.AlphaOptimizedFrameLayout
                         android:id="@+id/notification_icon_area"
                         android:layout_width="wrap_content"

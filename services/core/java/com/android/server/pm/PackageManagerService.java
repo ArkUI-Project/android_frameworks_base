@@ -340,6 +340,12 @@ import java.util.function.Predicate;
 public class PackageManagerService implements PackageSender, TestUtilityService {
 
     static final String TAG = "PackageManager";
+
+    // ArkUI adds SystemUI's RECEIVE_SMS permission without changing the platform SDK.
+    // Version the default-grant migration so existing users (including incremental builds)
+    // receive the normal platform-component grants, while preserving user/policy decisions.
+    private static final String DEFAULT_PERMISSION_GRANT_VERSION =
+            Build.VERSION.INCREMENTAL + ":arkui-intelligence-1";
     public static final boolean DEBUG_SETTINGS = false;
     static final boolean DEBUG_PREFERRED = false;
     static final boolean DEBUG_UPGRADE = false;
@@ -4379,7 +4385,7 @@ public class PackageManagerService implements PackageSender, TestUtilityService 
             final int userId = livingUsers.get(i).id;
             final boolean isPermissionUpgradeNeeded = !Objects.equals(
                     mPermissionManager.getDefaultPermissionGrantFingerprint(userId),
-                    Build.VERSION.INCREMENTAL);
+                    DEFAULT_PERMISSION_GRANT_VERSION);
             if (isPermissionUpgradeNeeded) {
                 grantPermissionsUserIds = ArrayUtils.appendInt(
                         grantPermissionsUserIds, userId);
@@ -4389,7 +4395,7 @@ public class PackageManagerService implements PackageSender, TestUtilityService 
         for (int userId : grantPermissionsUserIds) {
             mLegacyPermissionManager.grantDefaultPermissions(userId);
             mPermissionManager.setDefaultPermissionGrantFingerprint(
-                    Build.VERSION.INCREMENTAL, userId);
+                    DEFAULT_PERMISSION_GRANT_VERSION, userId);
         }
         if (grantPermissionsUserIds == EMPTY_INT_ARRAY) {
             // If we did not grant default permissions, we preload from this the
@@ -4558,7 +4564,7 @@ public class PackageManagerService implements PackageSender, TestUtilityService 
             mPermissionManager.onUserCreated(userId);
             mLegacyPermissionManager.grantDefaultPermissions(userId);
             mPermissionManager.setDefaultPermissionGrantFingerprint(
-                    Build.VERSION.INCREMENTAL, userId);
+                    DEFAULT_PERMISSION_GRANT_VERSION, userId);
             mDomainVerificationManager.clearUser(userId);
             mInstallerService.onUserAdded(userId);
         }
@@ -4571,7 +4577,7 @@ public class PackageManagerService implements PackageSender, TestUtilityService 
             mPermissionManager.readLegacyPermissionStateTEMP();
             final boolean isPermissionUpgradeNeeded = !Objects.equals(
                     mPermissionManager.getDefaultPermissionGrantFingerprint(userId),
-                    Build.VERSION.INCREMENTAL);
+                    DEFAULT_PERMISSION_GRANT_VERSION);
             return isPermissionUpgradeNeeded;
         }
     }

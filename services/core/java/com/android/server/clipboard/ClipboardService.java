@@ -225,8 +225,17 @@ public class ClipboardService extends SystemService {
                 synchronized (mLock) {
                     Clipboard clipboard = getClipboardLocked(0, DEVICE_ID_DEFAULT);
                     if (clipboard != null) {
-                        setPrimaryClipInternalLocked(clipboard, clip, android.os.Process.SYSTEM_UID,
-                                null);
+                        // Preserve the guest's source, sensitivity and expiry metadata when
+                        // the text-only host protocol echoes the same clipboard content.
+                        final CharSequence incoming = clip.getItemAt(0).getText();
+                        final ClipData current = clipboard.primaryClip;
+                        if (current == null && TextUtils.isEmpty(incoming)) return;
+                        if (current != null && current.getItemCount() == 1
+                                && current.getItemAt(0).getText() != null
+                                && TextUtils.equals(current.getItemAt(0).getText(), incoming)) return;
+                        setPrimaryClipInternalLocked(clipboard,
+                                TextUtils.isEmpty(incoming) ? null : clip,
+                                android.os.Process.SYSTEM_UID, null);
                     }
                 }
             });
@@ -608,8 +617,8 @@ public class ClipboardService extends SystemService {
             }
             checkDataOwner(clip, intendingUid);
             synchronized (mLock) {
-                scheduleAutoClear(userId, intendingUid, intendingDeviceId);
                 setPrimaryClipInternalLocked(clip, intendingUid, intendingDeviceId, sourcePackage);
+                scheduleAutoClear(userId, intendingUid, intendingDeviceId);
             }
         }
 
@@ -617,11 +626,18 @@ public class ClipboardService extends SystemService {
                 @UserIdInt int userId, int intendingUid, int intendingDeviceId) {
             final long oldIdentity = Binder.clearCallingIdentity();
             try {
-                if (DeviceConfig.getBoolean(DeviceConfig.NAMESPACE_CLIPBOARD,
-                        PROPERTY_AUTO_CLEAR_ENABLED, true)) {
-                    Pair<Integer, Integer> userIdDeviceId = new Pair<>(userId, intendingDeviceId);
-                    mClipboardClearHandler.removeEqualMessages(ClipboardClearHandler.MSG_CLEAR,
-                            userIdDeviceId);
+                final Pair<Integer, Integer> userIdDeviceId = new Pair<>(userId, intendingDeviceId);
+                mClipboardClearHandler.removeEqualMessages(ClipboardClearHandler.MSG_CLEAR,
+                        userIdDeviceId);
+                final Clipboard clipboard = getClipboardLocked(
+                        UserHandle.getUserId(intendingUid), intendingDeviceId);
+                final long expiry = getCodeExpiryLocked(clipboard);
+                final boolean autoClear = DeviceConfig.getBoolean(DeviceConfig.NAMESPACE_CLIPBOARD,
+                        PROPERTY_AUTO_CLEAR_ENABLED, true);
+                if (autoClear || expiry > 0) {
+                    long delay = autoClear ? getTimeoutForAutoClear() : Long.MAX_VALUE;
+                    if (expiry > 0) delay = Math.min(delay,
+                            Math.max(0, expiry - SystemClock.elapsedRealtime()));
                     Message clearMessage =
                             Message.obtain(
                                     mClipboardClearHandler,
@@ -629,8 +645,9 @@ public class ClipboardService extends SystemService {
                                     userId,
                                     intendingUid,
                                     userIdDeviceId);
-                    mClipboardClearHandler.sendMessageDelayed(clearMessage,
-                            getTimeoutForAutoClear());
+                    if (expiry > 0) clearMessage.getData().putString("arkui_otp_lease",
+                            clipboard.primaryClip.getDescription().getExtras().getString("arkui_otp_lease"));
+                    mClipboardClearHandler.sendMessageDelayed(clearMessage, delay);
                 }
             } finally {
                 Binder.restoreCallingIdentity(oldIdentity);
@@ -693,6 +710,13 @@ public class ClipboardService extends SystemService {
 
                 Clipboard clipboard = getClipboardLocked(intendingUserId, intendingDeviceId);
                 if (clipboard == null) {
+                    return null;
+                }
+                // Device sleep must not extend an OTP lease or expose it on the first read
+                // after unlocking, even if the handler's uptime-based timer was suspended.
+                final long expiry = getCodeExpiryLocked(clipboard);
+                if (expiry > 0 && expiry <= SystemClock.elapsedRealtime()) {
+                    setPrimaryClipInternalLocked(null, intendingUid, intendingDeviceId, null);
                     return null;
                 }
                 showAccessNotificationLocked(
@@ -878,6 +902,10 @@ public class ClipboardService extends SystemService {
                         synchronized (mLock) {
                             Clipboard clipboard = getClipboardLocked(userId, intendingDeviceId);
                             if (clipboard != null && clipboard.primaryClip != null) {
+                                final String lease = msg.getData().getString("arkui_otp_lease");
+                                if (lease != null && (clipboard.primaryClip.getDescription().getExtras() == null
+                                        || !lease.equals(clipboard.primaryClip.getDescription().getExtras()
+                                                .getString("arkui_otp_lease")))) break;
                                 FrameworkStatsLog.write(FrameworkStatsLog.CLIPBOARD_CLEARED,
                                         FrameworkStatsLog.CLIPBOARD_CLEARED__SOURCE__AUTO_CLEAR);
                                 setPrimaryClipInternalLocked(
@@ -980,16 +1008,22 @@ public class ClipboardService extends SystemService {
     @GuardedBy("mLock")
     private void setPrimaryClipInternalLocked(
             @Nullable ClipData clip, int uid, int deviceId, @Nullable String sourcePackage) {
-        if (deviceId == DEVICE_ID_DEFAULT) {
-            mClipboardMonitor.accept(clip);
-        }
-
         final int userId = UserHandle.getUserId(uid);
 
         // Update this user
         Clipboard clipboard = getClipboardLocked(userId, deviceId);
         if (clipboard == null) {
             return;
+        }
+        // A sensitive guest clip was never exported. Clearing it must leave the
+        // host's independent clipboard alone (including on OTP auto-expiry).
+        final boolean clearingPrivateClip = Build.IS_EMULATOR && clip == null
+                && clipboard.primaryClip != null
+                && clipboard.primaryClip.getDescription().getExtras() != null
+                && clipboard.primaryClip.getDescription().getExtras()
+                        .getBoolean(ClipDescription.EXTRA_IS_SENSITIVE);
+        if (deviceId == DEVICE_ID_DEFAULT && !clearingPrivateClip) {
+            mClipboardMonitor.accept(clip);
         }
         setPrimaryClipInternalLocked(clipboard, clip, uid, sourcePackage);
 
@@ -1211,6 +1245,17 @@ public class ClipboardService extends SystemService {
         return clipboard.primaryClip != null
                 && clipboard.primaryClip.getItemCount() > 0
                 && text.equals(clipboard.primaryClip.getItemAt(0).getText());
+    }
+
+    /** Only the authenticated native SystemUI source may request a short code lease. */
+    @GuardedBy("mLock")
+    private static long getCodeExpiryLocked(Clipboard clipboard) {
+        if (clipboard == null || clipboard.primaryClip == null
+                || !"com.android.systemui".equals(clipboard.mPrimaryClipPackage)) return -1;
+        final var extras = clipboard.primaryClip.getDescription().getExtras();
+        if (extras == null || !extras.getBoolean(ClipDescription.EXTRA_IS_SENSITIVE)
+                || extras.getString("arkui_otp_lease") == null) return -1;
+        return extras.getLong("arkui_otp_expiry_elapsed", -1);
     }
 
     private boolean isDeviceLocked(@UserIdInt int userId, int deviceId) {

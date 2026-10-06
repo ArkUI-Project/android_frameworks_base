@@ -18,6 +18,7 @@ package com.android.server.clipboard;
 
 import android.annotation.Nullable;
 import android.content.ClipData;
+import android.content.ClipDescription;
 import android.os.PersistableBundle;
 import android.os.SystemProperties;
 import android.system.ErrnoException;
@@ -179,6 +180,12 @@ class EmulatorClipboardMonitor implements Consumer<ClipData> {
 
     @Override
     public void accept(final @Nullable ClipData clip) {
+        // The host protocol carries only text: sending a sensitive clip would expose it
+        // outside Android and its echo would discard sensitive/expiry metadata.
+        if (clip != null && clip.getDescription().getExtras() != null
+                && clip.getDescription().getExtras().getBoolean(ClipDescription.EXTRA_IS_SENSITIVE)) {
+            return;
+        }
         final FileDescriptor fd = getPipeFD();
         if (fd != null) {
             setHostClipboard(fd, getClipString(clip));
