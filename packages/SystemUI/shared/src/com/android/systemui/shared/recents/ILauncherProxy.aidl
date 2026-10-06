@@ -23,7 +23,7 @@ import android.os.IRemoteCallback;
 import android.view.MotionEvent;
 import com.android.systemui.shared.recents.ISystemUiProxy;
 
-// Next ID: 40
+// Next ID: 41
 oneway interface ILauncherProxy {
 
     void onActiveNavBarRegionChanges(in Region activeRegion) = 11;
@@ -165,4 +165,7 @@ oneway interface ILauncherProxy {
      * {@link ActionCornerConstants.Action} for all possible actions.
      */
     void onActionCornerActivated(int action, int displayId) = 39;
+
+    /** Actual visible ArkWheel trigger windows, in current logical display coordinates. */
+    void onArkWheelCornerRegionChanged(int displayId, int rotation, in Region region) = 40;
 }

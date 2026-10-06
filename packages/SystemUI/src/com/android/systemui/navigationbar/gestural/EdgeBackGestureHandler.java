@@ -98,6 +98,7 @@ import com.android.systemui.plugins.NavigationEdgeBackPlugin;
 import com.android.systemui.res.R;
 import com.android.systemui.settings.UserTracker;
 import com.android.systemui.shared.system.ActivityManagerWrapper;
+import com.android.systemui.shared.system.ArkWheelGestureGate;
 import com.android.systemui.shared.system.InputChannelCompat;
 import com.android.systemui.shared.system.InputMonitorCompat;
 import com.android.systemui.shared.system.QuickStepContract;
@@ -275,6 +276,7 @@ public class EdgeBackGestureHandler {
 
     private boolean mThresholdCrossed = false;
     private boolean mAllowGesture = false;
+    private final ArkWheelGestureGate mArkWheelGestureGate = new ArkWheelGestureGate();
     private boolean mLogGesture = false;
     private boolean mInRejectedExclusion = false;
     private boolean mIsOnLeftEdge;
@@ -692,6 +694,7 @@ public class EdgeBackGestureHandler {
      */
     public void onNavBarDetached() {
         mIsAttached = false;
+        mArkWheelGestureGate.clear();
         mLauncherProxyService.removeCallback(mQuickSwitchListener);
         mSysUiState.removeCallback(mSysUiStateCallback);
         mInputManager.unregisterInputDeviceListener(mInputDeviceListener);
@@ -1242,6 +1245,17 @@ public class EdgeBackGestureHandler {
 
     private void onMotionEvent(MotionEvent ev) {
         int action = ev.getActionMasked();
+        int rotation = mContext.getDisplay().getRotation();
+        if (action == MotionEvent.ACTION_DOWN) {
+            mArkWheelGestureGate.setRegion(ev.getDisplayId(), rotation,
+                    mLauncherProxyService.getArkWheelCornerRegion(ev.getDisplayId(), rotation));
+        }
+        // A wheel window owns this stream even if its trigger is hidden during the gesture.
+        // Check before the sidebar and the transient-navbar exception to ordinary exclusions.
+        if (mArkWheelGestureGate.onMotionEvent(ev, rotation)) {
+            mAllowGesture = false; mLogGesture = false;
+            return;
+        }
         if (mSidebarGesture.onMotionEvent(ev)) return;
         DisplayBackGestureHandler displayBackGestureHandler = mDisplayBackGestureHandlers.get(
                 ev.getDisplayId());

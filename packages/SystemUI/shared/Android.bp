@@ -29,6 +29,12 @@ genrule {
     out: ["com/android/systemui/shared/system/SysUiStatsLog.java"],
 }
 
+filegroup {
+    name: "ArkWheelGestureGateTestSrc",
+    srcs: ["src/com/android/systemui/shared/system/ArkWheelGestureGate.java"],
+    visibility: ["//frameworks/base/packages/ArkWheel/tests"],
+}
+
 java_library {
     name: "SystemUI-statsd",
 

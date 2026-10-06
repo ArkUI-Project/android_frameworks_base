@@ -12,6 +12,10 @@ java_library {
     name: "ArkWheelProtocol",
     srcs: ["protocol/**/*.java"],
 }
+filegroup {
+    name: "ArkWheelCornerGestureTestSrc",
+    srcs: ["src/org/arkui/wheel/WheelCornerGesture.java"],
+}
 android_app {
     name: "ArkWheel",
     defaults: ["platform_app_defaults"],

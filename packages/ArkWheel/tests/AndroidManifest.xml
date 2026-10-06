@@ -1,0 +1,14 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Copyright (C) 2026 The ArkUI Project; SPDX-License-Identifier: Apache-2.0 -->
+<manifest xmlns:android="http://schemas.android.com/apk/res/android"
+    package="org.arkui.wheel.tests">
+    <uses-permission android:name="android.permission.HIDE_OVERLAY_WINDOWS" />
+    <application android:label="Wheel gesture tests">
+        <activity android:name="org.arkui.wheel.CornerGestureFixtureActivity"
+            android:exported="true"
+            android:configChanges="orientation|screenSize|screenLayout"
+            android:theme="@android:style/Theme.Material.Light.NoActionBar" />
+    </application>
+    <instrumentation android:name="androidx.test.runner.AndroidJUnitRunner"
+        android:targetPackage="org.arkui.wheel.tests" />
+</manifest>

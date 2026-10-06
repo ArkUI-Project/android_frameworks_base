@@ -13,9 +13,6 @@ import android.content.IntentFilter;
 import android.content.SharedPreferences;
 import android.content.pm.PackageManager;
 import android.content.res.Configuration;
-import android.graphics.Canvas;
-import android.graphics.Insets;
-import android.graphics.Paint;
 import android.graphics.PixelFormat;
 import android.graphics.Rect;
 import android.hardware.display.DisplayManager;
@@ -35,7 +32,6 @@ import android.view.HapticFeedbackConstants;
 import android.view.MotionEvent;
 import android.view.View;
 import android.view.ViewConfiguration;
-import android.view.WindowInsets;
 import android.view.WindowManager;
 import android.view.WindowMetrics;
 import org.arkui.wheel.protocol.WheelProtocol;
@@ -52,6 +48,7 @@ public final class WheelService extends Service implements SharedPreferences.OnS
     private final ExecutorService loader = Executors.newSingleThreadExecutor();
     private final Messenger endpoint = new Messenger(new Handler(Looper.getMainLooper(), this::message));
     private final List<Trigger> triggers = new ArrayList<>();
+    private final List<CornerSession> cornerSessions = new ArrayList<>();
     private final Runnable reload = this::load;
     private Messenger host;
     private IBinder.DeathRecipient death;
@@ -109,6 +106,19 @@ public final class WheelService extends Service implements SharedPreferences.OnS
                 try { host.getBinder().linkToDeath(death, 0); configuration(); }
                 catch (RemoteException e) { detach(); }
             }
+        } else if (message.what == WheelProtocol.GESTURE_CANCEL && host != null) {
+            Bundle data = message.getData();
+            long downTime = data.getLong(WheelProtocol.GESTURE_DOWN_TIME, -1);
+            int deviceId = data.getInt(WheelProtocol.GESTURE_DEVICE_ID, -1);
+            long cancelTime = data.getLong(WheelProtocol.GESTURE_CANCEL_TIME, downTime);
+            for (CornerSession session : cornerSessions) {
+                if (session.downTime != downTime || session.deviceId != deviceId) continue;
+                session.cancelled = true;
+                for (Trigger trigger : triggers) {
+                    if (trigger.session == session) trigger.tracking = false;
+                }
+                if (session.panel != null) session.panel.cancelCornerDrag(cancelTime);
+            }
         } else if (message.what == WheelProtocol.RECOGNITION_VISIBILITY && host != null) {
             externalRecognition = message.arg1 == 1;
             if (externalRecognition) hide();
@@ -136,7 +146,7 @@ public final class WheelService extends Service implements SharedPreferences.OnS
     private void send(int what, Bundle data) {
         if (host == null) return;
         Message m = Message.obtain(null, what); m.setData(data);
-        try { host.send(m); } catch (RemoteException e) { allowed = false; hide(); detach(); }
+        try { host.send(m); } catch (RemoteException e) { allowed = false; detach(); hide(); }
     }
     private void configuration() {
         Bundle data = new Bundle(); data.putBoolean(WheelProtocol.ENABLED, prefs.enabled());
@@ -192,19 +202,35 @@ public final class WheelService extends Service implements SharedPreferences.OnS
     private void addTrigger(boolean left) {
         WindowMetrics metrics = windows.getCurrentWindowMetrics();
         Rect bounds = metrics.getBounds();
-        Insets safe = metrics.getWindowInsets().getInsetsIgnoringVisibility(WindowInsets.Type.systemBars() | WindowInsets.Type.displayCutout());
-        int height = dp(this, prefs.get(TRIGGER_SIZE, 72, 40, 160));
-        WindowManager.LayoutParams lp = new WindowManager.LayoutParams(dp(this, 24), height,
+        Rect corner = WheelCornerGesture.bounds(bounds.width(), bounds.height(),
+                dp(this, prefs.cornerSize()), left);
+        WindowManager.LayoutParams lp = new WindowManager.LayoutParams(corner.width(), corner.height(),
                 WindowManager.LayoutParams.TYPE_APPLICATION_OVERLAY,
                 WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE | WindowManager.LayoutParams.FLAG_LAYOUT_IN_SCREEN,
                 PixelFormat.TRANSLUCENT);
         lp.gravity = Gravity.TOP | Gravity.LEFT; lp.setFitInsetsTypes(0); lp.setTitle("ArkWheel:trigger");
-        lp.x = left ? safe.left : bounds.width() - safe.right - lp.width;
-        int span = Math.max(0, bounds.height() - safe.top - safe.bottom - height);
-        lp.y = safe.top + Math.round(span * (1 - prefs.get(POSITION, 0, 0, 70) / 100f));
+        lp.setSystemApplicationOverlay(true);
+        lp.x = corner.left;
+        lp.y = corner.top;
         Trigger trigger = new Trigger(themed, left);
-        try { windows.addView(trigger, lp); triggers.add(trigger); }
+        try {
+            windows.addView(trigger, lp); triggers.add(trigger);
+            trigger.post(this::publishTriggerRegions);
+        }
         catch (WindowManager.BadTokenException | IllegalStateException ignored) { }
+    }
+    private void publishTriggerRegions() {
+        ArrayList<Rect> regions = new ArrayList<>();
+        for (Trigger trigger : triggers) {
+            if (!trigger.isAttachedToWindow() || !trigger.isLaidOut()) continue;
+            Rect bounds = new Rect(); trigger.getBoundsOnScreen(bounds);
+            if (!bounds.isEmpty()) regions.add(bounds);
+        }
+        Bundle data = new Bundle();
+        data.putInt(WheelProtocol.DISPLAY_ID, Display.DEFAULT_DISPLAY);
+        data.putInt(WheelProtocol.DISPLAY_ROTATION, themed.getDisplay().getRotation());
+        data.putParcelableArrayList(WheelProtocol.TRIGGER_RECTS, regions);
+        send(WheelProtocol.TRIGGER_REGIONS, data);
     }
     private void open(boolean left) {
         if (!canShow() || panel != null) return;
@@ -227,63 +253,80 @@ public final class WheelService extends Service implements SharedPreferences.OnS
                 }
             }
             @Override public void manage() { if (canShow()) send(WheelProtocol.MANAGE, Bundle.EMPTY); }
-            @Override public void closed(WheelPanel source) { if (panel == source) panel = null; refresh(); }
+            @Override public void closed(WheelPanel source) {
+                for (CornerSession session : cornerSessions) {
+                    if (session.panel == source) session.panel = null;
+                }
+                if (panel == source) panel = null; refresh();
+            }
         });
         panel = created;
         try { panel.show(windows); }
         catch (WindowManager.BadTokenException | IllegalStateException e) { panel = null; }
     }
+    private static final class CornerSession {
+        final long downTime;
+        final int deviceId;
+        boolean cancelled;
+        WheelPanel panel;
+        CornerSession(MotionEvent event) {
+            downTime = event.getDownTime(); deviceId = event.getDeviceId();
+        }
+    }
     private final class Trigger extends View {
         private final boolean left;
-        private final Paint paint = new Paint(Paint.ANTI_ALIAS_FLAG);
         private final int slop;
         private float x, y;
         private boolean tracking, opened;
-        private final Runnable hold = this::openHeld;
-        private void openHeld() { if (tracking && canShow()) { open(left); opened = panel != null; } }
+        private CornerSession session;
         Trigger(Context c, boolean fromLeft) {
             super(c); left = fromLeft; slop = ViewConfiguration.get(c).getScaledTouchSlop();
             setContentDescription(getString(R.string.open_description)); setFocusable(true);
             setOnClickListener(v -> open(left));
         }
-        @Override protected void onSizeChanged(int w, int h, int oldw, int oldh) { setSystemGestureExclusionRects(List.of(new Rect(0, 0, w, h))); }
-        @Override protected void onDraw(Canvas c) {
-            paint.setColor(primary(getContext())); paint.setAlpha(prefs.get(TRIGGER_OPACITY, 40, 0, 100) * 255 / 100);
-            float start = left ? dp(getContext(), 2) : getWidth() - dp(getContext(), 5);
-            c.drawRoundRect(start, dp(getContext(), 10), start + dp(getContext(), 3), getHeight() - dp(getContext(), 10), dp(getContext(), 2), dp(getContext(), 2), paint);
+        @Override protected void onSizeChanged(int w, int h, int oldw, int oldh) {
+            setSystemGestureExclusionRects(List.of(new Rect(0, 0, w, h)));
+            post(WheelService.this::publishTriggerRegions);
         }
         @Override public boolean onTouchEvent(MotionEvent event) {
             int action = event.getActionMasked();
             if (action == MotionEvent.ACTION_DOWN) {
                 x = event.getRawX(); y = event.getRawY(); tracking = true; opened = false;
-                if (prefs.get(INVOCATION, 0, 0, 2) == 2) postDelayed(hold, prefs.get(HOLD, 250, 150, 800));
+                session = new CornerSession(event);
+                if (cornerSessions.size() == 16) cornerSessions.remove(0);
+                cornerSessions.add(session);
                 return true;
             }
             if (action == MotionEvent.ACTION_CANCEL || event.getPointerCount() != 1) {
-                removeCallbacks(hold); tracking = false; if (opened && panel != null) panel.cancelDrag(); return true;
+                if (session != null) session.cancelled = true;
+                tracking = false; if (opened && panel != null) panel.cancelDrag(); return true;
             }
-            if (!tracking) return true;
-            float dx = (event.getRawX() - x) * (left ? 1 : -1), dy = event.getRawY() - y;
+            if (!tracking || session == null || session.cancelled) return true;
+            float dx = (event.getRawX() - x) * (left ? 1 : -1), upward = y - event.getRawY();
             if (action == MotionEvent.ACTION_MOVE) {
-                if (Math.hypot(dx, dy) > slop) removeCallbacks(hold);
-                if (!opened && prefs.get(INVOCATION, 0, 0, 2) != 2 && dx > slop && dx > Math.abs(dy) * .4f) {
+                if (!opened && WheelCornerGesture.opens(dx, upward, slop)) {
                     open(left); opened = panel != null;
+                    session.panel = panel;
                 }
                 if (opened && panel != null) panel.dragTo(event.getRawX(), event.getRawY());
             } else if (action == MotionEvent.ACTION_UP) {
-                removeCallbacks(hold); tracking = false;
-                if (opened && panel != null) panel.releaseDrag(event.getRawX(), event.getRawY());
-                else if (Math.hypot(dx, dy) <= slop && prefs.get(INVOCATION, 0, 0, 2) == 0) performClick();
+                tracking = false;
+                if (opened && panel != null) {
+                    CornerSession released = session;
+                    panel.releaseDrag(event.getRawX(), event.getRawY(), () -> !released.cancelled);
+                }
             }
             return true;
         }
-        @Override protected void onDetachedFromWindow() { removeCallbacks(hold); tracking = false; super.onDetachedFromWindow(); }
+        @Override protected void onDetachedFromWindow() { tracking = false; super.onDetachedFromWindow(); }
     }
     private void hide() {
         capturing = false; main.removeCallbacks(captureTimeout);
         if (panel != null) { WheelPanel old = panel; panel = null; old.dismissImmediately(); }
         for (Trigger trigger : triggers) windows.removeViewImmediate(trigger);
         triggers.clear();
+        cornerSessions.clear();
+        publishTriggerRegions();
     }
     @Override public void onConfigurationChanged(Configuration configuration) {
         super.onConfigurationChanged(configuration); invalidateCatalog();

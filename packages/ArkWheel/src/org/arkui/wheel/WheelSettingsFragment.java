@@ -132,12 +132,10 @@ public final class WheelSettingsFragment extends SettingsBasePreferenceFragment 
                 toggle(root, MONOCHROME, R.string.monochrome, R.string.monochrome_summary, true);
                 break;
             case "invocation":
+                help(root, R.string.corner_gesture_help);
                 choice(root, SIDE, R.string.side, 0, R.string.right, R.string.left, R.string.both);
-                choice(root, INVOCATION, R.string.invocation, 0, R.string.swipe_tap, R.string.swipe_only, R.string.hold);
-                slider(root, HOLD, R.string.hold_delay, 250, 150, 800, " ms");
-                slider(root, POSITION, R.string.position, 0, 0, 70, "%"); help(root, R.string.position_help);
-                slider(root, TRIGGER_SIZE, R.string.trigger_size, 72, 40, 160, " dp");
-                slider(root, TRIGGER_OPACITY, R.string.trigger_opacity, 40, 0, 100, "%");
+                slider(root, CORNER_SIZE, R.string.corner_size, CORNER_SIZE_DEFAULT, CORNER_SIZE_MIN, CORNER_SIZE_MAX, " dp");
+                help(root, R.string.corner_size_help);
                 break;
             case "behavior":
                 choice(root, LAUNCH_MODE, R.string.launch_mode, 0, R.string.small_window, R.string.fullscreen);

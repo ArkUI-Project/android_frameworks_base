@@ -70,6 +70,8 @@ import android.os.Trace;
 import android.os.UserHandle;
 import android.os.UserManager;
 import android.util.Log;
+import android.util.SparseArray;
+import android.util.SparseIntArray;
 import android.view.Display;
 import android.view.DisplayInfo;
 import android.view.InputDevice;
@@ -195,6 +197,9 @@ public class LauncherProxyService implements CallbackController<LauncherProxyLis
     private final UiEventLogger mUiEventLogger;
     private final DisplayTracker mDisplayTracker;
     private Region mActiveNavBarRegion;
+    private final Object mArkWheelCornerLock = new Object();
+    private final SparseArray<Region> mArkWheelCornerRegions = new SparseArray<>();
+    private final SparseIntArray mArkWheelCornerRotations = new SparseIntArray();
 
     private final BroadcastDispatcher mBroadcastDispatcher;
     private final BackAnimation mBackAnimation;
@@ -688,6 +693,7 @@ public class LauncherProxyService implements CallbackController<LauncherProxyLis
                 Log.e(TAG_OPS, "Failed to call onInitialize()", e);
             }
             dispatchNavButtonBounds();
+            dispatchArkWheelCornerRegions();
 
             // Force-update the systemui state flags
             updateSystemUiStateFlags();
@@ -773,6 +779,7 @@ public class LauncherProxyService implements CallbackController<LauncherProxyLis
             new UserTracker.Callback() {
                 @Override
                 public void onUserChanged(int newUser, @NonNull Context userContext) {
+                    clearArkWheelCornerRegions();
                     mConnectionBackoffAttempts = 0;
                     internalConnectToCurrentUser("User changed");
                 }
@@ -1032,6 +1039,71 @@ public class LauncherProxyService implements CallbackController<LauncherProxyLis
             } catch (RemoteException e) {
                 Log.e(TAG_OPS, "Failed to call onActiveNavBarRegionChanges()", e);
             }
+        }
+    }
+
+    /** Receives only actual visible corner bounds validated by WheelManager. */
+    public void onArkWheelCornerRegionChanged(int displayId, int rotation, Region region) {
+        synchronized (mArkWheelCornerLock) {
+            Region oldRegion = mArkWheelCornerRegions.get(displayId);
+            if (region.isEmpty()) {
+                if (oldRegion == null) return;
+                mArkWheelCornerRegions.remove(displayId);
+                mArkWheelCornerRotations.delete(displayId);
+            } else {
+                if (oldRegion != null && oldRegion.equals(region)
+                        && mArkWheelCornerRotations.get(displayId, -1) == rotation) return;
+                mArkWheelCornerRegions.put(displayId, new Region(region));
+                mArkWheelCornerRotations.put(displayId, rotation);
+            }
+        }
+        dispatchArkWheelCornerRegion(displayId, rotation, region);
+    }
+
+    /** Read by the back input monitor before it starts a gesture. */
+    public Region getArkWheelCornerRegion(int displayId, int rotation) {
+        synchronized (mArkWheelCornerLock) {
+            Region region = mArkWheelCornerRegions.get(displayId);
+            return region != null && mArkWheelCornerRotations.get(displayId, -1) == rotation
+                    ? new Region(region) : new Region();
+        }
+    }
+
+    private void clearArkWheelCornerRegions() {
+        int[] displayIds;
+        synchronized (mArkWheelCornerLock) {
+            displayIds = new int[mArkWheelCornerRegions.size()];
+            for (int i = 0; i < displayIds.length; ++i) {
+                displayIds[i] = mArkWheelCornerRegions.keyAt(i);
+            }
+        }
+        for (int displayId : displayIds) {
+            onArkWheelCornerRegionChanged(displayId, -1, new Region());
+        }
+    }
+
+    private void dispatchArkWheelCornerRegions() {
+        SparseArray<Region> regions = new SparseArray<>();
+        SparseIntArray rotations = new SparseIntArray();
+        synchronized (mArkWheelCornerLock) {
+            for (int i = 0; i < mArkWheelCornerRegions.size(); ++i) {
+                int displayId = mArkWheelCornerRegions.keyAt(i);
+                regions.put(displayId, new Region(mArkWheelCornerRegions.valueAt(i)));
+                rotations.put(displayId, mArkWheelCornerRotations.get(displayId));
+            }
+        }
+        for (int i = 0; i < regions.size(); ++i) {
+            int displayId = regions.keyAt(i);
+            dispatchArkWheelCornerRegion(displayId, rotations.get(displayId), regions.valueAt(i));
+        }
+    }
+
+    private void dispatchArkWheelCornerRegion(int displayId, int rotation, Region region) {
+        if (mLauncherProxy == null) return;
+        try {
+            mLauncherProxy.onArkWheelCornerRegionChanged(displayId, rotation, region);
+        } catch (RemoteException e) {
+            Log.w(TAG_OPS, "Failed to notify wheel corner region", e);
         }
     }
 

@@ -41,6 +41,7 @@ import androidx.recyclerview.widget.RecyclerView;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.LinkedHashMap;
+import java.util.function.BooleanSupplier;
 
 /** One overlay surface: the corner arc and its floating app/action library share their lifecycle. */
 final class WheelPanel extends FrameLayout {
@@ -64,6 +65,8 @@ final class WheelPanel extends FrameLayout {
     private WheelGeometry geometry;
     private Insets safe = Insets.NONE;
     private ValueAnimator arcAnimator;
+    private Runnable closingAction;
+    private BooleanSupplier cornerReleaseAllowed;
     private LinearLayout card, tabs, pinnedGroup;
     private EditText search;
     private RecyclerView grid;
@@ -72,8 +75,9 @@ final class WheelPanel extends FrameLayout {
     private boolean actionsTab, arcVisible = true, closing, removed, gesture, gestureCancelled, edgeGesture, moved;
     private int hovered = -1;
     private float downX, downY;
+    private long gestureDownTime, cancelledCornerUntil = -1;
+    private long releaseDownTime = -1, closingTouchDownTime = -1;
     private int imeBottom;
-    private final Runnable openHeld = () -> { if (gesture && !gestureCancelled && edgeGesture && !arcVisible) revealArc(); };
 
     WheelPanel(Context c, WheelPreferences prefs, List<WheelCatalog.Item> apps,
             String[] recent, boolean left, Callback callback) {
@@ -123,6 +127,7 @@ final class WheelPanel extends FrameLayout {
                 WindowManager.LayoutParams.FLAG_LAYOUT_IN_SCREEN | WindowManager.LayoutParams.FLAG_DIM_BEHIND,
                 PixelFormat.TRANSLUCENT);
         params.gravity = Gravity.TOP | Gravity.LEFT; params.setTitle("ArkWheel:panel"); params.setFitInsetsTypes(0);
+        params.setSystemApplicationOverlay(true);
         params.dimAmount = prefs.get(DIM, 12, 0, 50) / 100f;
         params.softInputMode = WindowManager.LayoutParams.SOFT_INPUT_ADJUST_NOTHING;
         windows.addView(this, params); requestFocus();
@@ -140,11 +145,8 @@ final class WheelPanel extends FrameLayout {
             Icon icon = icons.get(i); icon.setLayoutParams(new LayoutParams(Math.round(geometry.iconSize), Math.round(geometry.iconSize)));
             icon.setX(geometry.x[i] - geometry.iconSize / 2); icon.setY(geometry.y[i] - geometry.iconSize / 2);
         }
-        int triggerHeight = dp(getContext(), prefs.get(TRIGGER_SIZE, 72, 40, 160));
-        int span = Math.max(0, h - safe.top - safe.bottom - triggerHeight);
-        int y = safe.top + Math.round(span * (1 - prefs.get(POSITION, 0, 0, 70) / 100f));
-        int x = left ? safe.left : w - safe.right - dp(getContext(), 24);
-        setSystemGestureExclusionRects(List.of(new Rect(x, y, x + dp(getContext(), 24), y + triggerHeight)));
+        setSystemGestureExclusionRects(List.of(WheelCornerGesture.bounds(w, h,
+                dp(getContext(), prefs.cornerSize()), left)));
     }
     private long duration(long ms) {
         return ValueAnimator.areAnimatorsEnabled() ? ms * prefs.get(ANIMATION, 100, 0, 200) / 100 : 0;
@@ -197,18 +199,40 @@ final class WheelPanel extends FrameLayout {
         if (closing || geometry == null || !arcVisible) return;
         hover(geometry.hit(x, y, dp(getContext(), 14)));
     }
-    void releaseDrag(float x, float y) {
+    void releaseDrag(float x, float y, BooleanSupplier allowed) {
         if (closing || geometry == null) return;
         int index = geometry.hit(x, y, dp(getContext(), 14));
-        hover(-1); if (index >= 0) activate(index, false);
+        hover(-1); if (index >= 0 && allowed.getAsBoolean()) activate(index, false, allowed);
     }
-    void cancelDrag() { hover(-1); }
+    void cancelDrag() {
+        if (removed) return;
+        gestureCancelled = true; hover(-1);
+        if (closing && cornerReleaseAllowed != null && !cornerReleaseAllowed.getAsBoolean()) {
+            restoreCancelledRelease();
+        }
+    }
+    private void restoreCancelledRelease() {
+        removeCallbacks(closingAction); closingAction = null; cornerReleaseAllowed = null;
+        closingTouchDownTime = -1; closing = false;
+        if (card != null) {
+            card.animate().cancel(); card.setAlpha(1); card.setScaleX(1); card.setScaleY(1);
+        }
+        animateArc(true);
+    }
+    void cancelCornerDrag(long cancelTime) {
+        cancelledCornerUntil = Math.max(cancelledCornerUntil, cancelTime);
+        if (gestureDownTime <= cancelTime
+                || (cornerReleaseAllowed != null && !cornerReleaseAllowed.getAsBoolean())) {
+            cancelDrag();
+        }
+        // A split second pointer can arrive as a separate single-pointer tap on this panel.
+        if (closing && closingTouchDownTime >= 0 && closingTouchDownTime <= cancelTime) {
+            restoreCancelledRelease();
+        }
+    }
     private boolean edge(float x, float y) {
-        int triggerHeight = dp(getContext(), prefs.get(TRIGGER_SIZE, 72, 40, 160));
-        float startY = safe.top + Math.max(0, getHeight() - safe.top - safe.bottom - triggerHeight)
-                * (1 - prefs.get(POSITION, 0, 0, 70) / 100f);
-        return (left ? x < safe.left + dp(getContext(), 24) : x > getWidth() - safe.right - dp(getContext(), 24))
-                && y >= startY && y <= startY + triggerHeight;
+        return WheelCornerGesture.bounds(getWidth(), getHeight(),
+                dp(getContext(), prefs.cornerSize()), left).contains((int) x, (int) y);
     }
     private void revealArc() {
         arcLayer.bringToFront(); label.bringToFront(); animateArc(true);
@@ -218,43 +242,47 @@ final class WheelPanel extends FrameLayout {
         if (closing) return true;
         int action = e.getActionMasked();
         if (action == MotionEvent.ACTION_DOWN) {
-            removeCallbacks(openHeld);
-            downX = e.getX(); downY = e.getY(); gestureCancelled = false; moved = false;
+            downX = e.getX(); downY = e.getY(); gestureDownTime = e.getDownTime();
+            gestureCancelled = gestureDownTime <= cancelledCornerUntil; moved = false;
             boolean onCard = card != null && downX >= card.getX() && downX <= card.getX() + card.getWidth()
                     && downY >= card.getY() && downY <= card.getY() + card.getHeight();
             edgeGesture = edge(downX, downY);
             gesture = edgeGesture || (arcVisible && geometry != null && geometry.hit(downX, downY, dp(getContext(), 12)) >= 0) || !onCard;
-            if (edgeGesture && !arcVisible && prefs.get(INVOCATION, 0, 0, 2) == 2) postDelayed(openHeld, prefs.get(HOLD, 250, 150, 800));
         }
         if (!gesture) return super.dispatchTouchEvent(e);
         if (e.getPointerCount() != 1 || action == MotionEvent.ACTION_CANCEL) {
-            removeCallbacks(openHeld); gestureCancelled = true; hover(-1); return true;
+            gestureCancelled = true; hover(-1); return true;
         }
         if (gestureCancelled) return true;
-        float dx = (e.getX() - downX) * (left ? 1 : -1), dy = e.getY() - downY;
+        float dx = (e.getX() - downX) * (left ? 1 : -1), upward = downY - e.getY();
         int slop = ViewConfiguration.get(getContext()).getScaledTouchSlop();
-        if (action == MotionEvent.ACTION_MOVE && Math.hypot(dx, dy) > slop) {
+        if (action == MotionEvent.ACTION_MOVE && Math.hypot(dx, upward) > slop) {
             moved = true;
-            removeCallbacks(openHeld);
-            if (edgeGesture && !arcVisible && prefs.get(INVOCATION, 0, 0, 2) != 2 && dx > slop && dx > Math.abs(dy) * .4f) revealArc();
+            if (edgeGesture && !arcVisible && WheelCornerGesture.opens(dx, upward, slop)) revealArc();
         }
         if (action == MotionEvent.ACTION_DOWN || action == MotionEvent.ACTION_MOVE) dragTo(e.getX(), e.getY());
         if (action == MotionEvent.ACTION_UP) {
-            removeCallbacks(openHeld);
+            releaseDownTime = e.getDownTime();
             int index = arcVisible && geometry != null ? geometry.hit(e.getX(), e.getY(), dp(getContext(), 14)) : -1;
             hover(-1);
             if (index >= 0) activate(index, !edgeGesture && !moved && e.getEventTime() - e.getDownTime() > 500);
-            else if (edgeGesture && !arcVisible && prefs.get(INVOCATION, 0, 0, 2) == 0 && Math.hypot(dx, dy) <= slop) revealArc();
             else if (!edge(downX, downY)) { if (card != null && arcVisible) animateArc(false); else close(null); }
             gesture = false;
+            releaseDownTime = -1;
         }
         return true;
     }
     private void activate(int index, boolean alternate) {
+        activate(index, alternate, null);
+    }
+    private void activate(int index, boolean alternate, BooleanSupplier allowed) {
         if (closing || index < 0 || index >= arcItems.size()) return;
         if (prefs.on(HAPTICS, true)) performHapticFeedback(HapticFeedbackConstants.CONFIRM);
         if (index == arcItems.size() - 1) { showLibrary(); animateArc(false); }
-        else close(() -> callback.launch(arcItems.get(index), alternate));
+        else {
+            cornerReleaseAllowed = allowed;
+            close(() -> callback.launch(arcItems.get(index), alternate));
+        }
     }
     private TextView pill(String text, Runnable action) {
         TextView p = text(getContext(), text, 14); p.setGravity(Gravity.CENTER);
@@ -459,18 +487,29 @@ final class WheelPanel extends FrameLayout {
     }
     private void close(Runnable after) {
         if (closing || removed) return;
-        closing = true; hover(-1);
+        closing = true; closingTouchDownTime = releaseDownTime; hover(-1);
         getContext().getSystemService(InputMethodManager.class).hideSoftInputFromWindow(getWindowToken(), 0);
         if (arcVisible) animateArc(false);
         if (card != null) card.animate().alpha(0).scaleX(.94f).scaleY(.94f).setDuration(duration(140)).start();
-        postDelayed(() -> {
+        closingAction = () -> {
             if (removed) return;
+            if (cornerReleaseAllowed != null && !cornerReleaseAllowed.getAsBoolean()) {
+                cancelDrag(); return;
+            }
+            if (closingTouchDownTime >= 0 && closingTouchDownTime <= cancelledCornerUntil) {
+                restoreCancelledRelease(); return;
+            }
             dismissImmediately(); callback.closed(this); if (after != null) after.run();
-        }, duration(160));
+        };
+        // Retain the release until the host's full-pointer cancellation can cross processes,
+        // including when visual animations are disabled.
+        boolean pointerRelease = cornerReleaseAllowed != null || closingTouchDownTime >= 0;
+        postDelayed(closingAction, Math.max(pointerRelease ? 160 : 0, duration(160)));
     }
     void dismissImmediately() {
         if (removed) return; removed = true;
-        removeCallbacks(openHeld);
+        if (closingAction != null) removeCallbacks(closingAction);
+        closingAction = null; cornerReleaseAllowed = null; closingTouchDownTime = -1;
         if (arcAnimator != null) { ValueAnimator old = arcAnimator; arcAnimator = null; old.cancel(); }
         if (card != null) card.animate().cancel();
         if (findOnBackInvokedDispatcher() != null) findOnBackInvokedDispatcher().unregisterOnBackInvokedCallback(back);

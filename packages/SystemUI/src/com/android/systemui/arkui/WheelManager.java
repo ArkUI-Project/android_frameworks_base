@@ -19,6 +19,9 @@ import android.content.pm.LauncherApps;
 import android.content.pm.PackageManager;
 import android.content.pm.UserInfo;
 import android.database.ContentObserver;
+import android.graphics.Rect;
+import android.graphics.Region;
+import android.hardware.display.DisplayManager;
 import android.hardware.input.InputManager;
 import android.os.Bundle;
 import android.os.Binder;
@@ -35,9 +38,13 @@ import android.os.UserManager;
 import android.provider.Settings;
 import android.util.Log;
 import android.view.Display;
+import android.view.DisplayInfo;
+import android.view.Choreographer;
 import android.view.InputDevice;
+import android.view.InputEvent;
 import android.view.KeyCharacterMap;
 import android.view.KeyEvent;
+import android.view.MotionEvent;
 import android.view.WindowManager;
 import android.view.WindowManagerGlobal;
 import android.view.IScreenContentCallback;
@@ -47,6 +54,7 @@ import androidx.annotation.NonNull;
 import com.android.internal.arkui.SmallWindowSettings;
 import com.android.internal.util.ScreenshotHelper;
 import com.android.systemui.CoreStartable;
+import com.android.systemui.LauncherProxyService;
 import com.android.systemui.dagger.SysUISingleton;
 import com.android.systemui.dagger.qualifiers.Background;
 import com.android.systemui.dagger.qualifiers.Main;
@@ -55,6 +63,9 @@ import com.android.systemui.res.R;
 import com.android.systemui.settings.UserTracker;
 import com.android.systemui.shade.ShadeController;
 import com.android.systemui.shared.system.ActivityManagerWrapper;
+import com.android.systemui.shared.system.ArkWheelGestureGate;
+import com.android.systemui.shared.system.InputChannelCompat.InputEventReceiver;
+import com.android.systemui.shared.system.InputMonitorCompat;
 import com.android.systemui.shared.system.TaskStackChangeListener;
 import com.android.systemui.shared.system.TaskStackChangeListeners;
 import com.android.systemui.statusbar.policy.FlashlightController;
@@ -80,6 +91,17 @@ public final class WheelManager implements CoreStartable {
     private final Optional<Recents> recentsController;
     private final FlashlightController flashlight;
     private final ScreenshotHelper screenshot;
+    private final LauncherProxyService launcherProxy;
+    private final DisplayManager displays;
+    private final Rect triggerDisplayBounds = new Rect();
+    private int triggerRotation = -1;
+    private final ArkWheelGestureGate triggerInputGate = new ArkWheelGestureGate();
+    private InputMonitorCompat triggerInputMonitor;
+    private InputEventReceiver triggerInputReceiver;
+    private int triggerMonitorGeneration;
+    private boolean triggerMonitorHasCorners;
+    private long canceledDownTime = Long.MIN_VALUE;
+    private int canceledDeviceId = Integer.MIN_VALUE;
     private ServiceConnection connection;
     private Messenger service;
     private boolean bound, enabled, foregroundMatches, querying, queryPending;
@@ -100,13 +122,34 @@ public final class WheelManager implements CoreStartable {
 
     @Inject public WheelManager(Context context, UserTracker users, @Main Handler main,
             @Background Executor background, KeyguardStateController keyguard, ShadeController shade,
-            Optional<Recents> recents, FlashlightController flashlight) {
+            Optional<Recents> recents, FlashlightController flashlight,
+            LauncherProxyService launcherProxy) {
         this.context = context; this.users = users; this.main = main; this.background = background;
         this.keyguard = keyguard; this.shade = shade; recentsController = recents;
         this.flashlight = flashlight; screenshot = new ScreenshotHelper(context);
+        this.launcherProxy = launcherProxy; displays = context.getSystemService(DisplayManager.class);
     }
     @Override public void start() {
         if (UserHandle.myUserId() != UserHandle.USER_SYSTEM) return;
+        displays.registerDisplayListener(new DisplayManager.DisplayListener() {
+            @Override public void onDisplayAdded(int id) { }
+            @Override public void onDisplayRemoved(int id) {
+                if (id == Display.DEFAULT_DISPLAY) {
+                    clearTriggerRegions(); disposeTriggerObserver();
+                }
+            }
+            @Override public void onDisplayChanged(int id) {
+                if (id != Display.DEFAULT_DISPLAY || triggerRotation == -1) return;
+                Display display = displays.getDisplay(id);
+                DisplayInfo info = new DisplayInfo();
+                if (display == null || !display.getDisplayInfo(info)
+                        || triggerRotation != info.rotation
+                        || triggerDisplayBounds.width() != info.logicalWidth
+                        || triggerDisplayBounds.height() != info.logicalHeight) {
+                    clearTriggerRegions();
+                }
+            }
+        }, main);
         users.addCallback(new UserTracker.Callback() {
             @Override public void onUserChanged(int id, @NonNull Context user) {
                 closeSidebarRecognition(); unbind(); bind();
@@ -182,7 +225,10 @@ public final class WheelManager implements CoreStartable {
                 if (recognitionBound) recognitionVisibility(true);
             }
             @Override public void onServiceDisconnected(ComponentName name) {
-                if (token == generation) { service = null; enabled = false; lastEnvironment = null; ++stateGeneration; }
+                if (token == generation) {
+                    clearTriggerRegions(); disposeTriggerObserver(); service = null; enabled = false;
+                    lastEnvironment = null; ++stateGeneration;
+                }
             }
             @Override public void onBindingDied(ComponentName name) { if (token == generation) reconnect(); }
             @Override public void onNullBinding(ComponentName name) { if (token == generation) unbind(); }
@@ -193,6 +239,9 @@ public final class WheelManager implements CoreStartable {
     private boolean receive(Message message, int uid, int token) {
         if (message.sendingUid != uid || token != generation || service == null) return true;
         Bundle data = message.getData();
+        if (message.what == TRIGGER_REGIONS) {
+            updateTriggerRegions(data); return true;
+        }
         if (message.what == CONFIGURATION) {
             boolean value = data.getBoolean(ENABLED);
             if (value != enabled) {
@@ -218,9 +267,108 @@ public final class WheelManager implements CoreStartable {
         }
         return true;
     }
+    private void updateTriggerRegions(Bundle data) {
+        // Process clears before the action debounce and even while the environment is disabled.
+        // Only the authenticated, current wheel connection can reach this method.
+        ArrayList<Rect> rectangles;
+        try { rectangles = data.getParcelableArrayList(TRIGGER_RECTS, Rect.class); }
+        catch (RuntimeException e) { clearTriggerRegions(); return; }
+        if (rectangles == null || rectangles.isEmpty() || rectangles.size() > 2
+                || !enabled || !foregroundMatches || !allowed() || recognitionBound
+                || data.getInt(DISPLAY_ID, Display.DEFAULT_DISPLAY) != Display.DEFAULT_DISPLAY) {
+            clearTriggerRegions(); return;
+        }
+        Display display = displays.getDisplay(Display.DEFAULT_DISPLAY);
+        DisplayInfo info = new DisplayInfo();
+        if (display == null || !display.getDisplayInfo(info)
+                || data.getInt(DISPLAY_ROTATION, -1) != info.rotation) {
+            clearTriggerRegions(); return;
+        }
+        Rect bounds = new Rect(0, 0, info.logicalWidth, info.logicalHeight);
+        int maxSize = (int) Math.ceil(96f * info.logicalDensityDpi / 160f);
+        Region region = new Region();
+        for (Rect rectangle : rectangles) {
+            if (rectangle == null || rectangle.isEmpty() || !bounds.contains(rectangle)
+                    || rectangle.width() > maxSize || rectangle.height() > maxSize
+                    || rectangle.bottom != bounds.bottom
+                    || (rectangle.left != bounds.left && rectangle.right != bounds.right)) {
+                clearTriggerRegions(); return;
+            }
+            region.op(rectangle, Region.Op.UNION);
+        }
+        triggerDisplayBounds.set(bounds); triggerRotation = info.rotation;
+        launcherProxy.onArkWheelCornerRegionChanged(Display.DEFAULT_DISPLAY, info.rotation, region);
+        triggerMonitorHasCorners = true;
+        triggerInputGate.setRegion(Display.DEFAULT_DISPLAY, info.rotation, region);
+        ensureTriggerObserver();
+    }
+    private void clearTriggerRegions() {
+        triggerDisplayBounds.setEmpty(); triggerRotation = -1;
+        launcherProxy.onArkWheelCornerRegionChanged(Display.DEFAULT_DISPLAY, -1, new Region());
+        triggerMonitorHasCorners = false; triggerInputGate.clearRegions();
+        // Keep watching an owned stream if its trigger hides before UP: InputDispatcher may
+        // send a second pointer to another window of the panel.
+        if (!triggerInputGate.hasOwnedGesture()) disposeTriggerObserver();
+    }
+    private void ensureTriggerObserver() {
+        if (triggerInputMonitor != null) return;
+        int token = ++triggerMonitorGeneration;
+        try {
+            triggerInputMonitor = new InputMonitorCompat("arkui-wheel-corner",
+                    Display.DEFAULT_DISPLAY);
+            triggerInputReceiver = triggerInputMonitor.getInputReceiver(main.getLooper(),
+                    Choreographer.getInstance(), event -> observeTriggerInput(event, token));
+            // Cancellation must reach the wheel before its delayed shortcut callback.
+            triggerInputReceiver.setBatchingEnabled(false);
+        } catch (RuntimeException e) {
+            disposeTriggerObserver(); Log.w("ArkWheel", "Cannot observe corner input", e);
+        }
+    }
+    private void observeTriggerInput(InputEvent input, int token) {
+        if (token != triggerMonitorGeneration || triggerInputMonitor == null
+                || !(input instanceof MotionEvent event)) return;
+        int action = event.getActionMasked();
+        int rotation = -1;
+        if (action == MotionEvent.ACTION_DOWN) {
+            Display display = displays.getDisplay(event.getDisplayId());
+            if (display != null) rotation = display.getRotation();
+        }
+        boolean owned = triggerInputGate.onMotionEvent(event, rotation);
+        if (owned && (event.getPointerCount() > 1 || action == MotionEvent.ACTION_CANCEL)) {
+            long downTime = event.getDownTime(); int deviceId = event.getDeviceId();
+            // Ignore repeated multi-pointer MOVE, but extend the cutoff for each new split DOWN.
+            if ((downTime != canceledDownTime || deviceId != canceledDeviceId
+                    || action == MotionEvent.ACTION_POINTER_DOWN
+                    || action == MotionEvent.ACTION_CANCEL) && service != null) {
+                canceledDownTime = downTime; canceledDeviceId = deviceId;
+                Bundle data = new Bundle(); data.putLong(GESTURE_DOWN_TIME, downTime);
+                data.putInt(GESTURE_DEVICE_ID, deviceId);
+                data.putLong(GESTURE_CANCEL_TIME, event.getEventTime());
+                Message message = Message.obtain(null, GESTURE_CANCEL); message.setData(data);
+                try { service.send(message); }
+                catch (RemoteException e) { reconnect(); }
+            }
+        }
+        if (!triggerMonitorHasCorners && !triggerInputGate.hasOwnedGesture()) {
+            disposeTriggerObserver();
+        }
+    }
+    private void disposeTriggerObserver() {
+        ++triggerMonitorGeneration;
+        InputEventReceiver receiver = triggerInputReceiver;
+        InputMonitorCompat monitor = triggerInputMonitor;
+        triggerInputReceiver = null; triggerInputMonitor = null; triggerInputGate.clear();
+        canceledDownTime = Long.MIN_VALUE; canceledDeviceId = Integer.MIN_VALUE;
+        // Finish the currently delivered event before disposing its receiver/channel.
+        if (receiver != null || monitor != null) main.post(() -> {
+            if (receiver != null) receiver.dispose();
+            if (monitor != null) monitor.dispose();
+        });
+    }
     private void reconnect() { unbind(); main.postDelayed(retry, 1000); }
     private void unbind() {
         ++generation; ++stateGeneration; enabled = false; environment(); service = null; lastEnvironment = null;
+        disposeTriggerObserver();
         main.removeCallbacks(retry); main.removeCallbacks(refresh); queryPending = false; foregroundMatches = false;
         foreground = ""; recent = new String[0];
         if (bound) context.unbindService(connection); bound = false; connection = null;
@@ -258,14 +406,16 @@ public final class WheelManager implements CoreStartable {
         });
     }
     private void environment() {
-        if (service == null) return;
         boolean valid = enabled && foregroundMatches && allowed();
+        if (!valid) { clearTriggerRegions(); disposeTriggerObserver(); }
+        if (service == null) return;
         if (lastEnvironment != null && lastEnvironment.getBoolean(ALLOWED) == valid
                 && foreground.equals(lastEnvironment.getString(FOREGROUND))
                 && Arrays.equals(recent, lastEnvironment.getStringArray(RECENT))) return;
         Bundle data = new Bundle(); data.putBoolean(ALLOWED, valid); data.putString(FOREGROUND, foreground); data.putStringArray(RECENT, recent);
         Message m = Message.obtain(null, ENVIRONMENT); m.setData(data);
-        try { service.send(m); lastEnvironment = data; } catch (RemoteException e) { lastEnvironment = null; }
+        try { service.send(m); lastEnvironment = data; }
+        catch (RemoteException e) { clearTriggerRegions(); lastEnvironment = null; }
     }
     private void launch(ComponentName component, boolean small) {
         if (component == null) return;
@@ -447,6 +597,7 @@ public final class WheelManager implements CoreStartable {
         recognitionVisibility(false);
     }
     private void recognitionVisibility(boolean visible) {
+        if (visible) clearTriggerRegions();
         if (service == null) return;
         Message message = Message.obtain(null, RECOGNITION_VISIBILITY); message.arg1 = visible ? 1 : 0;
         try { service.send(message); }

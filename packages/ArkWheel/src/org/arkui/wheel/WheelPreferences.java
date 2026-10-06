@@ -9,7 +9,10 @@ import java.util.List;
 
 final class WheelPreferences {
     static final String ENABLED = "enabled", ITEMS = "items", EXCLUDED = "excluded",
-            SIDE = "side", POSITION = "position", TRIGGER_SIZE = "trigger_size",
+            SIDE = "side", CORNER_SIZE = "corner_size";
+    static final int CORNER_SIZE_DEFAULT = 48, CORNER_SIZE_MIN = 32, CORNER_SIZE_MAX = 96;
+    // Keep legacy keys so changing the activation gesture does not delete saved preferences.
+    static final String POSITION = "position", TRIGGER_SIZE = "trigger_size",
             TRIGGER_OPACITY = "trigger_opacity", INVOCATION = "invocation", HOLD = "hold",
             RADIUS = "radius", ICON_SIZE = "icon_size", COUNT = "count", ARC = "arc",
             ANIMATION = "animation", DIM = "dim", HAPTICS = "haptics", MONOCHROME = "monochrome",
@@ -22,6 +25,7 @@ final class WheelPreferences {
     }
     boolean on(String key, boolean fallback) { return get(key, fallback ? 1 : 0, 0, 1) == 1; }
     boolean enabled() { return on(ENABLED, false); }
+    int cornerSize() { return get(CORNER_SIZE, CORNER_SIZE_DEFAULT, CORNER_SIZE_MIN, CORNER_SIZE_MAX); }
     void put(String key, int value) { store.edit().putInt(key, value).apply(); }
     List<String> list(String key) {
         String raw = store.getString(key, "");
