@@ -38,6 +38,9 @@ public final class AppLockManager {
     public static final String KEY_PACKAGE_NAME = "package_name";
     public static final String KEY_USER_ID = "user_id";
     public static final String KEY_MANAGEMENT = "management";
+    public static final String KEY_AUTH_METHOD = "auth_method";
+    public static final int AUTH_SCREEN_LOCK = 0;
+    public static final int AUTH_PRIVACY_PASSWORD = 1;
     public static final int MODE_IMMEDIATE = 0;
     public static final int MODE_TIMEOUT = 1;
     public static final int MODE_SCREEN_OFF = 2;
@@ -67,6 +70,14 @@ public final class AppLockManager {
     public IBinder completeAuthentication(IBinder challenge) {
         try {
             return mService.completeAppLockAuthentication(challenge);
+        } catch (RemoteException e) {
+            throw e.rethrowFromSystemServer();
+        }
+    }
+
+    public Bundle verifyPrivacyPassword(IBinder challenge, byte[] credential) {
+        try {
+            return mService.verifyAppLockPrivacyPassword(challenge, credential);
         } catch (RemoteException e) {
             throw e.rethrowFromSystemServer();
         }

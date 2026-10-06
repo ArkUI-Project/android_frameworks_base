@@ -831,6 +831,7 @@ public class ActivityTaskManagerService extends IActivityTaskManager.Stub {
     private LineageActivityManager mLineageActivityManager;
 
     AppLockController mAppLockController;
+    PrivacyPasswordController mPrivacyPasswordController;
 
     private final class SettingObserver extends ContentObserver {
         private final Uri mFontScaleUri = Settings.System.getUriFor(FONT_SCALE);
@@ -961,6 +962,42 @@ public class ActivityTaskManagerService extends IActivityTaskManager.Stub {
     @Override
     public boolean shouldHideAppLockNotifications(String pkg, int userId) {
         return mAppLockController.queryLocked(pkg, userId, true);
+    }
+
+    @Override
+    public Bundle verifyAppLockPrivacyPassword(IBinder challenge, byte[] credential) {
+        return mAppLockController.verifyPrivacyPassword(challenge, credential);
+    }
+
+    @Override
+    public Bundle getPrivacyPasswordState(int userId) {
+        return mPrivacyPasswordController.getState(userId);
+    }
+
+    @Override
+    public IBinder beginPrivacyPasswordAuthentication(int userId, IBinder owner) {
+        return mPrivacyPasswordController.beginAuthentication(userId, owner);
+    }
+
+    @Override
+    public Bundle verifyPrivacyPassword(IBinder challenge, byte[] credential) {
+        return mPrivacyPasswordController.verify(challenge, credential);
+    }
+
+    @Override
+    public IBinder setPrivacyPassword(int userId, IBinder owner, IBinder authorization,
+            int type, byte[] credential) {
+        return mPrivacyPasswordController.setPassword(userId, owner, authorization, type, credential);
+    }
+
+    @Override
+    public void clearPrivacyPassword(int userId, IBinder authorization) {
+        mPrivacyPasswordController.clearPassword(userId, authorization);
+    }
+
+    @Override
+    public void endPrivacyPasswordAuthentication(IBinder token) {
+        mPrivacyPasswordController.endAuthentication(token);
     }
 
     public void onInitPowerManagement() {
@@ -1098,6 +1135,7 @@ public class ActivityTaskManagerService extends IActivityTaskManager.Stub {
         mVrController = new VrController(mGlobalLock);
         mKeyguardController = mTaskSupervisor.getKeyguardController();
         mPackageConfigPersister = new PackageConfigPersister(mTaskSupervisor.mPersisterQueue, this);
+        mPrivacyPasswordController = new PrivacyPasswordController(this);
         mAppLockController = new AppLockController(this);
     }
 

@@ -139,6 +139,7 @@ final class AppLockController {
                     int user = intent.getIntExtra(Intent.EXTRA_USER_HANDLE, getSendingUserId());
                     if (Intent.ACTION_SCREEN_OFF.equals(action)) {
                         invalidateCapabilities(UserHandle.USER_ALL);
+                        mService.mPrivacyPasswordController.invalidate(UserHandle.USER_ALL, false);
                         for (int i = 0; i < mUsers.size(); i++) {
                             UserState state = mUsers.valueAt(i);
                             state.generation++;
@@ -152,6 +153,7 @@ final class AppLockController {
                         refreshWindows();
                     } else if (Intent.ACTION_USER_SWITCHED.equals(action)) {
                         invalidateCapabilities(UserHandle.USER_ALL);
+                        mService.mPrivacyPasswordController.invalidate(UserHandle.USER_ALL, false);
                         for (int i = 0; i < mUsers.size(); i++) {
                             UserState state = mUsers.valueAt(i);
                             state.generation++;
@@ -164,6 +166,8 @@ final class AppLockController {
                     } else if (Intent.ACTION_USER_STOPPED.equals(action)
                             || Intent.ACTION_USER_REMOVED.equals(action)) {
                         onUserStopped(user);
+                        mService.mPrivacyPasswordController.invalidate(user,
+                                Intent.ACTION_USER_REMOVED.equals(action));
                         if (Intent.ACTION_USER_REMOVED.equals(action)) {
                             policyFile(user).delete();
                             mUsers.remove(user);
@@ -175,7 +179,8 @@ final class AppLockController {
                         // It must not leave applications behind an impossible challenge.
                         for (int i = 0; i < mUsers.size(); i++) {
                             UserState state = mUsers.valueAt(i);
-                            if (state.config.enabled && !hasSecureCredential(state.userId)) {
+                            if (state.config.enabled
+                                    && !hasCredential(state.userId, state.config.authMethod)) {
                                 Config disabled = new Config(state.config.toBundle());
                                 disabled.enabled = false;
                                 writeLifecycleConfig(state.userId, disabled);
@@ -554,9 +559,9 @@ final class AppLockController {
         final long identity = Binder.clearCallingIdentity();
         try {
             synchronized (mService.mGlobalLock) {
-                requireCredential(userId);
                 UserState state = userState(userId);
                 Challenge challenge = new Challenge(state, null, owner);
+                requireCredential(userId, challenge.authMethod);
                 try {
                     owner.linkToDeath(challenge.death, 0);
                 } catch (RemoteException e) {
@@ -579,8 +584,36 @@ final class AppLockController {
             info.putInt(KEY_USER_ID, challenge.userId);
             info.putBoolean(KEY_MANAGEMENT, challenge.packageName == null);
             info.putString(KEY_PACKAGE_NAME, challenge.packageName);
+            info.putInt(KEY_AUTH_METHOD, challenge.authMethod);
+            if (challenge.authMethod == AUTH_PRIVACY_PASSWORD) {
+                info.putInt(android.app.PrivacyPasswordManager.KEY_TYPE,
+                        mService.mPrivacyPasswordController.getState(challenge.userId)
+                                .getInt(android.app.PrivacyPasswordManager.KEY_TYPE));
+            }
             return info;
         }
+    }
+
+    Bundle verifyPrivacyPassword(IBinder token, byte[] credential) {
+        enforceTrusted();
+        final Challenge challenge;
+        synchronized (mService.mGlobalLock) {
+            challenge = requireChallenge(token);
+            if (challenge.authMethod != AUTH_PRIVACY_PASSWORD || challenge.privacyVerified) {
+                throw new SecurityException("Not an outstanding privacy-password challenge");
+            }
+            requireCredential(challenge.userId, challenge.authMethod);
+        }
+        // Password derivation and attempt persistence run outside the WM lock.
+        Bundle result = mService.mPrivacyPasswordController.verifyCredential(challenge.userId,
+                credential);
+        synchronized (mService.mGlobalLock) {
+            if (requireChallenge(token) != challenge) throw new SecurityException("Challenge changed");
+            if (result.getBoolean(android.app.PrivacyPasswordManager.KEY_MATCHED)) {
+                challenge.privacyVerified = true;
+            }
+        }
+        return result;
     }
 
     IBinder completeAuthentication(IBinder token) {
@@ -589,7 +622,10 @@ final class AppLockController {
         try {
             synchronized (mService.mGlobalLock) {
                 Challenge challenge = requireChallenge(token);
-                requireCredential(challenge.userId);
+                requireCredential(challenge.userId, challenge.authMethod);
+                if (challenge.authMethod == AUTH_PRIVACY_PASSWORD && !challenge.privacyVerified) {
+                    throw new SecurityException("Privacy password has not been verified");
+                }
                 mChallenges.remove(token);
                 unlink(challenge);
                 if (challenge.packageName == null) {
@@ -722,19 +758,21 @@ final class AppLockController {
                 requireManagement(userId, token);
                 if (values == null) throw new IllegalArgumentException("Missing application lock policy");
                 Config config = new Config(values);
-                if (config.enabled) requireCredential(userId);
+                UserState state = userState(userId);
+                boolean changedMethod = config.authMethod != state.config.authMethod;
+                if (config.enabled) requireCredential(userId, config.authMethod);
                 for (String pkg : config.packages) {
                     if (!canProtect(pkg, userId)) {
                         throw new IllegalArgumentException("Cannot lock essential system package: " + pkg);
                     }
                 }
                 writeConfig(userId, config);
-                UserState state = userState(userId);
                 state.config = config;
                 state.generation++;
                 state.grants.clear();
                 invalidateLaunchChallenges(userId);
                 // Existing management capabilities remain valid for editing this policy.
+                if (changedMethod) invalidateCapabilities(userId);
                 for (int i = 0; i < mManagement.size(); i++) {
                     ManagementSession session = mManagement.valueAt(i);
                     if (session.userId == userId) session.generation = state.generation;
@@ -773,11 +811,36 @@ final class AppLockController {
                 : mInternal.isPackageLocked(pkg, userId);
     }
 
-    private void requireCredential(int userId) {
+    private void requireCredential(int userId, int method) {
         UserManager users = mService.mContext.getSystemService(UserManager.class);
         if (userId < 0 || !mService.mAmInternal.isCurrentProfile(userId)
-                || !users.isUserUnlocked(userId) || !hasSecureCredential(userId)) {
+                || !users.isUserUnlocked(userId) || !hasCredential(userId, method)) {
             throw new IllegalStateException("A secure, unlocked user credential is required");
+        }
+    }
+
+    private boolean hasCredential(int userId, int method) {
+        return method == AUTH_PRIVACY_PASSWORD
+                ? mService.mPrivacyPasswordController.hasPassword(userId) : hasSecureCredential(userId);
+    }
+
+    void onPrivacyPasswordChanged(int userId, boolean configured) {
+        synchronized (mService.mGlobalLock) {
+            UserState state = userState(userId);
+            if (!configured && state.config.authMethod == AUTH_PRIVACY_PASSWORD) {
+                Bundle values = state.config.toBundle();
+                values.putBoolean(KEY_ENABLED, false);
+                Config config = new Config(values);
+                writeConfig(userId, config);
+                state.config = config;
+            }
+            state.generation++;
+            state.grants.clear();
+            invalidateCapabilities(userId);
+            publish(userId);
+            invalidateSnapshots(userId);
+            refreshWindows();
+            scheduleExpiry();
         }
     }
 
@@ -825,7 +888,10 @@ final class AppLockController {
     private boolean valid(Challenge challenge) {
         return challenge.expires > SystemClock.elapsedRealtime()
                 && mService.mAmInternal.isCurrentProfile(challenge.userId)
-                && userState(challenge.userId).generation == challenge.generation;
+                && userState(challenge.userId).generation == challenge.generation
+                && (challenge.authMethod != AUTH_PRIVACY_PASSWORD
+                        || (challenge.privacyGeneration >= 0 && challenge.privacyGeneration
+                                == mService.mPrivacyPasswordController.generation(challenge.userId)));
     }
 
     private void requireManagement(int userId, IBinder token) {
@@ -833,7 +899,10 @@ final class AppLockController {
         if (session == null || session.userId != userId
                 || !mService.mAmInternal.isCurrentProfile(userId)
                 || session.expires <= SystemClock.elapsedRealtime()
-                || session.generation != userState(userId).generation) {
+                || session.generation != userState(userId).generation
+                || (session.authMethod == AUTH_PRIVACY_PASSWORD && (session.privacyGeneration < 0
+                        || session.privacyGeneration
+                                != mService.mPrivacyPasswordController.generation(userId)))) {
             throw new SecurityException("Verify the device credential before managing application lock");
         }
     }
@@ -1108,6 +1177,7 @@ final class AppLockController {
             values.putBoolean(KEY_LOCK_ON_SCREEN_OFF, object.optBoolean(KEY_LOCK_ON_SCREEN_OFF, true));
             values.putInt(KEY_LOCK_MODE, object.optInt(KEY_LOCK_MODE, MODE_IMMEDIATE));
             values.putInt(KEY_TIMEOUT_MINUTES, object.optInt(KEY_TIMEOUT_MINUTES, 5));
+            values.putInt(KEY_AUTH_METHOD, object.optInt(KEY_AUTH_METHOD, AUTH_SCREEN_LOCK));
             ArrayList<String> packages = new ArrayList<>();
             JSONArray array = object.optJSONArray(KEY_PACKAGES);
             if (array != null) for (int i = 0; i < array.length(); i++) packages.add(array.getString(i));
@@ -1131,6 +1201,7 @@ final class AppLockController {
             object.put(KEY_LOCK_ON_SCREEN_OFF, config.lockOnScreenOff);
             object.put(KEY_LOCK_MODE, config.mode);
             object.put(KEY_TIMEOUT_MINUTES, config.timeoutMinutes);
+            object.put(KEY_AUTH_METHOD, config.authMethod);
             object.put(KEY_PACKAGES, new JSONArray(config.packages));
             output = file.startWrite();
             output.write(object.toString().getBytes(StandardCharsets.UTF_8));
@@ -1157,6 +1228,9 @@ final class AppLockController {
         final long expires = SystemClock.elapsedRealtime() + AUTH_TTL;
         final String packageName;
         final IBinder owner;
+        final int authMethod;
+        final long privacyGeneration;
+        boolean privacyVerified;
         final IBinder.DeathRecipient death = () -> {
             synchronized (mService.mGlobalLock) {
                 mChallenges.remove(token);
@@ -1178,6 +1252,16 @@ final class AppLockController {
             generation = state.generation;
             packageName = pkg;
             owner = binder;
+            int method = state.config.authMethod;
+            // Management remains reachable if only the other credential exists. Protected apps
+            // always use their configured method, without a screen-lock fallback for privacy.
+            if (pkg == null && !hasCredential(userId, method)) {
+                int other = method == AUTH_SCREEN_LOCK ? AUTH_PRIVACY_PASSWORD : AUTH_SCREEN_LOCK;
+                if (hasCredential(userId, other)) method = other;
+            }
+            authMethod = method;
+            privacyGeneration = method == AUTH_PRIVACY_PASSWORD
+                    ? mService.mPrivacyPasswordController.generation(userId) : 0;
         }
     }
 
@@ -1187,6 +1271,8 @@ final class AppLockController {
         final IBinder owner;
         final long expires = SystemClock.elapsedRealtime() + MANAGEMENT_TTL;
         long generation;
+        final int authMethod;
+        final long privacyGeneration;
         final IBinder.DeathRecipient death = () -> {
             synchronized (mService.mGlobalLock) {
                 mManagement.remove(token);
@@ -1196,6 +1282,8 @@ final class AppLockController {
             userId = challenge.userId;
             owner = challenge.owner;
             generation = challenge.generation;
+            authMethod = challenge.authMethod;
+            privacyGeneration = challenge.privacyGeneration;
         }
     }
 
@@ -1239,9 +1327,14 @@ final class AppLockController {
         final boolean lockOnScreenOff;
         final int mode;
         final int timeoutMinutes;
+        final int authMethod;
         final ArrayList<String> packages;
         Config(Bundle values) {
             enabled = values.getBoolean(KEY_ENABLED, false);
+            authMethod = values.getInt(KEY_AUTH_METHOD, AUTH_SCREEN_LOCK);
+            if (authMethod != AUTH_SCREEN_LOCK && authMethod != AUTH_PRIVACY_PASSWORD) {
+                throw new IllegalArgumentException("Invalid application lock authentication method");
+            }
             hideNotifications = values.getBoolean(KEY_HIDE_NOTIFICATIONS, true);
             mode = values.getInt(KEY_LOCK_MODE, MODE_IMMEDIATE);
             if (mode < MODE_IMMEDIATE || mode > MODE_SCREEN_OFF) {
@@ -1274,6 +1367,7 @@ final class AppLockController {
             values.putBoolean(KEY_LOCK_ON_SCREEN_OFF, lockOnScreenOff);
             values.putInt(KEY_LOCK_MODE, mode);
             values.putInt(KEY_TIMEOUT_MINUTES, timeoutMinutes);
+            values.putInt(KEY_AUTH_METHOD, authMethod);
             values.putStringArrayList(KEY_PACKAGES, new ArrayList<>(packages));
             return values;
         }

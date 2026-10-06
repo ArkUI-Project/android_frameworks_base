@@ -459,4 +459,13 @@ interface IActivityTaskManager {
     void lockAllAppLockPackages(int userId, in IBinder token);
     boolean isAppLockPackageLocked(String packageName, int userId);
     boolean shouldHideAppLockNotifications(String packageName, int userId);
+
+    Bundle verifyAppLockPrivacyPassword(in IBinder challenge, in byte[] credential);
+    Bundle getPrivacyPasswordState(int userId);
+    IBinder beginPrivacyPasswordAuthentication(int userId, in IBinder owner);
+    Bundle verifyPrivacyPassword(in IBinder challenge, in byte[] credential);
+    IBinder setPrivacyPassword(int userId, in IBinder owner, in IBinder authorization,
+            int type, in byte[] credential);
+    void clearPrivacyPassword(int userId, in IBinder authorization);
+    void endPrivacyPasswordAuthentication(in IBinder token);
 }

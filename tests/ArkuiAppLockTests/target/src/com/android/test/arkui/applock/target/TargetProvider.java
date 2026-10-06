@@ -3,6 +3,7 @@
 package com.android.test.arkui.applock.target;
 
 import android.app.AppLockManager;
+import android.app.PrivacyPasswordManager;
 import android.app.Notification;
 import android.app.NotificationChannel;
 import android.app.NotificationManager;
@@ -81,6 +82,20 @@ public class TargetProvider extends ContentProvider {
                         result.putString("error", error.toString());
                     }
                     return result;
+                case "privacy-security": {
+                    PrivacyPasswordManager privacy = new PrivacyPasswordManager(getContext());
+                    AppLockManager locks = new AppLockManager(getContext());
+                    int privacyUser = UserHandle.myUserId();
+                    result.putBoolean("state", denied(() -> privacy.getState(privacyUser)));
+                    result.putBoolean("begin", denied(() -> privacy.beginAuthentication(privacyUser, new Binder())));
+                    result.putBoolean("verify", denied(() -> privacy.verify(new Binder(), new byte[6])));
+                    result.putBoolean("set", denied(() -> privacy.setPassword(privacyUser, new Binder(), null,
+                            PrivacyPasswordManager.TYPE_PIN, new byte[6])));
+                    result.putBoolean("clear", denied(() -> privacy.clearPassword(privacyUser, new Binder())));
+                    result.putBoolean("end", denied(() -> privacy.endAuthentication(new Binder())));
+                    result.putBoolean("app_verify", denied(() -> locks.verifyPrivacyPassword(new Binder(), new byte[6])));
+                    return result;
+                }
                 case "security":
                     AppLockManager manager = new AppLockManager(getContext());
                     int user = UserHandle.myUserId();
