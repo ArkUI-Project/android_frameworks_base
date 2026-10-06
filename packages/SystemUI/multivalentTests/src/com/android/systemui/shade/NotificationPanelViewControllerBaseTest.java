@@ -44,6 +44,7 @@ import android.content.res.Configuration;
 import android.content.res.Resources;
 import android.os.Handler;
 import android.os.Looper;
+import android.os.PowerManager;
 import android.util.DisplayMetrics;
 import android.view.Display;
 import android.view.MotionEvent;
@@ -159,6 +160,7 @@ import com.android.systemui.statusbar.policy.KeyguardStateController;
 import com.android.systemui.statusbar.policy.ResourcesSplitShadeStateController;
 import com.android.systemui.statusbar.policy.data.repository.FakeUserSetupRepository;
 import com.android.systemui.unfold.SysUIUnfoldComponent;
+import com.android.systemui.user.domain.interactor.SelectedUserInteractor;
 import com.android.systemui.user.domain.interactor.UserSwitcherInteractor;
 import com.android.systemui.util.kotlin.JavaAdapter;
 import com.android.systemui.util.time.FakeSystemClock;
@@ -212,6 +214,7 @@ public class NotificationPanelViewControllerBaseTest extends SysuiTestCase {
     @Mock protected CommandQueue mCommandQueue;
     @Mock protected VibratorHelper mVibratorHelper;
     @Mock protected LatencyTracker mLatencyTracker;
+    @Mock protected PowerManager mPowerManager;
     @Mock protected AccessibilityManager mAccessibilityManager;
     @Mock protected MetricsLogger mMetricsLogger;
     @Mock protected Resources mResources;
@@ -279,6 +282,7 @@ public class NotificationPanelViewControllerBaseTest extends SysuiTestCase {
     @Mock private StatusBarLongPressGestureDetector mStatusBarLongPressGestureDetector;
     @Mock protected SysUIStateDisplaysInteractor mSysUIStateDisplaysInteractor;
     @Mock private WindowManagerProvider mWindowManagerProvider;
+    @Mock private SelectedUserInteractor mSelectedUserInteractor;
     protected final int mMaxUdfpsBurnInOffsetY = 5;
     protected FakeFeatureFlagsClassic mFeatureFlags = new FakeFeatureFlagsClassic();
     protected KeyguardClockInteractor mKeyguardClockInteractor;
@@ -323,6 +327,7 @@ public class NotificationPanelViewControllerBaseTest extends SysuiTestCase {
 
     @Before
     public void setup() {
+        when(mSelectedUserInteractor.getSelectedUser()).thenReturn(MutableStateFlow(0));
         mFeatureFlags.set(Flags.LOCKSCREEN_ENABLE_LANDSCAPE, false);
         mFeatureFlags.set(Flags.QS_USER_DETAIL_SHORTCUT, false);
 
@@ -518,6 +523,7 @@ public class NotificationPanelViewControllerBaseTest extends SysuiTestCase {
 
         mNotificationPanelViewController = new NotificationPanelViewController(
                 mView,
+                mMainHandler,
                 coordinator, expansionHandler, mDynamicPrivacyController, mKeyguardBypassController,
                 mFalsingManager, new FalsingCollectorFake(),
                 mKeyguardStateController,
@@ -547,6 +553,7 @@ public class NotificationPanelViewControllerBaseTest extends SysuiTestCase {
                 mQsController,
                 mFragmentService,
                 mStatusBarService,
+                mContext.getContentResolver(),
                 mShadeHeaderController,
                 mScreenOffAnimationController,
                 mLockscreenGestureLogger,
@@ -655,7 +662,8 @@ public class NotificationPanelViewControllerBaseTest extends SysuiTestCase {
                 new ResourcesSplitShadeStateController(),
                 () -> mKosmos.getCommunalTransitionViewModel(),
                 () -> mLargeScreenHeaderHelper,
-                mWindowManagerProvider
+                mWindowManagerProvider,
+                mSelectedUserInteractor
         );
     }
 

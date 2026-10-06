@@ -1149,6 +1149,22 @@ class TransitionController {
         }
     }
 
+    /** Clears private image buffers even if Shell has reparented their snapshot surfaces. */
+    void clearAppLockSnapshots(AppLockController appLock) {
+        try (SurfaceControl.Transaction transaction = mAtm.mWindowManager.mTransactionFactory.get()) {
+            if (mCollectingTransition != null) {
+                mCollectingTransition.clearAppLockSnapshots(appLock, transaction);
+            }
+            for (int i = 0; i < mWaitingTransitions.size(); i++) {
+                mWaitingTransitions.get(i).clearAppLockSnapshots(appLock, transaction);
+            }
+            for (int i = 0; i < mPlayingTransitions.size(); i++) {
+                mPlayingTransitions.get(i).clearAppLockSnapshots(appLock, transaction);
+            }
+            transaction.apply();
+        }
+    }
+
     private void validateStates() {
         for (int i = 0; i < mStateValidators.size(); ++i) {
             mStateValidators.get(i).run();

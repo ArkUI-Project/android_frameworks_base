@@ -183,6 +183,8 @@ public final class TransitionInfo implements Parcelable {
     public static final int FLAG_EXIT_POP_UP_VIEW_DISPLAY_ROTATION = FLAG_FIRST_CUSTOM << 4;
     /** A real status bar follows its parent app; animation owners must fit it into the app crop. */
     public static final int FLAG_ARKUI_STATUS_BAR_FOLLOW = FLAG_FIRST_CUSTOM << 5;
+    /** This container includes an app-lock protected task or activity; never screenshot it. */
+    public static final int FLAG_APP_LOCK_PROTECTED = FLAG_FIRST_CUSTOM << 6;
     public static final int FLAG_POP_UP_VIEW = FLAG_SCHEDULE_POP_UP_VIEW |
                                                FLAG_LAUNCH_POP_UP_VIEW_FROM_RECENTS |
                                                FLAG_EXIT_POP_UP_VIEW_BY_DRAG;
@@ -227,6 +229,7 @@ public final class TransitionInfo implements Parcelable {
             FLAG_EXIT_POP_UP_VIEW_BY_DRAG,
             FLAG_EXIT_POP_UP_VIEW_DISPLAY_ROTATION,
             FLAG_ARKUI_STATUS_BAR_FOLLOW,
+            FLAG_APP_LOCK_PROTECTED,
             FLAG_POP_UP_VIEW
     })
     public @interface ChangeFlags {}
@@ -550,6 +553,9 @@ public final class TransitionInfo implements Parcelable {
         }
         if ((flags & FLAG_ARKUI_STATUS_BAR_FOLLOW) != 0) {
             sb.append(sb.length() == 0 ? "" : "|").append("ARKUI_STATUS_BAR_FOLLOW");
+        }
+        if ((flags & FLAG_APP_LOCK_PROTECTED) != 0) {
+            sb.append(sb.length() == 0 ? "" : "|").append("APP_LOCK_PROTECTED");
         }
         if ((flags & FLAG_SCHEDULE_POP_UP_VIEW) != 0) {
             sb.append(sb.length() == 0 ? "" : "|").append("SCHEDULE_POP_UP_VIEW");

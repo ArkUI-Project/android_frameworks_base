@@ -47,6 +47,7 @@ import android.window.TransitionInfo;
 
 import com.android.internal.R;
 import com.android.internal.policy.TransitionAnimation;
+import com.android.wm.shell.common.AppLockSnapshotGuard;
 import com.android.wm.shell.common.ShellExecutor;
 import com.android.wm.shell.shared.TransactionPool;
 
@@ -143,8 +144,24 @@ class ScreenRotationAnimation {
                 .setName("Animation leash of screenshot rotation")
                 .build();
 
+        final boolean privateSnapshot = !change.hasFlags(TransitionInfo.FLAG_APP_LOCK_PROTECTED);
+        if (privateSnapshot) AppLockSnapshotGuard.beginCapture();
         try {
-            if (change.getSnapshot() != null) {
+            if (change.hasFlags(TransitionInfo.FLAG_APP_LOCK_PROTECTED)) {
+                // Rotation also has a Shell screenshot fallback. Use a neutral layer so an
+                // independently animated screenshot can never outlive app-lock visibility.
+                mScreenshotLayer = new SurfaceControl.Builder()
+                        .setParent(mAnimLeash)
+                        .setColorLayer()
+                        .setOpaque(true)
+                        .setCallsite("ShellRotationAnimation")
+                        .setName("App-lock rotation background")
+                        .build();
+                t.setColor(mScreenshotLayer, new float[] {0f, 0f, 0f})
+                        .setWindowCrop(mScreenshotLayer, mStartWidth, mStartHeight)
+                        .show(mScreenshotLayer);
+                mStartLuma = 0f;
+            } else if (change.getSnapshot() != null) {
                 mScreenshotLayer = change.getSnapshot();
                 t.reparent(mScreenshotLayer, mAnimLeash);
                 mStartLuma = change.getSnapshotLuma();
@@ -214,6 +231,11 @@ class ScreenRotationAnimation {
 
         } catch (Surface.OutOfResourcesException e) {
             Slog.w(TAG, "Unable to allocate freeze surface", e);
+        } finally {
+            if (privateSnapshot) {
+                AppLockSnapshotGuard.track(mScreenshotLayer);
+                AppLockSnapshotGuard.endCapture();
+            }
         }
 
         setScreenshotTransform(t);
@@ -395,6 +417,7 @@ class ScreenRotationAnimation {
     }
 
     public void kill() {
+        AppLockSnapshotGuard.forget(mScreenshotLayer);
         final Transaction t = mTransactionPool.acquire();
         if (mAnimLeash.isValid()) {
             t.remove(mAnimLeash);

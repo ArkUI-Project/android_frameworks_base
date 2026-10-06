@@ -1,5 +1,6 @@
 /*
  * Copyright (C) 2025 The Android Open Source Project
+ * Modified by the ArkUI Project in 2026 to test the current Lineage battery percentage modes.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -16,11 +17,15 @@
 
 package com.android.systemui.statusbar.pipeline.battery.data.repository
 
+import android.content.ContentResolver
+import android.content.Context
 import android.content.testableContext
+import android.database.ContentObserver
+import android.os.UserHandle
 import android.platform.test.annotations.EnableFlags
-import android.provider.Settings
 import androidx.test.ext.junit.runners.AndroidJUnit4
 import androidx.test.filters.SmallTest
+import com.android.dx.mockito.inline.extended.ExtendedMockito
 import com.android.systemui.Flags
 import com.android.systemui.SysuiTestCase
 import com.android.systemui.kosmos.Kosmos
@@ -31,7 +36,6 @@ import com.android.systemui.kosmos.testDispatcher
 import com.android.systemui.kosmos.testScope
 import com.android.systemui.kosmos.useStandardTestDispatcher
 import com.android.systemui.log.table.logcatTableLogBuffer
-import com.android.systemui.shared.settings.data.repository.fakeSystemSettingsRepository
 import com.android.systemui.shared.settings.data.repository.systemSettingsRepository
 import com.android.systemui.statusbar.policy.batteryController
 import com.android.systemui.statusbar.policy.fake
@@ -41,8 +45,17 @@ import kotlin.time.Duration.Companion.minutes
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.test.advanceTimeBy
 import kotlinx.coroutines.test.runCurrent
+import lineageos.providers.LineageSettings
 import org.junit.Test
 import org.junit.runner.RunWith
+import org.mockito.Mockito.times
+import org.mockito.Mockito.verify
+import org.mockito.kotlin.any
+import org.mockito.kotlin.argumentCaptor
+import org.mockito.kotlin.eq
+import org.mockito.kotlin.mock
+import org.mockito.kotlin.whenever
+import org.mockito.quality.Strictness
 
 @OptIn(ExperimentalCoroutinesApi::class)
 @SmallTest
@@ -140,23 +153,69 @@ class BatteryRepositoryTest : SysuiTestCase() {
     @Test
     fun showBatteryPercentSetting() =
         kosmos.runTest {
-            // Set the default to true, so it's detectable in test
-            testableContext.orCreateTestableResources.addOverride(
-                com.android.internal.R.bool.config_defaultBatteryPercentageSetting,
-                true,
-            )
+            val resolver = mock<ContentResolver>()
+            val repositoryContext = mock<Context>()
+            whenever(repositoryContext.contentResolver).thenReturn(resolver)
+            var percentMode = BatteryRepository.SHOW_PERCENT_HIDDEN
+            var iconStyle = BatteryRepository.ICON_STYLE_DEFAULT
+            val session =
+                ExtendedMockito.mockitoSession()
+                    .spyStatic(LineageSettings.System::class.java)
+                    .strictness(Strictness.LENIENT)
+                    .startMocking()
+            try {
+                ExtendedMockito.doAnswer { percentMode }.`when` {
+                    LineageSettings.System.getIntForUser(
+                        resolver,
+                        LineageSettings.System.STATUS_BAR_SHOW_BATTERY_PERCENT,
+                        BatteryRepository.SHOW_PERCENT_HIDDEN,
+                        UserHandle.USER_CURRENT,
+                    )
+                }
+                ExtendedMockito.doAnswer { iconStyle }.`when` {
+                    LineageSettings.System.getIntForUser(
+                        resolver,
+                        LineageSettings.System.STATUS_BAR_BATTERY_STYLE,
+                        BatteryRepository.ICON_STYLE_DEFAULT,
+                        UserHandle.USER_CURRENT,
+                    )
+                }
+                val repository =
+                    BatteryRepositoryImpl(
+                        repositoryContext,
+                        backgroundScope,
+                        testDispatcher,
+                        batteryController,
+                        systemSettingsRepository,
+                        logcatTableLogBuffer(this, "BatteryPercentModeTableLog"),
+                    )
+                val latest by collectLastValue(repository.showBatteryPercentMode)
+                testScope.runCurrent()
+                assertThat(latest).isEqualTo(BatteryRepository.SHOW_PERCENT_HIDDEN)
 
-            val latest by collectLastValue(underTest.isShowBatteryPercentSettingEnabled)
+                val observers = argumentCaptor<ContentObserver>()
+                verify(resolver, times(2)).registerContentObserver(
+                    any(), eq(false), observers.capture(), eq(UserHandle.USER_ALL)
+                )
+                val observer = observers.firstValue
+                percentMode = BatteryRepository.SHOW_PERCENT_INSIDE
+                observer.onChange(false)
+                testScope.runCurrent()
+                assertThat(latest).isEqualTo(BatteryRepository.SHOW_PERCENT_INSIDE)
 
-            assertThat(latest).isTrue()
+                percentMode = BatteryRepository.SHOW_PERCENT_NEXT_TO
+                observer.onChange(false)
+                testScope.runCurrent()
+                assertThat(latest).isEqualTo(BatteryRepository.SHOW_PERCENT_NEXT_TO)
 
-            fakeSystemSettingsRepository.setInt(Settings.System.SHOW_BATTERY_PERCENT, 0)
-
-            assertThat(latest).isFalse()
-
-            fakeSystemSettingsRepository.setInt(Settings.System.SHOW_BATTERY_PERCENT, 1)
-
-            assertThat(latest).isTrue()
+                percentMode = BatteryRepository.SHOW_PERCENT_HIDDEN
+                iconStyle = BatteryRepository.ICON_STYLE_TEXT
+                observer.onChange(false)
+                testScope.runCurrent()
+                assertThat(latest).isEqualTo(BatteryRepository.SHOW_PERCENT_NEXT_TO)
+            } finally {
+                session.finishMocking()
+            }
         }
 
     @Test

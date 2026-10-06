@@ -5447,6 +5447,10 @@ final class ActivityRecord extends WindowToken {
      *                this should become invisible.
      */
     void setVisibility(boolean visible) {
+        if (visible && mAtmService.mAppLockController != null
+                && mAtmService.mAppLockController.isLocked(packageName, mUserId)) {
+            visible = false;
+        }
         if (getParent() == null) {
             Slog.w(TAG_WM, "Attempted to set visibility of non-existing app token: " + token);
             return;
@@ -5459,6 +5463,9 @@ final class ActivityRecord extends WindowToken {
                 ActivityTaskManagerService.LAYOUT_REASON_VISIBILITY_CHANGED);
         mTaskSupervisor.getActivityMetricsLogger().notifyVisibilityChanged(this);
         mTaskSupervisor.mAppVisibilitiesChangedSinceLastPause = true;
+        if (mAtmService.mAppLockController != null) {
+            mAtmService.mAppLockController.onVisibilityChanged();
+        }
     }
 
     private void setVisibilityInner(boolean visible) {
@@ -5584,6 +5591,8 @@ final class ActivityRecord extends WindowToken {
      * @param fromTransition {@code true} if this is part of finishing a transition.
      */
     void commitVisibility(boolean visible, boolean performLayout, boolean fromTransition) {
+        if (visible && mAtmService.mAppLockController != null
+                && mAtmService.mAppLockController.isLocked(packageName, mUserId)) visible = false;
         // Reset the state of mVisibleSetFromTransferredStartingWindow since visibility is actually
         // been set by the app now.
         mVisibleSetFromTransferredStartingWindow = false;
@@ -5689,7 +5698,9 @@ final class ActivityRecord extends WindowToken {
      *         screenshot.
      */
     boolean shouldUseAppThemeSnapshot() {
-        return !mEnableRecentsScreenshot || forAllWindows(WindowState::isSecureLocked,
+        return (mAtmService.mAppLockController != null
+                && mAtmService.mAppLockController.isProtected(packageName, mUserId))
+                || !mEnableRecentsScreenshot || forAllWindows(WindowState::isSecureLocked,
                 true /* topToBottom */);
     }
 
@@ -5935,6 +5946,8 @@ final class ActivityRecord extends WindowToken {
     }
 
     boolean shouldBeVisibleUnchecked() {
+        if (mAtmService.mAppLockController != null
+                && mAtmService.mAppLockController.isLocked(packageName, mUserId)) return false;
         final Task rootTask = getRootTask();
         if (rootTask == null || !visibleIgnoringKeyguard) {
             return false;
@@ -7260,6 +7273,8 @@ final class ActivityRecord extends WindowToken {
     @Override
     void updateSurfaceVisibility(Transaction t) {
         final boolean visible = mVisible
+                && (mAtmService.mAppLockController == null
+                        || !mAtmService.mAppLockController.isLocked(packageName, mUserId))
                 // Ensure that the activity content is hidden when the decor surface is boosted to
                 // prevent UI redressing attack.
                 && (task == null || !task.isDecorSurfaceBoosted());

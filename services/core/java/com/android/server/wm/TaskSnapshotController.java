@@ -264,6 +264,7 @@ class TaskSnapshotController extends AbsAppSnapshotController<Task, TaskSnapshot
     @Nullable
     TaskSnapshot getSnapshot(int taskId, boolean isLowResolution,
             @TaskSnapshot.ReferenceFlags int usage) {
+        if (isAppLockProtected(taskId)) return null;
         return mCache.getSnapshot(taskId, isLowResolution
                 && mPersistInfoProvider.enableLowResSnapshots(), usage);
     }
@@ -275,6 +276,7 @@ class TaskSnapshotController extends AbsAppSnapshotController<Task, TaskSnapshot
     TaskSnapshot getSnapshot(int taskId,
             @TaskSnapshotManager.Resolution int retrieveResolution,
             @TaskSnapshot.ReferenceFlags int usage) {
+        if (isAppLockProtected(taskId)) return null;
         if (retrieveResolution == TaskSnapshotManager.RESOLUTION_LOW
                 && !mPersistInfoProvider.enableLowResSnapshots()) {
             retrieveResolution = TaskSnapshotManager.RESOLUTION_HIGH;
@@ -289,8 +291,28 @@ class TaskSnapshotController extends AbsAppSnapshotController<Task, TaskSnapshot
     @Nullable
     TaskSnapshot getSnapshotFromDisk(int taskId, int userId,
             boolean isLowResolution, @TaskSnapshot.ReferenceFlags int usage) {
-        return mCache.getSnapshotFromDisk(taskId, userId, isLowResolution
-                && mPersistInfoProvider.enableLowResSnapshots(), usage);
+        if (isAppLockProtected(taskId)) return null;
+        TaskSnapshot snapshot = mCache.getSnapshotFromDisk(taskId, userId, isLowResolution
+                && mPersistInfoProvider.enableLowResSnapshots(), TaskSnapshot.REFERENCE_NONE);
+        if (snapshot != null) {
+            AppLockController appLock = mService.mAtmService.mAppLockController;
+            if (isAppLockProtected(taskId) || (appLock != null
+                    && snapshot.getTopActivityComponent() != null
+                    && appLock.isProtected(snapshot.getTopActivityComponent().getPackageName(),
+                            userId))) {
+                snapshot.removeReference(TaskSnapshot.REFERENCE_NONE);
+                return null;
+            }
+            if (usage != TaskSnapshot.REFERENCE_NONE) snapshot.addReference(usage);
+        }
+        return snapshot;
+    }
+
+    private boolean isAppLockProtected(int taskId) {
+        synchronized (mService.mGlobalLock) {
+            AppLockController appLock = mService.mAtmService.mAppLockController;
+            return appLock != null && appLock.isTaskSnapshotProtected(taskId);
+        }
     }
 
     /**

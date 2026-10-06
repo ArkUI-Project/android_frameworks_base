@@ -626,6 +626,7 @@
     <protected-broadcast android:name="android.app.action.NOTIFICATION_CHANNEL_GROUP_BLOCK_STATE_CHANGED" />
     <protected-broadcast android:name="android.app.action.NOTIFICATION_LISTENER_ENABLED_CHANGED" />
     <protected-broadcast android:name="android.app.action.APP_BLOCK_STATE_CHANGED" />
+    <protected-broadcast android:name="android.app.action.APP_LOCK_STATE_CHANGED" />
 
     <protected-broadcast android:name="android.permission.GET_APP_GRANTED_URI_PERMISSIONS" />
     <protected-broadcast android:name="android.permission.CLEAR_APP_GRANTED_URI_PERMISSIONS" />
@@ -4415,6 +4416,10 @@
     <!-- @deprecated Use MANAGE_ACTIVITY_TASKS instead.
          @SystemApi @hide Allows an application to create/manage/remove stacks -->
     <permission android:name="android.permission.MANAGE_ACTIVITY_STACKS"
+        android:protectionLevel="signature" />
+
+    <!-- @hide Trusted credential verification and system application lock state. -->
+    <permission android:name="android.permission.MANAGE_APP_LOCK"
         android:protectionLevel="signature" />
 
     <!-- @SystemApi @hide Allows an application to create/manage/remove tasks -->

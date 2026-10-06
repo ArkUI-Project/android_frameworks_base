@@ -550,8 +550,8 @@ public class DozeSensorsTest extends SysuiTestCase {
         mTestableLooper.processAllMessages();
 
         // Using -1f, -1f based on the dummy values provided above.
-        verify(mCallback).onSensorPulse(eq(REASON_SENSOR_UDFPS_LONG_PRESS), eq(-1f), eq(-1f),
-                eq(mockEvent.values));
+        verify(mCallback).onSensorPulse(eq(REASON_SENSOR_UDFPS_LONG_PRESS), eq(true), eq(-1f),
+                eq(-1f), eq(mockEvent.values));
         assertFalse(udfpsLongPressSensor.mRegistered);
 
         verify(mSensorManager, times(1)).requestTriggerSensor(eq(udfpsLongPressSensor),

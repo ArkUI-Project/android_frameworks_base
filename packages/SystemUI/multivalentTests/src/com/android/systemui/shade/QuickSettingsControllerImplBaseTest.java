@@ -167,6 +167,7 @@ public class QuickSettingsControllerImplBaseTest extends SysuiTestCase {
     public void setup() {
         MockitoAnnotations.initMocks(this);
         when(mPanelViewControllerLazy.get()).thenReturn(mNotificationPanelViewController);
+        when(mSelectedUserInteractor.getSelectedUser()).thenReturn(MutableStateFlow(0));
         mStatusBarStateController = mKosmos.getStatusBarStateController();
 
         mKosmos.getFakeDeviceProvisioningRepository().setDeviceProvisioned(true);
@@ -274,7 +275,8 @@ public class QuickSettingsControllerImplBaseTest extends SysuiTestCase {
                 splitShadeStateController,
                 () -> mKosmos.getCommunalTransitionViewModel(),
                 () -> mLargeScreenHeaderHelper,
-                mWindowManagerProvider
+                mWindowManagerProvider,
+                mSelectedUserInteractor
         );
         mQsController.init();
 

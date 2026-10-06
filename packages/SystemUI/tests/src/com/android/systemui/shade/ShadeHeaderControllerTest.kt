@@ -1,5 +1,6 @@
 /*
  * Copyright (C) 2022 The Android Open Source Project
+ * Modified by the ArkUI Project in 2026 to follow the current battery view model API.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -59,7 +60,7 @@ import com.android.systemui.statusbar.phone.StatusIconContainer
 import com.android.systemui.statusbar.phone.StatusOverlayHoverListenerFactory
 import com.android.systemui.statusbar.phone.ui.StatusBarIconController
 import com.android.systemui.statusbar.phone.ui.TintedIconManager
-import com.android.systemui.statusbar.pipeline.battery.ui.viewmodel.batteryViewModelAlwaysShowPercentFactory
+import com.android.systemui.statusbar.pipeline.battery.ui.viewmodel.batteryViewModelBasedOnSettingFactory
 import com.android.systemui.statusbar.pipeline.battery.ui.viewmodel.batteryWithPercentViewModelFactory
 import com.android.systemui.statusbar.policy.Clock
 import com.android.systemui.statusbar.policy.FakeConfigurationController
@@ -204,7 +205,7 @@ class ShadeHeaderControllerTest : SysuiTestCase() {
                 Lazy { kosmos.shadeDisplaysRepository },
                 variableDateViewControllerFactory,
                 batteryMeterViewController,
-                kosmos.batteryViewModelAlwaysShowPercentFactory,
+                kosmos.batteryViewModelBasedOnSettingFactory,
                 kosmos.batteryWithPercentViewModelFactory,
                 dumpManager,
                 mShadeCarrierGroupControllerBuilder,

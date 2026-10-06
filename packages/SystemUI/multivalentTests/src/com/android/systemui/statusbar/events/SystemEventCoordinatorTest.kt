@@ -1,5 +1,6 @@
 /*
  * Copyright (C) 2023 The Android Open Source Project
+ * Modified by the ArkUI Project in 2026 to follow the current battery interactor API.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -34,7 +35,9 @@ import com.android.systemui.privacy.PrivacyItemController
 import com.android.systemui.privacy.PrivacyType
 import com.android.systemui.res.R
 import com.android.systemui.statusbar.featurepods.av.domain.interactor.AvControlsChipInteractor
+import com.android.systemui.statusbar.pipeline.battery.domain.interactor.batteryInteractor
 import com.android.systemui.statusbar.policy.BatteryController
+import com.android.systemui.testKosmos
 import com.android.systemui.util.mockito.any
 import com.android.systemui.util.mockito.argThat
 import com.android.systemui.util.time.FakeSystemClock
@@ -65,6 +68,7 @@ class SystemEventCoordinatorTest(flags: FlagsParameterization) : SysuiTestCase()
     private val fakeSystemClock = FakeSystemClock()
     private val testScope = TestScope(UnconfinedTestDispatcher())
     private val connectedDisplayInteractor = FakeConnectedDisplayInteractor()
+    private val kosmos = testKosmos()
 
     @Mock lateinit var batteryController: BatteryController
     @Mock lateinit var privacyController: PrivacyItemController
@@ -97,6 +101,7 @@ class SystemEventCoordinatorTest(flags: FlagsParameterization) : SysuiTestCase()
             SystemEventCoordinator(
                     fakeSystemClock,
                     batteryController,
+                    kosmos.batteryInteractor,
                     privacyController,
                     avControlsChipInteractor,
                     context,

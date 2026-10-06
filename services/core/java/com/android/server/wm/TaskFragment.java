@@ -1582,6 +1582,10 @@ class TaskFragment extends WindowContainer<WindowContainer> {
         if (next == null || !next.canResumeByCompat()) {
             return false;
         }
+        if (mAtmService.mAppLockController != null
+                && mAtmService.mAppLockController.interceptResume(next)) {
+            return false;
+        }
 
         next.delayedResume = false;
 

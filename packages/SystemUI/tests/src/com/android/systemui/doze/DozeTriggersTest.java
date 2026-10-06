@@ -359,7 +359,7 @@ public class DozeTriggersTest extends SysuiTestCase {
         when(mMachine.getState()).thenReturn(DozeMachine.State.DOZE_PULSING);
 
         // WHEN quick pick up is triggered
-        mTriggers.onSensor(DozeLog.REASON_SENSOR_QUICK_PICKUP, 100, 100, null);
+        mTriggers.onSensor(DozeLog.REASON_SENSOR_QUICK_PICKUP, false, 100, 100, null);
 
         // THEN don't request pulse
         verify(mMachine, never()).requestPulse(anyInt());
@@ -372,7 +372,7 @@ public class DozeTriggersTest extends SysuiTestCase {
         when(mMachine.getState()).thenReturn(DozeMachine.State.DOZE_PULSING_WITHOUT_UI);
 
         // WHEN quick pick up is triggered
-        mTriggers.onSensor(DozeLog.REASON_SENSOR_QUICK_PICKUP, 100, 100, null);
+        mTriggers.onSensor(DozeLog.REASON_SENSOR_QUICK_PICKUP, false, 100, 100, null);
 
         // THEN don't request pulse
         verify(mMachine, never()).requestPulse(anyInt());
@@ -385,7 +385,7 @@ public class DozeTriggersTest extends SysuiTestCase {
         when(mMachine.getState()).thenReturn(DozeMachine.State.DOZE_PULSING_AUTH_UI);
 
         // WHEN udpfs longpress is triggered
-        mTriggers.onSensor(DozeLog.REASON_SENSOR_QUICK_PICKUP, 100, 100, null);
+        mTriggers.onSensor(DozeLog.REASON_SENSOR_QUICK_PICKUP, false, 100, 100, null);
 
         // THEN don't request pulse
         verify(mMachine, never()).requestPulse(anyInt());
@@ -397,7 +397,7 @@ public class DozeTriggersTest extends SysuiTestCase {
         when(mMachine.getState()).thenReturn(DozeMachine.State.DOZE);
 
         // WHEN udfps longpress up is triggered
-        mTriggers.onSensor(DozeLog.REASON_SENSOR_UDFPS_LONG_PRESS, 100, 100, null);
+        mTriggers.onSensor(DozeLog.REASON_SENSOR_UDFPS_LONG_PRESS, false, 100, 100, null);
 
         // THEN request pulse
         verify(mMachine).requestPulse(DozeLog.REASON_SENSOR_UDFPS_LONG_PRESS);
@@ -410,7 +410,7 @@ public class DozeTriggersTest extends SysuiTestCase {
         when(mMachine.getState()).thenReturn(DozeMachine.State.DOZE_PULSING_WITHOUT_UI);
 
         // WHEN udpfs longpress is triggered
-        mTriggers.onSensor(DozeLog.PULSE_REASON_SENSOR_LONG_PRESS, 100, 100, null);
+        mTriggers.onSensor(DozeLog.PULSE_REASON_SENSOR_LONG_PRESS, false, 100, 100, null);
 
         // THEN don't request pulse
         verify(mMachine, never()).requestPulse(anyInt());
@@ -423,7 +423,7 @@ public class DozeTriggersTest extends SysuiTestCase {
         when(mMachine.getState()).thenReturn(DozeMachine.State.DOZE_PULSING_AUTH_UI);
 
         // WHEN udpfs longpress is triggered
-        mTriggers.onSensor(DozeLog.PULSE_REASON_SENSOR_LONG_PRESS, 100, 100, null);
+        mTriggers.onSensor(DozeLog.PULSE_REASON_SENSOR_LONG_PRESS, false, 100, 100, null);
 
         // THEN don't request pulse
         verify(mMachine, never()).requestPulse(anyInt());
@@ -436,7 +436,7 @@ public class DozeTriggersTest extends SysuiTestCase {
         when(mMachine.getState()).thenReturn(DozeMachine.State.DOZE_PULSING);
 
         // WHEN quick pick up is triggered
-        mTriggers.onSensor(DozeLog.PULSE_REASON_SENSOR_LONG_PRESS, 100, 100, null);
+        mTriggers.onSensor(DozeLog.PULSE_REASON_SENSOR_LONG_PRESS, false, 100, 100, null);
 
         // THEN don't request pulse
         verify(mMachine, never()).requestPulse(anyInt());
@@ -649,7 +649,7 @@ public class DozeTriggersTest extends SysuiTestCase {
         when(mHost.isPulsePending()).thenReturn(false);
         when(mMachine.isExecutingTransition()).thenReturn(true);
 
-        mTriggers.onSensor(DozeLog.REASON_SENSOR_UDFPS_LONG_PRESS, 100, 100, null);
+        mTriggers.onSensor(DozeLog.REASON_SENSOR_UDFPS_LONG_PRESS, false, 100, 100, null);
 
         // THEN pulse is dropped
         verify(mDozeLog).tracePulseDropped(anyString(), eq(null));

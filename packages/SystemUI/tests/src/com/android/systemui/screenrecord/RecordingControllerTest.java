@@ -277,7 +277,10 @@ public class RecordingControllerTest extends SysuiTestCase {
                         mKosmos);
         return () -> mInteractor.startRecording(
                 new ScreenRecordingParameters(null, ScreenRecordingAudioSource.NONE, 0,
-                        false));
+                        /* shouldShowTaps= */ false,
+                        /* lowQuality= */ false,
+                        /* longerDuration= */ false,
+                        /* hevc= */ false));
     }
 
     private Runnable stop() {

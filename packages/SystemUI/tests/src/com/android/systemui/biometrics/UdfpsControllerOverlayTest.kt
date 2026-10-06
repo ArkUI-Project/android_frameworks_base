@@ -1,5 +1,6 @@
 /*
  * Copyright (C) 2021 The Android Open Source Project
+ * Modified by the ArkUI Project in 2026 to supply the brightness mirror interactor.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -47,6 +48,7 @@ import com.android.systemui.power.domain.interactor.PowerInteractor
 import com.android.systemui.power.domain.interactor.powerInteractor
 import com.android.systemui.power.shared.model.WakeSleepReason
 import com.android.systemui.power.shared.model.WakefulnessState
+import com.android.systemui.settings.brightness.domain.interactor.brightnessMirrorShowingInteractor
 import com.android.systemui.shade.domain.interactor.ShadeInteractor
 import com.android.systemui.statusbar.policy.KeyguardStateController
 import com.android.systemui.testKosmos
@@ -135,6 +137,7 @@ class UdfpsControllerOverlayTest : SysuiTestCase() {
                 shadeInteractor,
                 udfpsOverlayInteractor,
                 powerInteractor,
+                kosmos.brightnessMirrorShowingInteractor,
                 testScope,
             )
         block()

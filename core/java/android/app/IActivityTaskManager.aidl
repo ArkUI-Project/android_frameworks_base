@@ -448,4 +448,15 @@ interface IActivityTaskManager {
      * @hide
      */
     void reportHandoffActivityData(in IBinder requestToken, in List<HandoffActivityData> data);
+
+    IBinder beginAppLockManagementAuthentication(int userId, in IBinder owner);
+    Bundle getAppLockAuthenticationInfo(in IBinder challenge);
+    IBinder completeAppLockAuthentication(in IBinder challenge);
+    void cancelAppLockAuthentication(in IBinder challenge);
+    void endAppLockManagementSession(in IBinder token);
+    Bundle getAppLockSettings(int userId, in IBinder token);
+    void setAppLockSettings(int userId, in IBinder token, in Bundle settings);
+    void lockAllAppLockPackages(int userId, in IBinder token);
+    boolean isAppLockPackageLocked(String packageName, int userId);
+    boolean shouldHideAppLockNotifications(String packageName, int userId);
 }

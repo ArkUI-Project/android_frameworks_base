@@ -169,6 +169,7 @@ import static com.android.server.notification.NotificationRecordLogger.Notificat
 import static com.google.common.collect.Iterables.getOnlyElement;
 import static com.google.common.truth.Truth.assertThat;
 import static com.google.common.truth.Truth.assertWithMessage;
+import static org.junit.Assert.assertArrayEquals;
 
 import static junit.framework.Assert.assertEquals;
 import static junit.framework.Assert.assertFalse;
@@ -216,6 +217,7 @@ import android.annotation.SuppressLint;
 import android.annotation.UserIdInt;
 import android.app.ActivityManager;
 import android.app.ActivityManagerInternal;
+import android.app.AppLockManagerInternal;
 import android.app.AlarmManager;
 import android.app.AppOpsManager;
 import android.app.AutomaticZenRule;
@@ -229,6 +231,8 @@ import android.app.Notification.Action;
 import android.app.Notification.MessagingStyle.Message;
 import android.app.NotificationChannel;
 import android.app.NotificationChannelGroup;
+import android.app.NotificationHistory;
+import android.app.NotificationHistory.HistoricalNotification;
 import android.app.NotificationManager;
 import android.app.NotificationManager.Policy;
 import android.app.PendingIntent;
@@ -348,6 +352,7 @@ import com.android.internal.logging.InstanceIdSequenceFake;
 import com.android.internal.logging.testing.UiEventLoggerFake;
 import com.android.internal.messages.nano.SystemMessageProto;
 import com.android.internal.statusbar.NotificationVisibility;
+import com.android.internal.util.test.FakeSettingsProvider;
 import com.android.internal.widget.LockPatternUtils;
 import com.android.modules.utils.TypedXmlPullParser;
 import com.android.modules.utils.TypedXmlSerializer;
@@ -594,6 +599,7 @@ public class NotificationManagerServiceTest extends UiServiceTestCase {
 
     @Mock
     NotificationAttentionHelper mAttentionHelper;
+    @Mock private AppLockManagerInternal mAppLockManager;
 
     private NotificationManagerService.WorkerHandler mWorkerHandler;
     private Handler mBroadcastsHandler;
@@ -682,8 +688,17 @@ public class NotificationManagerServiceTest extends UiServiceTestCase {
         doNothing().when(mContext).sendBroadcastMultiplePermissions(any(), any(), any(), any());
         doReturn(mContext).when(mContext).createContextAsUser(eq(mUser), anyInt());
 
-        TestableContentResolver cr = mock(TestableContentResolver.class);
-        when(mContext.getContentResolver()).thenReturn(cr);
+        // Keep the existing fake Android settings provider, and give the Lineage notification
+        // lights their own in-memory provider instead of reading or changing device settings.
+        clearLineageSettingsCaches();
+        TestableContentResolver cr = spy(mContext.getContentResolver());
+        cr.addProvider("lineagesettings", new FakeSettingsProvider() {
+            @Override
+            public Bundle call(String method, String arg, Bundle extras) {
+                return super.call(method, arg, extras != null ? extras : new Bundle());
+            }
+        });
+        doReturn(cr).when(mContext).getContentResolver();
         doNothing().when(cr).registerContentObserver(any(), anyBoolean(), any(), anyInt());
 
         when(mAppOpsManager.checkOpNoThrow(
@@ -820,10 +835,38 @@ public class NotificationManagerServiceTest extends UiServiceTestCase {
         initNMS(SystemService.PHASE_BOOT_COMPLETED);
     }
 
+    private static void clearLineageSettingsCaches() throws ReflectiveOperationException {
+        // LineageSettings caches providers just like android.provider.Settings, but does not
+        // expose clearProviderForTest(). Clear both the provider and values between fixtures.
+        for (String table : List.of("System", "Secure", "Global")) {
+            Class<?> settings = Class.forName("lineageos.providers.LineageSettings$" + table);
+            java.lang.reflect.Field holderField = settings.getDeclaredField("sProviderHolder");
+            holderField.setAccessible(true);
+            Object holder = holderField.get(null);
+            java.lang.reflect.Field lockField = holder.getClass().getDeclaredField("mLock");
+            lockField.setAccessible(true);
+            java.lang.reflect.Field providerField =
+                    holder.getClass().getDeclaredField("mContentProvider");
+            providerField.setAccessible(true);
+            synchronized (lockField.get(holder)) {
+                providerField.set(holder, null);
+            }
+            java.lang.reflect.Field cacheField = settings.getDeclaredField("sNameValueCache");
+            cacheField.setAccessible(true);
+            Object cache = cacheField.get(null);
+            java.lang.reflect.Field valuesField = cache.getClass().getDeclaredField("mValues");
+            valuesField.setAccessible(true);
+            synchronized (cache) {
+                ((Map<?, ?>) valuesField.get(cache)).clear();
+            }
+        }
+    }
+
     @SuppressLint("MissingPermission")
     private void initNMS(int upToBootPhase) throws Exception {
         mService = new TestableNotificationManagerService(mContext, mNotificationRecordLogger,
                 mNotificationInstanceIdSequence);
+        mService.setAppLockManager(mAppLockManager);
 
         // apps allowed as convos
         mService.setStringArrayResourceValue(PKG_O);
@@ -1041,6 +1084,7 @@ public class NotificationManagerServiceTest extends UiServiceTestCase {
             // Must remove static reference to this test object to prevent leak (b/261039202)
             mTestableLooper.remove(this);
         }
+        clearLineageSettingsCaches();
     }
 
     private ShortcutInfo createMockConvoShortcut() {
@@ -14062,6 +14106,163 @@ public class NotificationManagerServiceTest extends UiServiceTestCase {
         when(mAssistants.checkServiceTokenLocked(any())).thenReturn(assistant);
 
         assertFalse(mService.isVisibleToListener(sbn, 0, info));
+    }
+
+    @Test
+    public void testAppLockVisibilityAndRankingAreScopedToUser() {
+        NotificationRecord protectedRecord = new NotificationRecord(mContext,
+                generateSbn("private.app", 10000, 9, 0), mTestNotificationChannel);
+        NotificationRecord otherUserRecord = new NotificationRecord(mContext,
+                generateSbn("private.app", 110000, 9, 1), mTestNotificationChannel);
+        mService.addNotification(protectedRecord);
+        mService.addNotification(otherUserRecord);
+        when(mAppLockManager.shouldHideNotifications("private.app", 0)).thenReturn(true);
+        ManagedServices.ManagedServiceInfo info = mock(ManagedServices.ManagedServiceInfo.class);
+        when(info.enabledAndUserMatches(anyInt())).thenReturn(true);
+        assertFalse(mService.isVisibleToListener(protectedRecord.getSbn(), 0, info));
+        assertTrue(mService.isVisibleToListener(otherUserRecord.getSbn(), 0, info));
+        assertArrayEquals(new String[]{otherUserRecord.getKey()},
+                mService.makeRankingUpdateLocked(info).getRankingMap().getOrderedKeys());
+        assertEquals(2, mService.mNotificationList.size());
+        when(mAppLockManager.shouldHideNotifications("private.app", 0)).thenReturn(false);
+        assertTrue(mService.isVisibleToListener(protectedRecord.getSbn(), 0, info));
+    }
+
+    @Test
+    public void testAppLockRestoreUsesLatestRecordAndDoesNotCancelForegroundService() {
+        NotificationRecord original = generateNotificationRecord(mTestNotificationChannel,
+                71, "applock", null, false);
+        original.getNotification().flags |= FLAG_FOREGROUND_SERVICE;
+        mService.addNotification(original);
+        when(mAppLockManager.shouldHideNotifications(mPkg, original.getUserId())).thenReturn(true);
+        mService.updateAppLockNotifications(original.getUserId());
+        verify(mListeners).notifyAppLockHiddenLocked(original);
+        verify(mAttentionHelper).clearEffectsLocked(original.getKey());
+        assertSame(original, mService.getNotificationRecord(original.getKey()));
+        verify(mListeners, never()).notifyRemovedLocked(any(), anyInt(), any());
+
+        NotificationRecord latest = generateNotificationRecord(mTestNotificationChannel,
+                71, "applock", null, false);
+        latest.getNotification().extras.putString(Notification.EXTRA_TEXT, "latest message");
+        mService.mNotificationList.set(0, latest);
+        mService.mNotificationsByKey.put(latest.getKey(), latest);
+        when(mAppLockManager.shouldHideNotifications(mPkg, latest.getUserId())).thenReturn(false);
+        mService.updateAppLockNotifications(latest.getUserId());
+        verify(mListeners).notifyPostedLocked(latest, null);
+        verify(mListeners, never()).notifyPostedLocked(original, original);
+    }
+
+    @Test
+    public void testAppLockRestoresRevokedNotificationUriReadPermission() throws Exception {
+        NotificationChannel channel = new NotificationChannel("applock-uri", "Private media",
+                IMPORTANCE_DEFAULT);
+        channel.setSound(null, Notification.AUDIO_ATTRIBUTES_DEFAULT);
+        Uri uri = Uri.parse("content://private.app.notification/attachment/71");
+        Message attachment = new Message("private attachment", 0, "private sender");
+        attachment.setData("image/png", uri);
+        Notification notification = new Notification.Builder(mContext, channel.getId())
+                .setSmallIcon(android.R.drawable.sym_def_app_icon)
+                .setStyle(new Notification.MessagingStyle("").addMessage(attachment)).build();
+        NotificationRecord record = new NotificationRecord(mContext,
+                new StatusBarNotification(mPkg, mPkg, 71, "applock-uri", mUid, 0,
+                        notification, UserHandle.getUserHandleForUid(mUid), null, 0), channel);
+        mService.addNotification(record);
+
+        // Exercise the real listener posting and URI permission paths; only the grant store is fake.
+        NotificationListeners listeners = spy(mService.new NotificationListeners(mContext,
+                new Object(), new ManagedServices.UserProfiles(), mPackageManager));
+        ManagedServices.ManagedServiceInfo info = mock(ManagedServices.ManagedServiceInfo.class);
+        final String listenerPackage = mContext.getPackageName();
+        info.component = new ComponentName(listenerPackage, "UriListener");
+        info.userid = mUserId;
+        info.service = mock(INotificationListener.class);
+        when(info.enabledAndUserMatches(anyInt())).thenReturn(true);
+        doReturn(List.of(info)).when(listeners).getServices();
+        java.lang.reflect.Field field = NotificationManagerService.class.getDeclaredField("mListeners");
+        field.setAccessible(true);
+        field.set(mService, listeners);
+
+        java.util.concurrent.atomic.AtomicBoolean canRead =
+                new java.util.concurrent.atomic.AtomicBoolean(false);
+        doAnswer(invocation -> {
+            canRead.set(true);
+            return null;
+        }).when(mUgm).grantUriPermissionFromOwner(any(), eq(mUid),
+                eq(listenerPackage), eq(uri), anyInt(), anyInt(), anyInt());
+        doAnswer(invocation -> {
+            canRead.set(false);
+            return null;
+        }).when(mUgmInternal).revokeUriPermissionFromOwner(any(), isNull(), anyInt(), anyInt());
+        try {
+            listeners.notifyPostedLocked(record, null);
+            waitForIdle();
+            assertTrue("Listener must initially be able to read the attachment", canRead.get());
+            when(mAppLockManager.shouldHideNotifications(mPkg, record.getUserId())).thenReturn(true);
+            mService.updateAppLockNotifications(record.getUserId());
+            waitForIdle();
+            assertFalse("Locking must revoke the listener's attachment access", canRead.get());
+            verify(mUgmInternal).revokeUriPermissionFromOwner(eq(mPermOwner), isNull(),
+                    eq(~0), eq(UserHandle.getUserId(mUid)));
+            when(mAppLockManager.shouldHideNotifications(mPkg, record.getUserId())).thenReturn(false);
+            mService.updateAppLockNotifications(record.getUserId());
+            waitForIdle();
+            assertTrue("Unlocking must regrant the same unchanged attachment URI", canRead.get());
+            verify(mUgm, times(2)).grantUriPermissionFromOwner(any(), eq(mUid),
+                    eq(listenerPackage), eq(uri), anyInt(), anyInt(), anyInt());
+        } finally {
+            waitForIdle();
+            field.set(mService, mListeners);
+        }
+    }
+
+    @Test
+    public void testAppLockCancelledNotificationIsNotRestored() {
+        NotificationRecord record = generateNotificationRecord(mTestNotificationChannel);
+        mService.addNotification(record);
+        when(mAppLockManager.shouldHideNotifications(mPkg, record.getUserId())).thenReturn(true);
+        mService.updateAppLockNotifications(record.getUserId());
+        mService.mNotificationList.remove(record);
+        mService.mNotificationsByKey.remove(record.getKey());
+        when(mAppLockManager.shouldHideNotifications(mPkg, record.getUserId())).thenReturn(false);
+        mService.updateAppLockNotifications(record.getUserId());
+        verify(mListeners, never()).notifyPostedLocked(any(), any());
+    }
+
+    @Test
+    public void testAppLockActiveAndSnoozedQueriesPreserveOwnerNotifications() throws Exception {
+        NotificationRecord record = generateNotificationRecord(mTestNotificationChannel);
+        mService.addNotification(record);
+        when(mAppLockManager.shouldHideNotifications(mPkg, record.getUserId())).thenReturn(true);
+        ManagedServices.ManagedServiceInfo info = mock(ManagedServices.ManagedServiceInfo.class);
+        when(info.enabledAndUserMatches(anyInt())).thenReturn(true);
+        when(mListeners.checkServiceTokenLocked(any())).thenReturn(info);
+        when(mSnoozeHelper.getSnoozed()).thenReturn(List.of(record));
+        when(mSnoozeHelper.getSnoozed(record.getUserId(), mPkg)).thenReturn(List.of());
+        assertTrue(mBinderService.getActiveNotificationsFromListener(
+                mock(INotificationListener.class), null, -1).getList().isEmpty());
+        assertTrue(mBinderService.getSnoozedNotificationsFromListener(
+                mock(INotificationListener.class), -1).getList().isEmpty());
+        List<StatusBarNotification> ownerNotifications = mBinderService.getAppActiveNotifications(
+                mPkg, record.getUserId()).getList();
+        assertTrue(ownerNotifications.stream().anyMatch(sbn -> sbn.getKey().equals(record.getKey())));
+    }
+
+    @Test
+    public void testAppLockHistoryFiltersByPackageAndUserWithoutChangingStoredHistory() {
+        NotificationHistory history = new NotificationHistory();
+        history.addNotificationToWrite(new HistoricalNotification.Builder()
+                .setPackage("private.app").setUserId(0).setUid(10000)
+                .setChannelId("private").setTitle("secret").setText("secret body").build());
+        history.addNotificationToWrite(new HistoricalNotification.Builder()
+                .setPackage("private.app").setUserId(1).setUid(110000)
+                .setChannelId("other user").setTitle("other user's title").build());
+        when(mAppLockManager.shouldHideNotifications("private.app", 0)).thenReturn(true);
+        NotificationHistory visible = mService.filterAppLockHistory(history);
+        assertEquals(1, visible.getNotificationsToWrite().size());
+        assertEquals(1, visible.getNotificationsToWrite().get(0).getUserId());
+        assertEquals(2, history.getNotificationsToWrite().size());
+        when(mAppLockManager.shouldHideNotifications("private.app", 0)).thenReturn(false);
+        assertEquals(2, mService.filterAppLockHistory(history).getNotificationsToWrite().size());
     }
 
     @Test

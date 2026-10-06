@@ -1,0 +1,45 @@
+// SPDX-FileCopyrightText: 2026 The ArkUI Project
+// SPDX-License-Identifier: Apache-2.0
+
+package {
+    default_applicable_licenses: ["frameworks_base_license"],
+}
+
+android_test {
+    name: "ArkuiAppLockTests",
+    srcs: ["src/**/*.java"],
+    manifest: "AndroidManifest.xml",
+    platform_apis: true,
+    certificate: "platform",
+    static_libs: [
+        "androidx.test.runner",
+        "androidx.test.ext.junit",
+        "androidx.test.uiautomator_uiautomator",
+        "junit",
+    ],
+    test_suites: ["device-tests"],
+}
+
+android_test_helper_app {
+    name: "ArkuiAppLockTarget",
+    srcs: ["target/src/**/*.java"],
+    manifest: "target/AndroidManifest.xml",
+    platform_apis: true,
+    certificate: "platform",
+}
+
+android_test_helper_app {
+    name: "ArkuiAppLockSecondTarget",
+    srcs: ["target/src/**/*.java"],
+    manifest: "target/SecondAndroidManifest.xml",
+    platform_apis: true,
+    certificate: "platform",
+}
+
+android_test_helper_app {
+    name: "ArkuiAppLockSystemUiTarget",
+    srcs: ["systemui/src/**/*.java"],
+    manifest: "systemui/AndroidManifest.xml",
+    platform_apis: true,
+    certificate: "platform",
+}

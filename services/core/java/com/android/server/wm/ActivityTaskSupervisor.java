@@ -2744,6 +2744,9 @@ public class ActivityTaskSupervisor implements RecentTasks.Callbacks {
             try (var unused = mService.mActivityStateUpdater.startBatchSession()) {
                 computeProcessActivityStateBatch();
             }
+            if (mService.mAppLockController != null) {
+                mService.mAppLockController.onVisibilityChanged();
+            }
         }
     }
 
@@ -3000,6 +3003,10 @@ public class ActivityTaskSupervisor implements RecentTasks.Callbacks {
                     mWindowManager.executeAppTransition();
                     throw new IllegalArgumentException(
                             "startActivityFromRecents: Task " + taskId + " not found.");
+                }
+                if (mService.mAppLockController != null
+                        && mService.mAppLockController.interceptTask(task, activityOptions)) {
+                    return ActivityManager.START_TASK_TO_FRONT;
                 }
 
 

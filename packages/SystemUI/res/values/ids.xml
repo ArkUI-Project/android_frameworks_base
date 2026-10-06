@@ -311,4 +311,16 @@
     <item type="id" name="screen_off_animation_guard_set" />
     <item type="id" name="screen_off_animation_guard_reported_wtf" />
     <item type="id" name="screen_off_animation_guard_screen_off_updates" />
+    <item type="id" name="credential_pin_key_0" />
+    <item type="id" name="credential_pin_key_1" />
+    <item type="id" name="credential_pin_key_2" />
+    <item type="id" name="credential_pin_key_3" />
+    <item type="id" name="credential_pin_key_4" />
+    <item type="id" name="credential_pin_key_5" />
+    <item type="id" name="credential_pin_key_6" />
+    <item type="id" name="credential_pin_key_7" />
+    <item type="id" name="credential_pin_key_8" />
+    <item type="id" name="credential_pin_key_9" />
+    <item type="id" name="credential_pin_backspace" />
+    <item type="id" name="credential_pin_confirm" />
 </resources>

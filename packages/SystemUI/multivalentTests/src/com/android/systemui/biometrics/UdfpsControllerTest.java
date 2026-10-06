@@ -80,6 +80,7 @@ import com.android.systemui.power.data.repository.FakePowerRepository;
 import com.android.systemui.power.domain.interactor.PowerInteractor;
 import com.android.systemui.power.shared.model.WakeSleepReason;
 import com.android.systemui.power.shared.model.WakefulnessState;
+import com.android.systemui.settings.brightness.domain.interactor.BrightnessMirrorShowingInteractorKosmosKt;
 import com.android.systemui.shade.domain.interactor.ShadeInteractor;
 import com.android.systemui.statusbar.VibratorHelper;
 import com.android.systemui.statusbar.phone.ScreenOffAnimationController;
@@ -310,6 +311,8 @@ public class UdfpsControllerTest extends SysuiTestCase {
                 mPromptUdfpsTouchOverlayViewModel,
                 mUdfpsOverlayInteractor,
                 mPowerInteractor,
+                BrightnessMirrorShowingInteractorKosmosKt.getBrightnessMirrorShowingInteractor(
+                        mKosmos),
                 mock(CoroutineScope.class),
                 UserActivityNotifierKosmosKt.getUserActivityNotifier(mKosmos),
                 mWakefulnessLifecycle,

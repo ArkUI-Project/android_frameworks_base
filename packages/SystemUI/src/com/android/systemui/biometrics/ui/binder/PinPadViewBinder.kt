@@ -19,7 +19,6 @@ package com.android.systemui.biometrics.ui.binder
 
 import android.view.KeyEvent
 import android.widget.ImeAwareEditText
-import com.android.internal.widget.LockscreenCredential
 import com.android.systemui.res.R
 import com.android.systemui.biometrics.ui.CredentialPasswordView
 import com.android.systemui.biometrics.ui.IPinPad
@@ -36,21 +35,26 @@ object PinPadViewBinder {
             object : PinPadClickListener {
 
                 override fun onDigitKeyClick(digit: String?) {
+                    if (!passwordField.isEnabled || digit == null || digit.length != 1
+                        || digit[0] !in '0'..'9') return
                     passwordField.append(digit)
+                    passwordField.setSelection(passwordField.length())
                 }
 
                 override fun onBackspaceClick() {
-                    val pin = LockscreenCredential.createPinOrNone(passwordField.text)
-                    if (pin.size() > 0) {
-                        passwordField.text.delete(
-                            passwordField.selectionEnd - 1,
-                            passwordField.selectionEnd
-                        )
-                    }
-                    pin.zeroize()
+                    if (!passwordField.isEnabled) return
+                    val text = passwordField.text
+                    if (text.isEmpty()) return
+                    val end = if (passwordField.selectionEnd < 0) text.length
+                        else passwordField.selectionEnd.coerceIn(0, text.length)
+                    val start = if (passwordField.selectionStart < 0) end
+                        else passwordField.selectionStart.coerceIn(0, end)
+                    if (start < end) text.delete(start, end)
+                    else if (end > 0) text.delete(end - 1, end)
                 }
 
                 override fun onEnterKeyClick() {
+                    if (!passwordField.isEnabled) return
                     passwordField.dispatchKeyEvent(
                         KeyEvent(0, 0, KeyEvent.ACTION_DOWN, KeyEvent.KEYCODE_ENTER, 0)
                     )

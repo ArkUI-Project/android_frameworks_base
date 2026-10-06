@@ -224,10 +224,17 @@ abstract class AbsAppSnapshotController<TYPE extends WindowContainer<?>,
         if (type == ACTIVITY_TYPE_RECENTS || type == ACTIVITY_TYPE_DREAM) {
             return SNAPSHOT_MODE_NONE;
         }
+        final ActivityRecord topChild = getTopActivity(source);
+        final AppLockController appLock = mService.mAtmService.mAppLockController;
+        if (appLock != null && source.asTask() != null
+                && appLock.isTaskProtected(source.asTask())) return SNAPSHOT_MODE_APP_THEME;
+        if (appLock != null && topChild != null
+                && appLock.isProtected(topChild.packageName, topChild.mUserId)) {
+            return SNAPSHOT_MODE_APP_THEME;
+        }
         if (type == ACTIVITY_TYPE_HOME) {
             return SNAPSHOT_MODE_REAL;
         }
-        final ActivityRecord topChild = getTopActivity(source);
         if (topChild != null && topChild.shouldUseAppThemeSnapshot()) {
             return SNAPSHOT_MODE_APP_THEME;
         }

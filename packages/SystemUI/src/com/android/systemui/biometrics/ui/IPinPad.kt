@@ -22,7 +22,10 @@ package com.android.systemui.biometrics.ui
  * auth_credential_pin_view and specify the id as [pin_pad]
  */
 interface IPinPad {
-    fun setPinPadClickListener(pinPadClickListener: PinPadClickListener)
+    fun setPinPadClickListener(pinPadClickListener: PinPadClickListener?)
+
+    /** Enable all input keys together while credential verification is idle. */
+    fun setInputEnabled(enabled: Boolean) {}
 }
 
 /** The call back interface for onClick event in the view. */

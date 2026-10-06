@@ -830,6 +830,8 @@ public class ActivityTaskManagerService extends IActivityTaskManager.Stub {
     // Lineage sdk activity related helper
     private LineageActivityManager mLineageActivityManager;
 
+    AppLockController mAppLockController;
+
     private final class SettingObserver extends ContentObserver {
         private final Uri mFontScaleUri = Settings.System.getUriFor(FONT_SCALE);
         private final Uri mHideErrorDialogsUri = Settings.Global.getUriFor(HIDE_ERROR_DIALOGS);
@@ -905,9 +907,60 @@ public class ActivityTaskManagerService extends IActivityTaskManager.Stub {
             mTaskSupervisor.onSystemReady();
             mActivityClientController.onSystemReady();
             mAppWarnings.onSystemReady();
+            mAppLockController.systemReady();
             mGrammaticalManagerInternal = LocalServices.getService(
                     GrammaticalInflectionManagerInternal.class);
         }
+    }
+
+    @Override
+    public IBinder beginAppLockManagementAuthentication(int userId, IBinder owner) {
+        return mAppLockController.beginManagement(userId, owner);
+    }
+
+    @Override
+    public Bundle getAppLockAuthenticationInfo(IBinder challenge) {
+        return mAppLockController.authenticationInfo(challenge);
+    }
+
+    @Override
+    public IBinder completeAppLockAuthentication(IBinder challenge) {
+        return mAppLockController.completeAuthentication(challenge);
+    }
+
+    @Override
+    public void cancelAppLockAuthentication(IBinder challenge) {
+        mAppLockController.cancelAuthentication(challenge);
+    }
+
+    @Override
+    public void endAppLockManagementSession(IBinder token) {
+        mAppLockController.endManagement(token);
+    }
+
+    @Override
+    public Bundle getAppLockSettings(int userId, IBinder token) {
+        return mAppLockController.getSettings(userId, token);
+    }
+
+    @Override
+    public void setAppLockSettings(int userId, IBinder token, Bundle settings) {
+        mAppLockController.setSettings(userId, token, settings);
+    }
+
+    @Override
+    public void lockAllAppLockPackages(int userId, IBinder token) {
+        mAppLockController.lockAll(userId, token);
+    }
+
+    @Override
+    public boolean isAppLockPackageLocked(String pkg, int userId) {
+        return mAppLockController.queryLocked(pkg, userId, false);
+    }
+
+    @Override
+    public boolean shouldHideAppLockNotifications(String pkg, int userId) {
+        return mAppLockController.queryLocked(pkg, userId, true);
     }
 
     public void onInitPowerManagement() {
@@ -1045,6 +1098,7 @@ public class ActivityTaskManagerService extends IActivityTaskManager.Stub {
         mVrController = new VrController(mGlobalLock);
         mKeyguardController = mTaskSupervisor.getKeyguardController();
         mPackageConfigPersister = new PackageConfigPersister(mTaskSupervisor.mPersisterQueue, this);
+        mAppLockController = new AppLockController(this);
     }
 
     public void onActivityManagerInternalAdded() {
@@ -1226,6 +1280,7 @@ public class ActivityTaskManagerService extends IActivityTaskManager.Stub {
         @Override
         public void onUserUnlocked(@NonNull TargetUser user) {
             synchronized (mService.getGlobalLock()) {
+                mService.mAppLockController.onUserUnlocked(user.getUserIdentifier());
                 mService.mTaskSupervisor.onUserUnlocked(user.getUserIdentifier());
             }
         }
@@ -1233,6 +1288,7 @@ public class ActivityTaskManagerService extends IActivityTaskManager.Stub {
         @Override
         public void onUserStopped(@NonNull TargetUser user) {
             synchronized (mService.getGlobalLock()) {
+                mService.mAppLockController.onUserStopped(user.getUserIdentifier());
                 mService.mTaskSupervisor.mLaunchParamsPersister
                         .onCleanupUser(user.getUserIdentifier());
             }
@@ -2412,6 +2468,9 @@ public class ActivityTaskManagerService extends IActivityTaskManager.Stub {
             ActivityOptions realOptions = options != null
                     ? options.getOptions(mTaskSupervisor)
                     : null;
+            if (mAppLockController != null && mAppLockController.interceptTask(task, realOptions)) {
+                return;
+            }
             mTaskSupervisor.findTaskToMoveToFront(task, flags, realOptions, "moveTaskToFront",
                     false /* forceNonResizable */);
         } finally {
@@ -4548,6 +4607,9 @@ public class ActivityTaskManagerService extends IActivityTaskManager.Stub {
                         MATCH_ATTACHED_TASK_OR_RECENT_TASKS);
                 if (task == null || !task.isVisible()) {
                     Slog.w(TAG, "takeTaskSnapshot: taskId=" + taskId + " not found or not visible");
+                    return null;
+                }
+                if (mAppLockController != null && mAppLockController.isTaskProtected(task)) {
                     return null;
                 }
                 // Note that if updateCache is true, ActivityRecord#shouldUseAppThemeSnapshot will

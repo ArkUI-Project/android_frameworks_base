@@ -19,6 +19,7 @@ import com.android.systemui.biometrics.domain.model.BiometricPromptRequest
 import com.android.systemui.biometrics.promptInfo
 import com.android.systemui.biometrics.shared.model.BiometricUserInfo
 import com.android.systemui.flags.EnableSceneContainer
+import com.android.systemui.res.R
 import com.android.systemui.util.mockito.any
 import com.android.systemui.util.mockito.eq
 import com.android.systemui.util.mockito.whenever
@@ -199,8 +200,13 @@ class CredentialInteractorImplTest : SysuiTestCase() {
                 verify(lockPatternUtils)
                     .setLockoutAttemptDeadline(eq(credentialOwner), eq(result.timeout))
             } else { // failed
-                assertThat(failedResult.error)
-                    .matches(Regex("(.*)try again(.*)", RegexOption.IGNORE_CASE).toPattern())
+                val expectedError =
+                    mContext.getString(
+                        R.string.biometric_dialog_credential_attempts_before_wipe,
+                        usedAttempts + 1,
+                        MAX_ATTEMPTS,
+                    )
+                assertThat(failedResult.error).isEqualTo(expectedError)
                 assertThat(statusList).isEmpty()
 
                 verify(lockPatternUtils).reportFailedPasswordAttempt(eq(credentialOwner))

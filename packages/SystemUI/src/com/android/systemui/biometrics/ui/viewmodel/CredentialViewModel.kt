@@ -192,6 +192,19 @@ constructor(
         promptCredentialInteractor.resetVerificationError()
     }
 
+    /** PIN input lockout survives recreation of its view and verification coroutine. */
+    suspend fun getPinLockoutDeadline(header: CredentialHeaderViewModel): Long =
+        promptCredentialInteractor.getPinLockoutDeadline(header.asRequest())
+
+    fun showPinLockoutError(remainingMillis: Long) {
+        promptCredentialInteractor.setPinLockoutError(
+            applicationContext.getString(
+                R.string.biometric_dialog_credential_too_many_attempts,
+                (remainingMillis + 999L) / 1000L,
+            )
+        )
+    }
+
     /** Switch to the fallback view. */
     fun onSwitchToFallbackScreen() {
         promptSelectorInteractor.onSwitchToFallback()

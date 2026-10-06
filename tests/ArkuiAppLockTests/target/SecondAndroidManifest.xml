@@ -1,0 +1,24 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- SPDX-FileCopyrightText: 2026 The ArkUI Project; SPDX-License-Identifier: Apache-2.0 -->
+<manifest xmlns:android="http://schemas.android.com/apk/res/android"
+    package="com.android.test.arkui.applock.second">
+    <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
+    <uses-permission android:name="android.permission.MANAGE_APP_LOCK" />
+    <application android:label="Second app lock test target" android:theme="@android:style/Theme.Material.Light.NoActionBar">
+        <activity android:name="com.android.test.arkui.applock.target.TargetActivity"
+            android:exported="true">
+            <intent-filter>
+                <action android:name="android.intent.action.MAIN" />
+                <category android:name="android.intent.category.LAUNCHER" />
+            </intent-filter>
+        </activity>
+        <activity android:name="com.android.test.arkui.applock.target.SecondActivity"
+            android:exported="true" />
+        <provider android:name="com.android.test.arkui.applock.target.TargetProvider"
+            android:authorities="com.android.test.arkui.applock.second"
+            android:exported="true" />
+        <provider android:name="com.android.test.arkui.applock.target.PrivateProvider"
+            android:authorities="com.android.test.arkui.applock.second.private"
+            android:exported="false" android:grantUriPermissions="true" />
+    </application>
+</manifest>

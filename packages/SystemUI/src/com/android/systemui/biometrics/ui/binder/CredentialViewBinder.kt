@@ -61,6 +61,7 @@ object CredentialViewBinder {
         val cancelButton: Button? = view.findViewById(R.id.cancel_button)
         val emergencyButtonView: Button = view.requireViewById(R.id.emergencyCallButton)
         val fallbackButton: Button? = view.findViewById(R.id.fallback_button)
+        val hasPinPad = view.findViewById<View>(R.id.pin_pad) != null
 
         var errorTimer: Job? = null
 
@@ -132,7 +133,7 @@ object CredentialViewBinder {
                             errorView.visibility =
                                 if (hasError) {
                                     View.VISIBLE
-                                } else if (cancelButton != null) {
+                                } else if (cancelButton != null || hasPinPad) {
                                     View.INVISIBLE
                                 } else {
                                     View.GONE
@@ -160,7 +161,7 @@ object CredentialViewBinder {
 
                 launch {
                     viewModel.isBackButtonVisible.collect { visible ->
-                        backButton?.visibility = if (visible) View.VISIBLE else View.GONE
+                        backButton?.visibility = if (visible || hasPinPad) View.VISIBLE else View.GONE
                     }
                 }
 

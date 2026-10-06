@@ -1,5 +1,6 @@
 /*
  * Copyright (C) 2025 The Android Open Source Project
+ * Modified by the ArkUI Project in 2026 to supply the battery interactor coroutine scope.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -17,6 +18,7 @@
 package com.android.systemui.statusbar.pipeline.battery.domain.interactor
 
 import com.android.systemui.kosmos.Kosmos
+import com.android.systemui.kosmos.backgroundScope
 import com.android.systemui.statusbar.pipeline.battery.data.repository.batteryRepository
 
-val Kosmos.batteryInteractor by Kosmos.Fixture { BatteryInteractor(batteryRepository) }
+val Kosmos.batteryInteractor by Kosmos.Fixture { BatteryInteractor(batteryRepository, backgroundScope) }

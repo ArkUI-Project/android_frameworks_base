@@ -1,5 +1,6 @@
 /*
  * Copyright (C) 2021 The Android Open Source Project
+ * Modified by the ArkUI Project in 2026 to follow the current battery view model API.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -68,7 +69,7 @@ import com.android.systemui.statusbar.events.SystemStatusAnimationScheduler
 import com.android.systemui.statusbar.layout.mockStatusBarContentInsetsProvider
 import com.android.systemui.statusbar.phone.ui.StatusBarIconController
 import com.android.systemui.statusbar.phone.ui.TintedIconManager
-import com.android.systemui.statusbar.pipeline.battery.ui.viewmodel.batteryViewModelShowWhenChargingOrSettingFactory
+import com.android.systemui.statusbar.pipeline.battery.ui.viewmodel.batteryViewModelBasedOnSettingFactory
 import com.android.systemui.statusbar.pipeline.battery.ui.viewmodel.batteryWithPercentViewModelFactory
 import com.android.systemui.statusbar.policy.BatteryController
 import com.android.systemui.statusbar.policy.ConfigurationController
@@ -211,7 +212,7 @@ class KeyguardStatusBarViewControllerTest : SysuiTestCase() {
             iconManagerFactory,
             batteryMeterViewController,
             kosmos.batteryWithPercentViewModelFactory,
-            kosmos.batteryViewModelShowWhenChargingOrSettingFactory,
+            kosmos.batteryViewModelBasedOnSettingFactory,
             shadeViewStateProvider,
             keyguardStateController,
             keyguardBypassController,

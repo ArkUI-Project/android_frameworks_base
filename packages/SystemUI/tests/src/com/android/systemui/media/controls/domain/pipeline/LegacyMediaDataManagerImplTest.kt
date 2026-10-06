@@ -16,6 +16,7 @@
 
 package com.android.systemui.media.controls.domain.pipeline
 
+import android.app.AppLockManager
 import android.app.IUriGrantsManager
 import android.app.Notification
 import android.app.Notification.FLAG_NO_CLEAR
@@ -134,6 +135,7 @@ class LegacyMediaDataManagerImplTest : SysuiTestCase() {
     @Captor lateinit var sessionCallbackCaptor: ArgumentCaptor<(String) -> Unit>
     @Mock private lateinit var ugm: IUriGrantsManager
     @Mock private lateinit var imageSource: ImageDecoder.Source
+    @Mock private lateinit var appLockManager: AppLockManager
 
     private val kosmos = testKosmos().apply { mediaLogger = mockMediaLogger }
     private val testDispatcher = kosmos.testDispatcher
@@ -180,6 +182,7 @@ class LegacyMediaDataManagerImplTest : SysuiTestCase() {
                 keyguardUpdateMonitor = keyguardUpdateMonitor,
                 mediaDataLoader = { kosmos.mediaDataLoader },
                 mediaLogger = kosmos.mediaLogger,
+                appLockManager = appLockManager,
             )
         verify(mediaTimeoutListener).stateCallback = capture(stateCallbackCaptor)
         verify(mediaTimeoutListener).sessionCallback = capture(sessionCallbackCaptor)
@@ -236,6 +239,68 @@ class LegacyMediaDataManagerImplTest : SysuiTestCase() {
         staticMockSession.finishMocking()
         session.release()
         mediaDataManager.destroy()
+    }
+
+
+    @Test
+    fun testAppLockBlocksNewMediaNotification() {
+        whenever(appLockManager.shouldHideNotifications(PACKAGE_NAME, USER_ID)).thenReturn(true)
+        mediaDataManager.onNotificationAdded(KEY, mediaNotification)
+        testScope.runAllReady()
+        verify(listener, never()).onMediaDataLoaded(any(), any(), any(), anyBoolean())
+    }
+
+    @Test
+    fun testAppLockDoesNotConvertRemovedNotificationToResumePlayer() {
+        addNotificationAndLoad()
+        mediaDataManager.onMediaDataLoaded(
+            KEY, null, mediaDataCaptor.value.copy(resumeAction = Runnable {}),
+        )
+        reset(listener)
+        whenever(appLockManager.shouldHideNotifications(PACKAGE_NAME, USER_ID)).thenReturn(true)
+        mediaDataManager.onNotificationRemoved(KEY)
+        verify(listener).onMediaDataRemoved(eq(KEY), eq(false))
+        verify(listener, never()).onMediaDataLoaded(any(), any(), any(), anyBoolean())
+    }
+
+    @Test
+    fun testAppLockPurgesCachedResumePlayer() {
+        addResumeControlAndLoad(MediaDescription.Builder().setTitle(SESSION_TITLE).build())
+        reset(listener)
+        whenever(appLockManager.shouldHideNotifications(PACKAGE_NAME, USER_ID)).thenReturn(true)
+        mediaDataManager.onAppLockStateChanged(USER_ID)
+        verify(listener).onMediaDataRemoved(eq(PACKAGE_NAME), eq(false))
+        verify(listener, never()).onMediaDataLoaded(any(), any(), any(), anyBoolean())
+    }
+
+    @Test
+    fun testAppLockRejectsNotificationLoadCompletingAfterLock() {
+        mediaDataManager.onNotificationAdded(KEY, mediaNotification)
+        whenever(appLockManager.shouldHideNotifications(PACKAGE_NAME, USER_ID)).thenReturn(true)
+        mediaDataManager.onAppLockStateChanged(USER_ID)
+        testScope.runAllReady()
+        verify(listener, never()).onMediaDataLoaded(any(), any(), any(), anyBoolean())
+    }
+
+    @Test
+    fun testAppLockRejectsResumeLoadCompletingAfterLock() {
+        mediaDataManager.addResumptionControls(
+            USER_ID, MediaDescription.Builder().setTitle(SESSION_TITLE).build(),
+            Runnable {}, session.sessionToken, APP_NAME, pendingIntent, PACKAGE_NAME,
+        )
+        whenever(appLockManager.shouldHideNotifications(PACKAGE_NAME, USER_ID)).thenReturn(true)
+        mediaDataManager.onAppLockStateChanged(USER_ID)
+        testScope.runAllReady()
+        verify(listener, never()).onMediaDataLoaded(any(), any(), any(), anyBoolean())
+    }
+
+    @Test
+    fun testAppLockStateChangeForAnotherUserDoesNotRemoveMedia() {
+        addNotificationAndLoad()
+        reset(listener)
+        whenever(appLockManager.shouldHideNotifications(PACKAGE_NAME, USER_ID)).thenReturn(true)
+        mediaDataManager.onAppLockStateChanged(USER_ID + 10)
+        verify(listener, never()).onMediaDataRemoved(any(), anyBoolean())
     }
 
     @Test

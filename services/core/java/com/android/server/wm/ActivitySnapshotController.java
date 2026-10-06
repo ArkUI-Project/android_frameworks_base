@@ -146,6 +146,10 @@ class ActivitySnapshotController extends AbsAppSnapshotController<ActivityRecord
         if (activities.length == 0) {
             return null;
         }
+        AppLockController appLock = mService.mAtmService.mAppLockController;
+        if (appLock != null) for (ActivityRecord activity : activities) {
+            if (appLock.isProtected(activity.packageName, activity.mUserId)) return null;
+        }
         final UserSavedFile tmpUsf = findSavedFile(activities[0]);
         if (tmpUsf == null || tmpUsf.mActivityIds.size() != activities.length) {
             return null;

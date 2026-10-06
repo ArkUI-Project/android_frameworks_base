@@ -16,6 +16,7 @@
 
 package com.android.systemui.media.controls.domain.pipeline
 
+import android.app.AppLockManager
 import android.content.applicationContext
 import com.android.keyguard.keyguardUpdateMonitor
 import com.android.systemui.broadcast.broadcastDispatcher
@@ -31,6 +32,9 @@ import com.android.systemui.media.controls.util.mediaFlags
 import com.android.systemui.media.controls.util.mediaUiEventLogger
 import com.android.systemui.util.Utils
 import com.android.systemui.util.time.systemClock
+import org.mockito.kotlin.mock
+
+val Kosmos.mediaAppLockManager by Kosmos.Fixture { mock<AppLockManager>() }
 
 val Kosmos.mediaDataProcessor by
     Kosmos.Fixture {
@@ -54,5 +58,6 @@ val Kosmos.mediaDataProcessor by
             mediaDataRepository = mediaDataRepository,
             mediaDataLoader = { mediaDataLoader },
             mediaLogger = mediaLogger,
+            appLockManager = mediaAppLockManager,
         )
     }

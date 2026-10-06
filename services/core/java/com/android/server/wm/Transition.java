@@ -976,6 +976,19 @@ class Transition implements BLASTSyncEngine.TransactionReadyListener {
         mContainerFreezer.freeze(wc, change.mAbsoluteBounds);
     }
 
+    void clearAppLockSnapshots(AppLockController appLock, SurfaceControl.Transaction transaction) {
+        for (int i = 0; i < mChanges.size(); i++) {
+            ChangeInfo change = mChanges.valueAt(i);
+            SurfaceControl snapshot = change.mSnapshot;
+            if (snapshot != null && snapshot.isValid()
+                    && appLock.isSnapshotProtected(change.mContainer)) {
+                // Clearing the displayed buffer prevents later Shell alpha/reparent updates
+                // from restoring old pixels. Keep the surface for normal transition cleanup.
+                transaction.setBuffer(snapshot, (HardwareBuffer) null).hide(snapshot);
+            }
+        }
+    }
+
     /**
      * Records that a particular container has been reparented. This only effects windows that have
      * already been collected in the transition. This should be called before reparenting because
@@ -3215,6 +3228,10 @@ class Transition implements BLASTSyncEngine.TransactionReadyListener {
                 info.mIsMoveTaskToBack = true;
             }
             change.setFlags(info.getChangeFlags(target));
+            final AppLockController appLock = target.mWmService.mAtmService.mAppLockController;
+            if (appLock != null && appLock.isCaptureProtected(target)) {
+                change.setFlags(change.getFlags() | TransitionInfo.FLAG_APP_LOCK_PROTECTED);
+            }
             info.mReadyFlags = change.getFlags();
             change.setDisplayId(info.mDisplayId, getDisplayId(target));
 
@@ -4584,6 +4601,8 @@ class Transition implements BLASTSyncEngine.TransactionReadyListener {
         @Override
         public boolean freeze(@NonNull WindowContainer wc, @NonNull Rect bounds) {
             if (!wc.isVisibleRequested()) return false;
+            final AppLockController appLock = mController.mAtm.mAppLockController;
+            if (appLock != null && appLock.isCaptureProtected(wc)) return false;
 
             // Check if any parents have already been "frozen". If so, `wc` is already part of that
             // snapshot, so just skip it.

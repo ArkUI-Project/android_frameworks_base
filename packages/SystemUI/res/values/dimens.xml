@@ -1295,6 +1295,14 @@
     <dimen name="biometric_auth_icon_size">48dp</dimen>
     <dimen name="biometric_auth_back_button_size">40dp</dimen>
 
+    <!-- The lockscreen's native PIN keys inside the scrollable credential panel. -->
+    <dimen name="credential_pin_key_min_height">@dimen/num_pad_key_width</dimen>
+    <dimen name="credential_pin_key_spacing">12dp</dimen>
+    <dimen name="credential_pin_key_horizontal_spacing">@dimen/num_pad_key_margin_end</dimen>
+    <dimen name="credential_pin_input_min_height">80dp</dimen>
+    <dimen name="credential_pin_input_padding_bottom">24dp</dimen>
+    <dimen name="credential_pin_error_margin_bottom">12dp</dimen>
+
     <!-- Biometric Auth pattern view size, better to align keyguard_security_width -->
     <dimen name="biometric_auth_pattern_view_size">348dp</dimen>
     <dimen name="biometric_auth_pattern_view_max_size">348dp</dimen>

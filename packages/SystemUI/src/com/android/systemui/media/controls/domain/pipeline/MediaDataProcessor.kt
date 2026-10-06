@@ -17,6 +17,7 @@
 package com.android.systemui.media.controls.domain.pipeline
 
 import android.annotation.MainThread
+import android.app.AppLockManager
 import android.app.PendingIntent
 import android.content.BroadcastReceiver
 import android.content.Context
@@ -98,6 +99,7 @@ class MediaDataProcessor(
     private val mediaDataRepository: MediaDataRepository,
     private val mediaDataLoader: dagger.Lazy<MediaDataLoader>,
     private val mediaLogger: MediaLogger,
+    private val appLockManager: AppLockManager = AppLockManager(context),
 ) : CoreStartable {
 
     companion object {
@@ -185,6 +187,31 @@ class MediaDataProcessor(
             }
         }
 
+    private val appLockReceiver =
+        object : BroadcastReceiver() {
+            override fun onReceive(context: Context, intent: Intent) {
+                onAppLockStateChanged(intent.getIntExtra(Intent.EXTRA_USER_HANDLE, UserHandle.USER_ALL))
+            }
+        }
+
+    private fun shouldHideMedia(packageName: String, userId: Int): Boolean =
+        try {
+            appLockManager.shouldHideNotifications(packageName, userId)
+        } catch (e: RuntimeException) {
+            Log.w(TAG, "Cannot verify application lock state", e)
+            true
+        }
+
+    internal fun onAppLockStateChanged(userId: Int) {
+        Assert.isMainThread()
+        val toRemove =
+            mediaDataRepository.mediaEntries.value.filter {
+                (userId == UserHandle.USER_ALL || it.value.userId == userId) &&
+                    shouldHideMedia(it.value.packageName, it.value.userId)
+            }.keys.toList()
+        toRemove.forEach { removeEntry(it) }
+    }
+
     override fun start() {
         if (!SceneContainerFlag.isEnabled && !MediaControlsInComposeFlag.isEnabled) {
             return
@@ -194,6 +221,13 @@ class MediaDataProcessor(
 
         val suspendFilter = IntentFilter(Intent.ACTION_PACKAGES_SUSPENDED)
         broadcastDispatcher.registerReceiver(appChangeReceiver, suspendFilter, null, UserHandle.ALL)
+        broadcastDispatcher.registerReceiver(
+            appLockReceiver,
+            IntentFilter(AppLockManager.ACTION_APP_LOCK_STATE_CHANGED),
+            uiExecutor,
+            UserHandle.ALL,
+            permission = AppLockManager.PERMISSION,
+        )
 
         val uninstallFilter =
             IntentFilter().apply {
@@ -207,10 +241,15 @@ class MediaDataProcessor(
 
     fun destroy() {
         context.unregisterReceiver(appChangeReceiver)
+        broadcastDispatcher.unregisterReceiver(appLockReceiver)
         internalListeners.clear()
     }
 
     fun onNotificationAdded(key: String, sbn: StatusBarNotification) {
+        if (shouldHideMedia(sbn.packageName, sbn.normalizedUserId)) {
+            onAppLockStateChanged(sbn.normalizedUserId)
+            return
+        }
         if (useQsMediaPlayer && isMediaNotification(sbn)) {
             var isNewlyActiveEntry = false
             var isConvertingToActive = false
@@ -221,6 +260,7 @@ class MediaDataProcessor(
                 val temp =
                     MediaData()
                         .copy(
+                            userId = sbn.normalizedUserId,
                             packageName = sbn.packageName,
                             instanceId = instanceId,
                             createdTimestampMillis = systemClock.currentTimeMillis(),
@@ -263,6 +303,10 @@ class MediaDataProcessor(
         appIntent: PendingIntent,
         packageName: String,
     ) {
+        if (shouldHideMedia(packageName, userId)) {
+            onAppLockStateChanged(userId)
+            return
+        }
         // Resume controls don't have a notification key, so store by package name instead
         if (!mediaDataRepository.mediaEntries.value.containsKey(packageName)) {
             val instanceId = logger.getNewInstanceId()
@@ -277,6 +321,7 @@ class MediaDataProcessor(
             val resumeData =
                 MediaData()
                     .copy(
+                        userId = userId,
                         packageName = packageName,
                         resumeAction = action,
                         hasCheckedForResume = true,
@@ -331,6 +376,10 @@ class MediaDataProcessor(
      * after the event propagates through the internal listener pipeline.
      */
     private fun notifyMediaDataLoaded(key: String, oldKey: String?, info: MediaData) {
+        if (shouldHideMedia(info.packageName, info.userId)) {
+            removeEntry(key)
+            return
+        }
         internalListeners.forEach { it.onMediaDataLoaded(key, oldKey, info) }
     }
 
@@ -651,6 +700,10 @@ class MediaDataProcessor(
     fun onMediaDataLoaded(key: String, oldKey: String?, data: MediaData) =
         traceSection("MediaDataProcessor#onMediaDataLoaded") {
             Assert.isMainThread()
+            if (shouldHideMedia(data.packageName, data.userId)) {
+                removeEntry(key)
+                return@traceSection
+            }
             if (mediaDataRepository.mediaEntries.value.containsKey(key)) {
                 // Otherwise this was removed already
                 mediaDataRepository.addMediaEntry(key, data)
@@ -661,7 +714,10 @@ class MediaDataProcessor(
     fun onNotificationRemoved(key: String) {
         Assert.isMainThread()
         val removed = mediaDataRepository.removeMediaEntry(key) ?: return
-        if (keyguardUpdateMonitor.isUserInLockdown(removed.userId)) {
+        if (shouldHideMedia(removed.packageName, removed.userId)) {
+            notifyMediaDataRemoved(key)
+            logger.logMediaRemoved(removed.appUid, removed.packageName, removed.instanceId)
+        } else if (keyguardUpdateMonitor.isUserInLockdown(removed.userId)) {
             logger.logMediaRemoved(removed.appUid, removed.packageName, removed.instanceId)
         } else if (isAbleToResume(removed)) {
             convertToResumePlayer(key, removed)
@@ -691,6 +747,11 @@ class MediaDataProcessor(
      * [mediaDataRepository.mediaEntries] state before this function was called)
      */
     private fun handlePossibleRemoval(key: String, removed: MediaData) {
+        if (shouldHideMedia(removed.packageName, removed.userId)) {
+            notifyMediaDataRemoved(key)
+            logger.logMediaRemoved(removed.appUid, removed.packageName, removed.instanceId)
+            return
+        }
         val hasSession = removed.token != null
         if (hasSession && removed.semanticActions != null) {
             // The app was using session actions, and the session is still valid: keep player

@@ -7,6 +7,7 @@ import android.text.TextUtils
 import android.util.AttributeSet
 import android.view.View
 import android.view.WindowInsets
+import android.view.WindowManager
 import android.view.accessibility.AccessibilityManager
 import android.widget.LinearLayout
 import android.widget.TextView
@@ -52,7 +53,26 @@ class CredentialPasswordView(context: Context, attrs: AttributeSet?) :
         setOnApplyWindowInsetsListener(this)
     }
 
+    override fun onAttachedToWindow() {
+        super.onAttachedToWindow()
+        if (findViewById<View>(R.id.pin_pad) != null) {
+            applyPinSafeInsets(rootWindowInsets)
+            requestApplyInsets()
+        }
+    }
+
+    override fun onVisibilityAggregated(isVisible: Boolean) {
+        super.onVisibilityAggregated(isVisible)
+        if (isVisible && findViewById<View>(R.id.pin_pad) != null) {
+            applyPinSafeInsets(rootWindowInsets)
+        }
+    }
+
     override fun onApplyWindowInsets(v: View, insets: WindowInsets): WindowInsets {
+        if (findViewById<View>(R.id.pin_pad) != null) {
+            applyPinSafeInsets(insets)
+            return WindowInsets.CONSUMED
+        }
         val statusBarInsets: Insets = insets.getInsets(WindowInsets.Type.statusBars())
         val displayCutoutInsets: Insets = insets.getInsets(WindowInsets.Type.displayCutout())
         val keyboardInsets: Insets = insets.getInsets(WindowInsets.Type.ime())
@@ -85,6 +105,35 @@ class CredentialPasswordView(context: Context, attrs: AttributeSet?) :
             if (keyboardInsets.bottom == 0) navigationInsets.bottom else keyboardInsets.bottom,
         )
         return WindowInsets.CONSUMED
+    }
+
+    private fun applyPinSafeInsets(insets: WindowInsets?) {
+        val types = WindowInsets.Type.systemBars() or WindowInsets.Type.displayCutout()
+        // TYPE_KEYGUARD_DIALOG is above the status bar. Its dispatched InsetsState may only
+        // contain sources above that window, while maximumWindowMetrics includes the display's
+        // raw sources. Read the view's display so hidden bars, cutouts and side navigation are
+        // still respected when an ancestor consumes insets or no callback reaches this page.
+        val viewDisplay = display
+        val displayContext = if (viewDisplay != null && viewDisplay.displayId != context.displayId) {
+            context.createDisplayContext(viewDisplay)
+        } else {
+            context
+        }
+        val displayInsets = displayContext.getSystemService(WindowManager::class.java)
+            ?.maximumWindowMetrics?.windowInsets?.getInsetsIgnoringVisibility(types) ?: Insets.NONE
+        val safeInsets = Insets.max(
+            displayInsets,
+            Insets.max(
+                insets?.getInsetsIgnoringVisibility(types) ?: Insets.NONE,
+                rootWindowInsets?.getInsetsIgnoringVisibility(types) ?: Insets.NONE,
+            ),
+        )
+        // Replace the root padding once, rather than adding it to a previous callback or to
+        // descendant padding. Native PIN entry has no IME, so its animation is excluded.
+        if (paddingLeft != safeInsets.left || paddingTop != safeInsets.top ||
+            paddingRight != safeInsets.right || paddingBottom != safeInsets.bottom) {
+            setPadding(safeInsets.left, safeInsets.top, safeInsets.right, safeInsets.bottom)
+        }
     }
 }
 

@@ -94,6 +94,7 @@ class PopUpAnimationController {
     }
 
     private OnAnimationEndCallback mCallback;
+    // Initialized and accessed only on SurfaceAnimationThread.
     private Choreographer mChoreographer;
     private SurfaceControl.Transaction mFrameTransaction;
     private Task mTask;
@@ -184,9 +185,29 @@ class PopUpAnimationController {
         mService = wms;
         mBounds = new Rect();
         mLastAnimatingScale = -1.0f;
-        mSurfaceAnimationHandler.runWithScissors(() -> {
+    }
+
+    private Choreographer getSurfaceChoreographer() {
+        if (mChoreographer == null) {
             mChoreographer = Choreographer.getSfInstance();
-        }, 0L);
+        }
+        return mChoreographer;
+    }
+
+    private void runOnSurfaceAnimationThread(Runnable callback) {
+        if (mSurfaceAnimationHandler.getLooper().isCurrentThread()) {
+            callback.run();
+        } else {
+            mSurfaceAnimationHandler.post(callback);
+        }
+    }
+
+    private void postFrameCallback(Choreographer.FrameCallback callback) {
+        // Tasks are constructed under the WM lock. The surface thread can be waiting for
+        // that same lock to publish a frame, so never wait for its initialization here.
+        // Initialize on its Looper before use, including requests made just after construction.
+        runOnSurfaceAnimationThread(() ->
+                getSurfaceChoreographer().postFrameCallback(callback));
     }
 
     void setTask(Task task) {
@@ -244,13 +265,17 @@ class PopUpAnimationController {
     }
 
     private void scheduleApplyTransaction() {
-        if (!mApplyScheduled && mFrameTransaction != null) {
-            mChoreographer.postCallback(Choreographer.CALLBACK_TRAVERSAL,
-                    () -> {
-                        mApplyScheduled = false;
-                        applyFrameTransaction();
-                    }, null);
-            mApplyScheduled = true;
+        synchronized (mLock) {
+            if (!mApplyScheduled && mFrameTransaction != null) {
+                mApplyScheduled = true;
+                runOnSurfaceAnimationThread(() -> getSurfaceChoreographer().postCallback(
+                        Choreographer.CALLBACK_TRAVERSAL, () -> {
+                            synchronized (mLock) {
+                                mApplyScheduled = false;
+                            }
+                            applyFrameTransaction();
+                        }, null));
+            }
         }
     }
 
@@ -370,7 +395,7 @@ class PopUpAnimationController {
             // The closing guard must not hide the app while its first frame is queued.
             mIsAnimating = true;
         }
-        mChoreographer.postFrameCallback(mFrameExitCallback);
+        postFrameCallback(mFrameExitCallback);
     }
 
     private Point getPosition(float scale) {
@@ -481,7 +506,7 @@ class PopUpAnimationController {
         mCallback = callback;
         mIsAnimating = true;
         updateHyperOsPosition(startPos.x, startPos.y, startWinScale, startExpansion);
-        mChoreographer.postFrameCallback(mFrameToggleResizeCallback);
+        postFrameCallback(mFrameToggleResizeCallback);
     }
 
     private void startToggleResizeAnimation() {
@@ -637,7 +662,7 @@ class PopUpAnimationController {
         mWindowScale = winScale;
         mVelX = velX;
         mVelY = velY;
-        mChoreographer.postFrameCallback(mFrameCallback);
+        postFrameCallback(mFrameCallback);
     }
 
     private void startAnimations() {
@@ -932,7 +957,7 @@ class PopUpAnimationController {
                 synchronized (mCancelLock) {
                     mIsCancelling = true;
                 }
-                mChoreographer.postFrameCallback(mFrameCancelCallback);
+                postFrameCallback(mFrameCancelCallback);
             }
             return true;
         }

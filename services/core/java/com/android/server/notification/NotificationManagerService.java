@@ -213,6 +213,7 @@ import android.annotation.UserIdInt;
 import android.annotation.WorkerThread;
 import android.app.ActivityManager;
 import android.app.ActivityManagerInternal;
+import android.app.AppLockManagerInternal;
 import android.app.ActivityManagerInternal.ServiceNotificationPolicy;
 import android.app.ActivityTaskManager;
 import android.app.AlarmManager;
@@ -784,6 +785,9 @@ public class NotificationManagerService extends SystemService {
 
     private final UserProfiles mUserProfiles = new UserProfiles();
     private NotificationListeners mListeners;
+    private volatile AppLockManagerInternal mAppLockManager;
+    @GuardedBy("mNotificationLock")
+    private final ArraySet<String> mAppLockHiddenNotifications = new ArraySet<>();
     @VisibleForTesting
     NotificationAssistants mAssistants;
     private ConditionProviders mConditionProviders;
@@ -2728,6 +2732,7 @@ public class NotificationManagerService extends SystemService {
             mEnqueuedNotifications.clear();
             mNotificationList.clear();
             mNotificationsByKey.clear();
+            mAppLockHiddenNotifications.clear();
             mSummaryByGroupKey.clear();
         }
     }
@@ -3513,6 +3518,13 @@ public class NotificationManagerService extends SystemService {
                         LocalServices.getService(SecureLockDeviceServiceInternal.class);
             }
         } else if (phase == SystemService.PHASE_SYSTEM_SERVICES_READY) {
+            if (mAppLockManager == null) {
+                mAppLockManager = LocalServices.getService(AppLockManagerInternal.class);
+            }
+            if (mAppLockManager != null) {
+                mAppLockManager.addListener(userId ->
+                        mHandler.post(() -> updateAppLockNotifications(userId)));
+            }
             mDisplayManager = getContext().getSystemService(DisplayManager.class);
             mWindowManagerInternal = LocalServices.getService(WindowManagerInternal.class);
             mZenModeHelper.onSystemReady();
@@ -3988,6 +4000,9 @@ public class NotificationManagerService extends SystemService {
 
     @GuardedBy("mNotificationLock")
     protected void maybeRecordInterruptionLocked(NotificationRecord r) {
+        if (shouldHideAppLockNotification(r.getSbn())) {
+            return;
+        }
         if (r.isInterruptive() && !r.hasRecordedInterruption()) {
             String channelId = r.getChannel().getId();
             if (android.app.Flags.notificationClassificationUi()) {
@@ -5699,7 +5714,8 @@ public class NotificationManagerService extends SystemService {
                     final int N = mNotificationList.size();
                     for (int i = 0; i < N; i++) {
                         final StatusBarNotification sbn = mNotificationList.get(i).getSbn();
-                        if (currentUsers.contains(sbn.getUserId())) {
+                        if (currentUsers.contains(sbn.getUserId())
+                                && !shouldHideAppLockNotification(sbn)) {
                             tmp.add(sbn);
                         }
                     }
@@ -5815,6 +5831,11 @@ public class NotificationManagerService extends SystemService {
                 synchronized (mArchive) {
                     tmp = mArchive.getArray(mUm, count, includeSnoozed);
                 }
+                if (tmp != null) {
+                    tmp = Arrays.stream(tmp).filter(sbn ->
+                            !shouldHideAppLockNotification(sbn))
+                            .toArray(StatusBarNotification[]::new);
+                }
             }
             return tmp;
         }
@@ -5840,7 +5861,8 @@ public class NotificationManagerService extends SystemService {
                 IntArray currentUserIds = mUserProfiles.getCurrentProfileIds();
                 Trace.traceBegin(Trace.TRACE_TAG_SYSTEM_SERVER, "notifHistoryReadHistory");
                 try {
-                    return mHistoryManager.readNotificationHistory(currentUserIds.toArray());
+                    return filterAppLockHistory(mHistoryManager.readNotificationHistory(
+                            currentUserIds.toArray()));
                 } finally {
                     Trace.traceEnd(Trace.TRACE_TAG_SYSTEM_SERVER);
                 }
@@ -10409,7 +10431,7 @@ public class NotificationManagerService extends SystemService {
                     final int position = mRankingHelper.indexOf(mNotificationList, r);
 
                     int buzzBeepBlinkLoggingCode = 0;
-                    if (!r.isHidden()) {
+                    if (!r.isHidden() && !shouldHideAppLockNotification(r.getSbn())) {
                         if (notificationClassification()) {
                             if (mGroupHelper.isSummaryWithAllChildrenBundled(r, mNotificationList,
                                     mEnqueuedNotifications)) {
@@ -11029,6 +11051,7 @@ public class NotificationManagerService extends SystemService {
                     || visibilityChanged
                     || interruptiveChanged;
             if (interceptBefore && !record.isIntercepted()
+                    && !shouldHideAppLockNotification(record.getSbn())
                     && record.isNewEnoughForAlerting(System.currentTimeMillis())) {
 
                 mAttentionHelper.buzzBeepBlinkLocked(record,
@@ -11299,6 +11322,7 @@ public class NotificationManagerService extends SystemService {
      */
     @GuardedBy("mNotificationLock")
     private boolean removeFromNotificationListsLocked(NotificationRecord r) {
+        mAppLockHiddenNotifications.remove(r.getKey());
         // Remove from both lists, either list could have a separate Record for what is
         // effectively the same notification.
         boolean wasPosted = false;
@@ -11331,6 +11355,7 @@ public class NotificationManagerService extends SystemService {
             int rank, int count, boolean wasPosted, String listenerName,
             @ElapsedRealtimeLong long cancellationElapsedTimeMs) {
         final String canceledKey = r.getKey();
+        mAppLockHiddenNotifications.remove(canceledKey);
         mTtlHelper.cancelScheduledTimeoutLocked(r);
 
         // Record caller.
@@ -11434,7 +11459,7 @@ public class NotificationManagerService extends SystemService {
         }
 
         // Save it for users of getHistoricalNotifications(), unless the whole channel was deleted
-        if (reason != REASON_CHANNEL_REMOVED) {
+        if (reason != REASON_CHANNEL_REMOVED && !shouldHideAppLockNotification(r.getSbn())) {
             mArchive.record(getSbnForArchive(r, reason), reason);
         }
 
@@ -12502,8 +12527,68 @@ public class NotificationManagerService extends SystemService {
     }
 
     @VisibleForTesting
+    void setAppLockManager(AppLockManagerInternal appLockManager) {
+        mAppLockManager = appLockManager;
+    }
+
+    @VisibleForTesting
+    boolean shouldHideAppLockNotification(StatusBarNotification sbn) {
+        AppLockManagerInternal appLock = mAppLockManager;
+        if (appLock == null) {
+            appLock = LocalServices.getService(AppLockManagerInternal.class);
+        }
+        return appLock != null && appLock.shouldHideNotifications(
+                sbn.getPackageName(), sbn.getNormalizedUserId());
+    }
+
+    @VisibleForTesting
+    NotificationHistory filterAppLockHistory(NotificationHistory history) {
+        NotificationHistory visible = new NotificationHistory();
+        AppLockManagerInternal appLock = mAppLockManager;
+        if (appLock == null) {
+            appLock = LocalServices.getService(AppLockManagerInternal.class);
+        }
+        for (HistoricalNotification notification : history.getNotificationsToWrite()) {
+            if (appLock == null || !appLock.shouldHideNotifications(
+                    notification.getPackage(), notification.getUserId())) {
+                visible.addNotificationToWrite(notification);
+            }
+        }
+        visible.poolStringsFromNotifications();
+        return visible;
+    }
+
+    @VisibleForTesting
+    void updateAppLockNotifications(int userId) {
+        synchronized (mNotificationLock) {
+            for (NotificationRecord record : mNotificationList) {
+                if (record.getSbn().getNormalizedUserId() != userId) {
+                    continue;
+                }
+                if (shouldHideAppLockNotification(record.getSbn())) {
+                    mAttentionHelper.clearEffectsLocked(record.getKey());
+                    if (mAppLockHiddenNotifications.add(record.getKey())) {
+                        mListeners.notifyAppLockHiddenLocked(record);
+                    }
+                } else if (mAppLockHiddenNotifications.remove(record.getKey())) {
+                    // Resolve the current record, rather than saving a stale payload at lock time.
+                    // Locking revoked every URI grant. Treat restoration as a new delivery so
+                    // updateUriPermissions grants unchanged attachments and icons again.
+                    mListeners.notifyPostedLocked(record, null);
+                }
+            }
+        }
+    }
+
+    @VisibleForTesting
     boolean isVisibleToListener(StatusBarNotification sbn, int notificationType,
             ManagedServiceInfo listener) {
+        return !shouldHideAppLockNotification(sbn)
+                && isVisibleToListenerWithoutAppLock(sbn, notificationType, listener);
+    }
+
+    private boolean isVisibleToListenerWithoutAppLock(StatusBarNotification sbn,
+            int notificationType, ManagedServiceInfo listener) {
         if (!listener.enabledAndUserMatches(sbn.getUserId())) {
             return false;
         }
@@ -13062,9 +13147,21 @@ public class NotificationManagerService extends SystemService {
 
         private void notifySeen(final ManagedServiceInfo info,
                 final ArrayList<String> keys) {
+            ArrayList<String> visibleKeys = new ArrayList<>();
+            synchronized (mNotificationLock) {
+                for (String key : keys) {
+                    NotificationRecord record = mNotificationsByKey.get(key);
+                    if (record != null && !shouldHideAppLockNotification(record.getSbn())) {
+                        visibleKeys.add(key);
+                    }
+                }
+            }
+            if (visibleKeys.isEmpty()) {
+                return;
+            }
             final INotificationListener assistant = (INotificationListener) info.service;
             try {
-                assistant.onNotificationsSeen(keys);
+                assistant.onNotificationsSeen(visibleKeys);
             } catch (RemoteException ex) {
                 Slog.e(TAG, "unable to notify assistant (seen): " + info, ex);
             }
@@ -13314,7 +13411,11 @@ public class NotificationManagerService extends SystemService {
                 }
                 final INotificationListener assistant = (INotificationListener) info.service;
                 final StatusBarNotification sbnToPost = trimCache.ForListener(info);
-                mHandler.post(() -> callback.accept(assistant, sbnToPost));
+                mHandler.post(() -> {
+                    if (!shouldHideAppLockNotification(sbnToPost)) {
+                        callback.accept(assistant, sbnToPost);
+                    }
+                });
             }
         }
 
@@ -13962,9 +14063,7 @@ public class NotificationManagerService extends SystemService {
                         == PERMISSION_GRANTED;
             }
             final INotificationListener listener = (INotificationListener) info.service;
-            final NotificationRankingUpdate update;
             synchronized (mNotificationLock) {
-                update = makeRankingUpdateLocked(info);
                 updateUriPermissionsForActiveNotificationsLocked(info, true);
             }
             if (redactSensitiveNotificationsFromUntrustedListeners()
@@ -13996,7 +14095,8 @@ public class NotificationManagerService extends SystemService {
                 token = 0; // Will never be used as there is no completionListener.
             }
             try {
-                listener.onListenerConnected(update, completionListener, token);
+                listener.onListenerConnected(makeAppLockRankingUpdate(info),
+                        completionListener, token);
             } catch (RemoteException e) {
                 // we tried
             }
@@ -14335,6 +14435,13 @@ public class NotificationManagerService extends SystemService {
         @GuardedBy("mNotificationLock")
         List<Runnable> prepareNotifyPostedLocked(NotificationRecord r,
                 NotificationRecord old, boolean notifyAllListeners) {
+            if (shouldHideAppLockNotification(r.getSbn())) {
+                if (mAppLockHiddenNotifications.add(r.getKey()) && old != null) {
+                    mAttentionHelper.clearEffectsLocked(r.getKey());
+                    notifyAppLockHiddenLocked(r);
+                }
+                return new ArrayList<>();
+            }
             if (isInLockDownMode(r.getUser().getIdentifier())) {
                 return new ArrayList<>();
             }
@@ -14394,7 +14501,7 @@ public class NotificationManagerService extends SystemService {
                             if (info.isSystemUi()) {
                                 final NotificationRankingUpdate update =
                                         makeRankingUpdateLocked(info);
-                                listenerCalls.add(() -> notifyPosted(info, sbnToPost, update));
+                                listenerCalls.add(() -> notifyPosted(info, sbnToPost, update, r));
                                 break;
                             } else {
                                 // Skipping because this is the direct-reply "update" and we only
@@ -14448,7 +14555,7 @@ public class NotificationManagerService extends SystemService {
 
                     final StatusBarNotification sbnToPost = sendRedacted
                             ? redactedCache.ForListener(info) : trimCache.ForListener(info);
-                    listenerCalls.add(() -> notifyPosted(info, sbnToPost, update));
+                    listenerCalls.add(() -> notifyPosted(info, sbnToPost, update, r));
                 }
             } catch (Exception e) {
                 Slog.e(TAG, "Could not notify listeners for " + r.getKey(), e);
@@ -14668,6 +14775,27 @@ public class NotificationManagerService extends SystemService {
             mHandler.post(() -> updateUriPermissions(null, r, null, USER_SYSTEM));
         }
 
+        @GuardedBy("mNotificationLock")
+        void notifyAppLockHiddenLocked(NotificationRecord record) {
+            final StatusBarNotification sbn = record.getSbn();
+            // cloneLight can retain private extras and actions. Only the removal identity is needed.
+            final StatusBarNotification hidden = sbn.cloneShallow(new Notification());
+            for (ManagedServiceInfo info : getServices()) {
+                if (isVisibleToListenerWithoutAppLock(sbn, record.getNotificationType(), info)) {
+                    mHandler.post(() -> notifyRemoved(info, hidden,
+                            makeAppLockRankingUpdate(info), null, REASON_LOCKDOWN));
+                }
+            }
+            // Revoke immediately, so a queued unlock cannot grant access before this revocation.
+            updateUriPermissions(null, record, null, USER_SYSTEM);
+        }
+
+        private NotificationRankingUpdate makeAppLockRankingUpdate(ManagedServiceInfo info) {
+            synchronized (mNotificationLock) {
+                return makeRankingUpdateLocked(info);
+            }
+        }
+
         /**
          * Asynchronously notify all listeners about a reordering of notifications
          * unless changedHiddenNotifications is populated.
@@ -14822,6 +14950,25 @@ public class NotificationManagerService extends SystemService {
         @VisibleForTesting
         void notifyPosted(final ManagedServiceInfo info,
                 final StatusBarNotification sbn, NotificationRankingUpdate rankingUpdate) {
+            notifyPosted(info, sbn, rankingUpdate, null);
+        }
+
+        private void notifyPosted(final ManagedServiceInfo info,
+                final StatusBarNotification sbn, NotificationRankingUpdate rankingUpdate,
+                @Nullable NotificationRecord expectedRecord) {
+            if (shouldHideAppLockNotification(sbn)) {
+                return;
+            }
+            synchronized (mNotificationLock) {
+                if (expectedRecord != null
+                        && mNotificationsByKey.get(sbn.getKey()) != expectedRecord) {
+                    return;
+                }
+                // A brief unlock may publish before its state callback runs. Track delivery so
+                // a subsequent lock still removes that notification even if callbacks coalesce.
+                mAppLockHiddenNotifications.remove(sbn.getKey());
+                rankingUpdate = makeRankingUpdateLocked(info);
+            }
             final INotificationListener listener = (INotificationListener) info.service;
             final long token = getDispatchReportingToken(info, BINDER_TAG_ON_NOTIFICATION_POSTED);
             try {
@@ -14841,6 +14988,11 @@ public class NotificationManagerService extends SystemService {
         @VisibleForTesting
         void notifyRemoved(ManagedServiceInfo info, StatusBarNotification sbn,
                 NotificationRankingUpdate rankingUpdate, NotificationStats stats, int reason) {
+            if (shouldHideAppLockNotification(sbn)) {
+                sbn = sbn.cloneShallow(new Notification());
+                stats = null;
+            }
+            rankingUpdate = makeAppLockRankingUpdate(info);
             final INotificationListener listener = (INotificationListener) info.service;
             try {
                 if (!CompatChanges.isChangeEnabled(NOTIFICATION_CANCELLATION_REASONS, info.uid)
@@ -14871,6 +15023,7 @@ public class NotificationManagerService extends SystemService {
         @VisibleForTesting
         void notifyRankingUpdate(ManagedServiceInfo info,
                                          NotificationRankingUpdate rankingUpdate) {
+            rankingUpdate = makeAppLockRankingUpdate(info);
             final INotificationListener listener = (INotificationListener) info.service;
             final long token = getDispatchReportingToken(info,
                     BINDER_TAG_ON_NOTIFICATION_RANKING_UPDATE);

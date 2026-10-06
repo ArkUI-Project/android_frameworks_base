@@ -51,6 +51,9 @@ class FakeScreenRecordingService : IScreenRecordingService.Stub() {
         audioSource: Int,
         displayId: Int,
         shouldShowTaps: Boolean,
+        lowQuality: Boolean,
+        longerDuration: Boolean,
+        hevc: Boolean,
     ) {
         _status.value =
             Status.Started(
@@ -59,6 +62,9 @@ class FakeScreenRecordingService : IScreenRecordingService.Stub() {
                     audioSource = ScreenRecordingAudioSource.entries[audioSource],
                     displayId = displayId,
                     shouldShowTaps = shouldShowTaps,
+                    lowQuality = lowQuality,
+                    longerDuration = longerDuration,
+                    hevc = hevc,
                 )
             )
         _callback.value?.onRecordingStarted()

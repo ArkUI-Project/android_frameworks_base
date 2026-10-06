@@ -37,6 +37,9 @@ interface CredentialInteractor {
     /** Get parent user profile (if exists) */
     fun getParentProfileIdOrSelfId(userId: Int): Int
 
+    /** Saved primary-auth lockout deadline for the effective credential owner. */
+    fun getLockoutAttemptDeadline(userId: Int): Long = 0L
+
     /**
      * Verifies a credential and returns a stream of results.
      *
@@ -68,6 +71,18 @@ constructor(
 
     override fun getParentProfileIdOrSelfId(userId: Int): Int =
         userManager.getProfileParent(userId)?.id ?: userManager.getCredentialOwnerProfile(userId)
+
+    override fun getLockoutAttemptDeadline(userId: Int): Long {
+        val cachedDeadline = lockPatternUtils.getLockoutAttemptDeadline(userId)
+        // The software rate limiter can own the actual deadline even when the legacy
+        // LockPatternUtils API still uses a local cache. Respect both sources on re-entry.
+        val serviceDeadline = if (android.security.Flags.softwareRatelimiter()) {
+            lockPatternUtils.getLockoutEndTime(userId)?.toMillis() ?: 0L
+        } else {
+            0L
+        }
+        return maxOf(cachedDeadline, serviceDeadline)
+    }
 
     override fun verifyCredential(
         request: BiometricPromptRequest.Credential,

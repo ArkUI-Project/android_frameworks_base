@@ -218,6 +218,7 @@ class ActivityEmbeddingAnimationAdapter {
 
         @Override
         void onAnimationEnd(@NonNull SurfaceControl.Transaction t) {
+            com.android.wm.shell.common.AppLockSnapshotGuard.forget(mLeash);
             super.onAnimationEnd(t);
             // Remove the screenshot leash after animation is finished.
             if (mLeash.isValid()) {

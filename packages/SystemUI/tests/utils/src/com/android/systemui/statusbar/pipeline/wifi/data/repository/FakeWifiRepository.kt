@@ -51,6 +51,10 @@ class FakeWifiRepository : WifiRepository {
         // No op
     }
 
+    override fun disableWifi() {
+        // No op
+    }
+
     override fun pauseWifi() {
         // No op
     }

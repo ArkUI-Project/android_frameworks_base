@@ -45,6 +45,7 @@ import androidx.annotation.Nullable;
 
 import com.android.internal.annotations.VisibleForTesting;
 import com.android.wm.shell.activityembedding.ActivityEmbeddingAnimationAdapter.SnapshotAdapter;
+import com.android.wm.shell.common.AppLockSnapshotGuard;
 import com.android.wm.shell.common.ScreenshotUtils;
 import com.android.wm.shell.shared.TransitionUtil;
 
@@ -286,6 +287,7 @@ class ActivityEmbeddingAnimationRunner {
             final Animation animation =
                     animationProvider.get(info, change, closingWholeScreenBounds);
             if (shouldUseJumpCutForAnimation(animation)) {
+                discardSnapshotAdapters(adapters, startTransaction);
                 return new ArrayList<>();
             }
             final ActivityEmbeddingAnimationAdapter adapter = createOpenCloseAnimationAdapter(
@@ -416,6 +418,7 @@ class ActivityEmbeddingAnimationRunner {
             // Jump cut if either animation has zero for duration.
             for (Animation animation : animations) {
                 if (shouldUseJumpCutForAnimation(animation)) {
+                    discardSnapshotAdapters(adapters, startTransaction);
                     return new ArrayList<>();
                 }
             }
@@ -472,6 +475,7 @@ class ActivityEmbeddingAnimationRunner {
                 shouldShowBackgroundColor = false;
             }
             if (shouldUseJumpCutForAnimation(animation)) {
+                discardSnapshotAdapters(adapters, startTransaction);
                 return new ArrayList<>();
             }
             adapters.add(new ActivityEmbeddingAnimationAdapter(animation, change,
@@ -509,6 +513,13 @@ class ActivityEmbeddingAnimationRunner {
                 parentEndAbsPosition.y + endParentSize.y);
     }
 
+    private static void discardSnapshotAdapters(List<ActivityEmbeddingAnimationAdapter> adapters,
+            SurfaceControl.Transaction transaction) {
+        for (ActivityEmbeddingAnimationAdapter adapter : adapters) {
+            if (adapter instanceof SnapshotAdapter) adapter.onAnimationEnd(transaction);
+        }
+    }
+
     /**
      * Takes a screenshot of the given {@code screenshotChange} surface if WM Core hasn't taken one.
      * The screenshot leash should be attached to the {@code animationChange} surface which we will
@@ -518,19 +529,29 @@ class ActivityEmbeddingAnimationRunner {
     private SurfaceControl getOrCreateScreenshot(@NonNull TransitionInfo.Change screenshotChange,
             @NonNull TransitionInfo.Change animationChange,
             @NonNull SurfaceControl.Transaction t) {
-        final SurfaceControl screenshotLeash = screenshotChange.getSnapshot();
-        if (screenshotLeash != null) {
-            // If WM Core has already taken a screenshot, make sure it is reparented to the
-            // animation leash.
-            t.reparent(screenshotLeash, animationChange.getLeash());
-            return screenshotLeash;
-        }
+        if (screenshotChange.hasFlags(TransitionInfo.FLAG_APP_LOCK_PROTECTED)) return null;
+        AppLockSnapshotGuard.beginCapture();
+        try {
+            final SurfaceControl screenshotLeash = screenshotChange.getSnapshot();
+            if (screenshotLeash != null) {
+                // If WM Core has already taken a screenshot, make sure it is reparented to the
+                // animation leash.
+                t.reparent(screenshotLeash, animationChange.getLeash());
+                AppLockSnapshotGuard.track(screenshotLeash);
+                return screenshotLeash;
+            }
 
-        // If WM Core hasn't taken a screenshot, take a screenshot now.
-        final Rect cropBounds = new Rect(screenshotChange.getStartAbsBounds());
-        cropBounds.offsetTo(0, 0);
-        return ScreenshotUtils.takeScreenshot(t, screenshotChange.getLeash(),
-                animationChange.getLeash(), cropBounds, Integer.MAX_VALUE);
+            // If WM Core hasn't taken a screenshot, take a screenshot now.
+            final Rect cropBounds = new Rect(screenshotChange.getStartAbsBounds());
+            cropBounds.offsetTo(0, 0);
+            SurfaceControl screenshot = ScreenshotUtils.takeScreenshot(t,
+                    screenshotChange.getLeash(), animationChange.getLeash(), cropBounds,
+                    Integer.MAX_VALUE);
+            AppLockSnapshotGuard.track(screenshot);
+            return screenshot;
+        } finally {
+            AppLockSnapshotGuard.endCapture();
+        }
     }
 
     /**

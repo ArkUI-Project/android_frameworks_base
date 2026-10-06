@@ -140,6 +140,16 @@ constructor(
     private val _verificationError = MutableStateFlow<CredentialStatus.Fail?>(null)
     val verificationError: Flow<CredentialStatus.Fail?> = _verificationError.asStateFlow()
 
+    /** Query the same LockPatternUtils instance that records verification lockouts. */
+    suspend fun getPinLockoutDeadline(request: BiometricPromptRequest.Credential): Long =
+        withContext(bgDispatcher) {
+            credentialInteractor.getLockoutAttemptDeadline(request.userInfo.deviceCredentialOwnerId)
+        }
+
+    fun setPinLockoutError(error: String) {
+        _verificationError.value = CredentialStatus.Fail.Throttled(error)
+    }
+
     /**
      * Check a credential and return the attestation token (HAT) if successful.
      *

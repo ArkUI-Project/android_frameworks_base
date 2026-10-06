@@ -73,6 +73,7 @@ import com.android.internal.app.SuspendedAppActivity;
 import com.android.internal.app.UnlaunchableAppActivity;
 import com.android.server.LocalServices;
 import com.android.server.am.ActivityManagerService;
+import com.android.server.am.PendingIntentRecord;
 import com.android.server.wm.ActivityInterceptorCallback.ActivityInterceptResult;
 
 /**
@@ -130,6 +131,20 @@ class ActivityStartInterceptor {
      * Whether the component is specified originally in the given Intent.
      */
     boolean mComponentSpecified;
+    IBinder mAppLockChallenge;
+    boolean mAppLockReuseConfirmation;
+    private ActivityRecord mAppLockResult;
+    private String mAppLockResultWho;
+    private int mAppLockRequestCode = -1;
+    private boolean mAppLockAllowed = true;
+
+    void setAppLockAllowed(boolean allowed) { mAppLockAllowed = allowed; }
+
+    void setAppLockResult(ActivityRecord record, String who, int requestCode) {
+        mAppLockResult = record;
+        mAppLockResultWho = who;
+        mAppLockRequestCode = requestCode;
+    }
 
     ActivityStartInterceptor(
             ActivityTaskManagerService service, ActivityTaskSupervisor supervisor) {
@@ -156,6 +171,10 @@ class ActivityStartInterceptor {
         mStartFlags = startFlags;
         mCallingPackage = callingPackage;
         mCallingFeatureId = callingFeatureId;
+        mAppLockResult = null;
+        mAppLockResultWho = null;
+        mAppLockRequestCode = -1;
+        mAppLockAllowed = true;
     }
 
     private IntentSender createIntentSenderForOriginalIntent(int callingUid, int flags) {
@@ -235,6 +254,8 @@ class ActivityStartInterceptor {
         mActivityOptions = activityOptions;
         mPresumableLaunchDisplayArea = presumableLaunchDisplayArea;
         mComponentSpecified = componentSpecified;
+        mAppLockChallenge = null;
+        mAppLockReuseConfirmation = false;
 
         if (interceptQuietProfileIfNeeded()) {
             // If work profile is turned off, skip the work challenge since the profile can only
@@ -255,6 +276,9 @@ class ActivityStartInterceptor {
             return true;
         }
         if (interceptLockedProfileIfNeeded()) {
+            return true;
+        }
+        if (interceptAppLockIfNeeded()) {
             return true;
         }
         if (interceptHomeIfNeeded()) {
@@ -485,6 +509,45 @@ class ActivityStartInterceptor {
         newIntent.putExtra(EXTRA_PACKAGE_NAME, aInfo.packageName);
         newIntent.putExtra(EXTRA_INTENT, target);
         return newIntent;
+    }
+
+    private boolean interceptAppLockIfNeeded() {
+        final AppLockController controller = mService.mAppLockController;
+        if (!mAppLockAllowed || controller == null || mAInfo == null
+                || !controller.isLocked(mAInfo.packageName, mUserId)) return false;
+        final ActivityOptions originalOptions = mActivityOptions == null
+                ? ActivityOptions.makeBasic()
+                : ActivityOptions.fromBundle(new android.os.Bundle(mActivityOptions.toBundle()));
+        originalOptions.setPendingIntentCreatorBackgroundActivityStartMode(
+                MODE_BACKGROUND_ACTIVITY_START_ALLOWED);
+        if (mInTask != null) originalOptions.setLaunchTaskId(mInTask.mTaskId);
+        final Intent originalIntent = new Intent(mIntent);
+        originalIntent.removeFlags(Intent.FLAG_ACTIVITY_FORWARD_RESULT);
+        final IIntentSender sender = mService.getIntentSenderLocked(INTENT_SENDER_ACTIVITY,
+                mCallingPackage, mCallingFeatureId, mCallingUid, mUserId, null, null,
+                controller.nextRequestId(), new Intent[] { originalIntent },
+                new String[] { mResolvedType }, FLAG_ONE_SHOT | FLAG_IMMUTABLE,
+                originalOptions.toBundle());
+        final int displayId = mPresumableLaunchDisplayArea == null
+                ? android.view.Display.DEFAULT_DISPLAY
+                : mPresumableLaunchDisplayArea.getDisplayId();
+        mIntent = controller.interceptLaunch(mAInfo.packageName, mUserId,
+                (PendingIntentRecord) sender, mInTask, displayId,
+                mAppLockResult == null ? null : mAppLockResult.token,
+                mAppLockResultWho, mAppLockRequestCode);
+        mAppLockChallenge = mIntent.getExtras().getBinder(
+                android.app.AppLockManager.EXTRA_CHALLENGE);
+        mAppLockReuseConfirmation = controller.canReuseConfirmation(mAppLockChallenge);
+        mInTask = null;
+        mInTaskFragment = null;
+        mCallingPid = mRealCallingPid;
+        mCallingUid = mRealCallingUid;
+        mResolvedType = null;
+        mActivityOptions = ActivityOptions.makeBasic().setLaunchDisplayId(displayId);
+        mRInfo = mSupervisor.resolveIntent(mIntent, null, mUserId, 0,
+                mRealCallingUid, mRealCallingPid);
+        mAInfo = mSupervisor.resolveActivity(mIntent, mRInfo, mStartFlags, null);
+        return true;
     }
 
     private boolean interceptHarmfulAppIfNeeded() {

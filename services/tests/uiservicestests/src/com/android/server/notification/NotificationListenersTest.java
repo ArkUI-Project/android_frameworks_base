@@ -51,6 +51,7 @@ import static org.mockito.ArgumentMatchers.anyLong;
 import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.ArgumentMatchers.intThat;
+import static org.mockito.ArgumentMatchers.isNull;
 import static org.mockito.ArgumentMatchers.nullable;
 import static org.mockito.Mockito.atLeast;
 import static org.mockito.Mockito.doAnswer;
@@ -65,6 +66,7 @@ import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
 import android.annotation.SuppressLint;
+import android.app.AppLockManagerInternal;
 import android.app.IBinderSession;
 import android.app.INotificationManager;
 import android.app.Notification;
@@ -139,6 +141,7 @@ public class NotificationListenersTest extends UiServiceTestCase {
     private IPackageManager miPm;
     @Mock
     private Resources mResources;
+    @Mock private AppLockManagerInternal mAppLockManager;
 
     // mNm is going to be a spy, so it must use doReturn.when, not when.thenReturn, as
     // when.thenReturn will result in the real method being called
@@ -159,6 +162,9 @@ public class NotificationListenersTest extends UiServiceTestCase {
     public void setUp() throws Exception {
         mNm = spy(new NotificationManagerService(mContext));
         MockitoAnnotations.initMocks(this);
+        mNm.setAppLockManager(mAppLockManager);
+        mNm.mAttentionHelper = mock(NotificationAttentionHelper.class);
+        doReturn(false).when(mNm).isInLockDownMode(anyInt());
         getContext().setMockPackageManager(mPm);
         doNothing().when(mContext).sendBroadcastAsUser(any(), any(), any());
 
@@ -458,6 +464,115 @@ public class NotificationListenersTest extends UiServiceTestCase {
             IBinderSession iBinderSession) {
         return mListeners.new ManagedServiceInfo(mock(INotificationListener.class), mCn1,
                 TEST_USER_ID, false, null, TARGET_SDK_VERSION, TEST_UID, iBinderSession);
+    }
+
+    private NotificationRecord appLockRecord(String text) {
+        NotificationChannel channel = new NotificationChannel("applock", "App lock",
+                NotificationManager.IMPORTANCE_DEFAULT);
+        // These tests exercise listener dispatch. The default channel sound is a content URI
+        // whose grants require the fully initialized NMS used by the separate URI tests.
+        channel.setSound(null, null);
+        Notification notification = new Notification.Builder(mContext, channel.getId())
+                .setSmallIcon(android.R.drawable.sym_def_app_icon)
+                .setContentTitle(text).setContentText(text).build();
+        return new NotificationRecord(mContext, new StatusBarNotification("private.app",
+                "private.app", 71, "applock", TEST_UID, 0, notification,
+                UserHandle.of(TEST_USER_ID), null, System.currentTimeMillis()), channel);
+    }
+
+    private ManagedServices.ManagedServiceInfo appLockListener(INotificationListener listener) {
+        ManagedServices.ManagedServiceInfo info = mock(ManagedServices.ManagedServiceInfo.class);
+        info.service = listener;
+        info.component = mCn1;
+        info.userid = TEST_USER_ID;
+        when(info.enabledAndUserMatches(anyInt())).thenReturn(true);
+        doReturn(List.of(info)).when(mListeners).getServices();
+        return info;
+    }
+
+    @Test
+    public void testAppLockQueuedPostIsRecheckedBeforeDispatch() throws Exception {
+        mSetFlagsRule.enableFlags(android.app.Flags.FLAG_NO_SBNHOLDER);
+        INotificationListener listener = mock(INotificationListener.class);
+        appLockListener(listener);
+        NotificationRecord record = appLockRecord("private content");
+        mNm.addNotification(record);
+        List<Runnable> calls = mListeners.prepareNotifyPostedLocked(record, null, true);
+        assertThat(calls).hasSize(1);
+        when(mAppLockManager.shouldHideNotifications("private.app", TEST_USER_ID)).thenReturn(true);
+        calls.forEach(Runnable::run);
+        verify(listener, never()).onNotificationPostedFull(any(), any(), anyLong());
+    }
+
+    @Test
+    public void testAppLockQueuedPostDoesNotReviveCancelledOrOutdatedRecords() throws Exception {
+        mSetFlagsRule.enableFlags(android.app.Flags.FLAG_NO_SBNHOLDER);
+        INotificationListener listener = mock(INotificationListener.class);
+        appLockListener(listener);
+        NotificationRecord first = appLockRecord("old content");
+        mNm.addNotification(first);
+        List<Runnable> oldCalls = mListeners.prepareNotifyPostedLocked(first, null, true);
+        assertThat(oldCalls).hasSize(1);
+        NotificationRecord latest = appLockRecord("latest content");
+        mNm.mNotificationList.set(0, latest);
+        mNm.mNotificationsByKey.put(latest.getKey(), latest);
+        oldCalls.forEach(Runnable::run);
+        verify(listener, never()).onNotificationPostedFull(any(), any(), anyLong());
+        List<Runnable> latestCalls = mListeners.prepareNotifyPostedLocked(latest, first, true);
+        assertThat(latestCalls).hasSize(1);
+        latestCalls.forEach(Runnable::run);
+        ArgumentCaptor<StatusBarNotification> posted = ArgumentCaptor.forClass(
+                StatusBarNotification.class);
+        verify(listener).onNotificationPostedFull(posted.capture(), any(), anyLong());
+        assertThat(posted.getValue().getNotification().extras.getCharSequence(
+                Notification.EXTRA_TEXT)).isEqualTo("latest content");
+        reset(listener);
+        List<Runnable> cancelledCalls = mListeners.prepareNotifyPostedLocked(latest, latest, true);
+        assertThat(cancelledCalls).hasSize(1);
+        mNm.clearNotifications();
+        cancelledCalls.forEach(Runnable::run);
+        verify(listener, never()).onNotificationPostedFull(any(), any(), anyLong());
+    }
+
+    @Test
+    public void testAppLockRapidUnlockPostAndRelockRemovesNotificationAgain() throws Exception {
+        mSetFlagsRule.enableFlags(android.app.Flags.FLAG_NO_SBNHOLDER);
+        appLockListener(mock(INotificationListener.class));
+        NotificationRecord record = appLockRecord("private content");
+        mNm.addNotification(record);
+        when(mAppLockManager.shouldHideNotifications("private.app", TEST_USER_ID)).thenReturn(true);
+        mNm.updateAppLockNotifications(TEST_USER_ID);
+        when(mAppLockManager.shouldHideNotifications("private.app", TEST_USER_ID)).thenReturn(false);
+        // Deliver an update before the asynchronous unlock callback has run.
+        mListeners.prepareNotifyPostedLocked(record, record, true).forEach(Runnable::run);
+        when(mAppLockManager.shouldHideNotifications("private.app", TEST_USER_ID)).thenReturn(true);
+        mNm.updateAppLockNotifications(TEST_USER_ID);
+        verify(mListeners, times(2)).notifyAppLockHiddenLocked(record);
+    }
+
+    @Test
+    public void testAppLockRemovedPayloadContainsNoPrivateContentOrActions() throws Exception {
+        mSetFlagsRule.enableFlags(android.app.Flags.FLAG_NO_SBNHOLDER);
+        INotificationListener listener = mock(INotificationListener.class);
+        ManagedServices.ManagedServiceInfo info = appLockListener(listener);
+        NotificationRecord record = appLockRecord("private content");
+        when(mAppLockManager.shouldHideNotifications("private.app", TEST_USER_ID)).thenReturn(true);
+        mListeners.notifyRemoved(info, record.getSbn(), null, new NotificationStats(),
+                NotificationListenerService.REASON_APP_CANCEL);
+        ArgumentCaptor<StatusBarNotification> removed = ArgumentCaptor.forClass(
+                StatusBarNotification.class);
+        verify(listener).onNotificationRemovedFull(removed.capture(), any(),
+                isNull(), anyInt(), anyLong());
+        assertThat(removed.getValue().getKey()).isEqualTo(record.getKey());
+        Notification neutral = removed.getValue().getNotification();
+        // Notification() supplies this presentation default, but no private app extras.
+        assertThat(neutral.extras.keySet()).containsExactly(Notification.EXTRA_SHOW_WHEN);
+        assertThat(neutral.extras.getBoolean(Notification.EXTRA_SHOW_WHEN)).isTrue();
+        assertThat(neutral.extras.getCharSequence(Notification.EXTRA_TEXT)).isNull();
+        assertThat(neutral.extras.getCharSequence(Notification.EXTRA_TITLE)).isNull();
+        assertThat(removed.getValue().getNotification().actions).isNull();
+        assertThat(removed.getValue().getNotification().contentIntent).isNull();
+        assertThat(removed.getValue().getNotification().largeIcon).isNull();
     }
 
     @Test

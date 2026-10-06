@@ -111,6 +111,7 @@ import com.android.internal.protolog.ProtoLog;
 import com.android.window.flags.Flags;
 import com.android.wm.shell.RootTaskDisplayAreaOrganizer;
 import com.android.wm.shell.animation.SizeChangeAnimation;
+import com.android.wm.shell.common.AppLockSnapshotGuard;
 import com.android.wm.shell.common.DisplayController;
 import com.android.wm.shell.common.DisplayInsetsController;
 import com.android.wm.shell.common.DisplayLayout;
@@ -190,6 +191,7 @@ public class DefaultTransitionHandler implements Transitions.TransitionHandler {
     }
 
     private void onInit() {
+        AppLockSnapshotGuard.initialize(mContext, mMainHandler);
         updateEnterpriseThumbnailDrawable();
         mContext.registerReceiver(
                 mEnterpriseResourceUpdatedReceiver,

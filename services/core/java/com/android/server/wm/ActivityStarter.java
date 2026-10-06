@@ -1356,6 +1356,12 @@ class ActivityStarter {
         mInterceptor.setStates(userId, realCallingPid, realCallingUid, startFlags,
                 callingPackage,
                 callingFeatureId);
+        mInterceptor.setAppLockResult(resultRecord, resultWho, requestCode);
+        // Only an already-authorized foreground launch may become an app-lock challenge.
+        // A rejected background request must neither replace a user's pending destination nor
+        // gain the trusted sender privileges used after successful authentication.
+        mInterceptor.setAppLockAllowed(!abort
+                && (!balVerdict.blocks() || mService.isBackgroundActivityStartsEnabled()));
         if (mInterceptor.intercept(intent, rInfo, aInfo, resolvedType, inTask, inTaskFragment,
                 callingPid, callingUid, checkedOptions, suggestedLaunchDisplayArea,
                 request.componentSpecified)) {
@@ -1366,6 +1372,7 @@ class ActivityStarter {
             aInfo = mInterceptor.mAInfo;
             resolvedType = mInterceptor.mResolvedType;
             inTask = mInterceptor.mInTask;
+            inTaskFragment = mInterceptor.mInTaskFragment;
             callingPid = mInterceptor.mCallingPid;
             callingUid = mInterceptor.mCallingUid;
             checkedOptions = mInterceptor.mActivityOptions;
@@ -1373,9 +1380,17 @@ class ActivityStarter {
             // The interception target shouldn't get any permission grants
             // intended for the original destination
             intentGrants = null;
+            if (mInterceptor.mAppLockChallenge != null) {
+                resultRecord = null;
+                resultWho = null;
+                requestCode = -1;
+            }
         }
 
         if (abort) {
+            if (mInterceptor.mAppLockChallenge != null) {
+                mService.mAppLockController.cancelLaunch(mInterceptor.mAppLockChallenge);
+            }
             if (resultRecord != null) {
                 resultRecord.sendResult(INVALID_UID, resultWho, requestCode, RESULT_CANCELED,
                         null /* data */, null /* callerToken */, null /* dataGrants */);
@@ -1384,6 +1399,19 @@ class ActivityStarter {
             // cancel result.
             ActivityOptions.abort(checkedOptions);
             return START_ABORTED;
+        }
+
+        if (mInterceptor.mAppLockReuseConfirmation) {
+            ActivityRecord confirmation = mService.mAppLockController
+                    .reuseConfirmation(mInterceptor.mAppLockChallenge);
+            if (confirmation != null) {
+                mLastStartActivityRecord = confirmation;
+                mDoResume = true;
+                mService.resumeAppSwitches();
+                SafeActivityOptions.abort(options);
+                if (request.outActivity != null) request.outActivity[0] = confirmation;
+                return START_TASK_TO_FRONT;
+            }
         }
 
         // If permissions need a review before any of the app components can run, we
