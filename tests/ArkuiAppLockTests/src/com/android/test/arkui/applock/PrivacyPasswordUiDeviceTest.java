@@ -89,6 +89,7 @@ public final class PrivacyPasswordUiDeviceTest {
     @Test public void expressiveSetupRequiresValidInputAndMatchingConfirmation() throws Exception {
         openPrivacySettings();
         title("arkui_privacy_password_create");
+        field();
         click("privacy_custom_type");
         enter("short");
         click("privacy_primary");
@@ -118,6 +119,25 @@ public final class PrivacyPasswordUiDeviceTest {
         enter(PIN);
         click("privacy_primary");
         title("arkui_privacy_password_enabled");
+    }
+
+    @Test public void privacyConfirmationReusesTheAppLockPromptAndCancelsOnHome() throws Exception {
+        createPassword();
+        openPrivacyConfirmation();
+        title("arkui_privacy_password_enter");
+        field();
+        assertFalse(mDevice.hasObject(By.res(SETTINGS, "privacy_pin_type")));
+        enter("123456");
+        click("privacy_primary");
+        title("arkui_privacy_password_wrong");
+        mDevice.pressHome();
+        assertTrue(mDevice.wait(Until.gone(By.res(SETTINGS, "privacy_password_entry")), 5000));
+        openPrivacyConfirmation();
+        title("arkui_privacy_password_enter");
+        enter(PIN);
+        click("privacy_primary");
+        assertTrue(mDevice.wait(Until.gone(By.res(SETTINGS, "privacy_password_entry")), 5000));
+        assertTrue(configured());
     }
 
     @Test public void hiddenAppsRequirePrivacyPasswordAndReauthenticateAfterHome() throws Exception {
@@ -167,6 +187,11 @@ public final class PrivacyPasswordUiDeviceTest {
         assertNotNull("Provide a distinct test screen PIN", mScreenPin);
         assertNotEquals(PIN, mScreenPin);
         IBinder challenge = mApps.beginManagementAuthentication(USER, mOwner);
+        if (mApps.getAuthenticationInfo(challenge).getInt(AppLockManager.KEY_AUTH_METHOD)
+                == AppLockManager.AUTH_PRIVACY_PASSWORD) {
+            assertTrue(mApps.verifyPrivacyPassword(challenge, bytes(PIN))
+                    .getBoolean(PrivacyPasswordManager.KEY_MATCHED));
+        }
         IBinder session = mApps.completeAuthentication(challenge);
         mOriginal = mApps.getSettings(USER, session);
         Bundle policy = new Bundle(mOriginal);
@@ -252,9 +277,16 @@ public final class PrivacyPasswordUiDeviceTest {
                 + " -n " + SETTINGS + "/" + SETTINGS + ".arkui.privacy.PrivacyPasswordActivity");
     }
 
+    private void openPrivacyConfirmation() throws Exception {
+        mDevice.executeShellCommand("am start -W -a " + PrivacyPasswordManager.ACTION_CONFIRM
+                + " -n " + SETTINGS + "/" + SETTINGS + ".arkui.privacy.PrivacyPasswordActivity");
+    }
+
     private UiObject2 field() {
         UiObject2 input = mDevice.wait(Until.findObject(By.res(SETTINGS, "privacy_password_entry")), 10000);
         assertNotNull("Material password entry must inflate and be visible", input);
+        assertNotNull("Privacy and app lock must share the same confirmation layout",
+                mDevice.findObject(By.res(SETTINGS, "credential_prompt")));
         return input;
     }
 
