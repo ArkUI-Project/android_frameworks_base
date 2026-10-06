@@ -17,6 +17,7 @@
 package android.hardware;
 
 import android.hardware.ISensorPrivacyListener;
+import android.hardware.IMotionSensorPrivacyListener;
 
 /** @hide */
 interface ISensorPrivacyManager {
@@ -64,6 +65,12 @@ interface ISensorPrivacyManager {
     /** @hide */
     @JavaPassthrough(annotation="@android.annotation.RequiresPermission(android.Manifest.permission.MANAGE_SENSOR_PRIVACY)")
     void setCameraPrivacyAllowlist(in List<String> allowlist);
+
+    void addMotionSensorPrivacyListener(in IMotionSensorPrivacyListener listener);
+
+    void removeMotionSensorPrivacyListener(in IMotionSensorPrivacyListener listener);
+
+    long getMotionSensorBlockedUntil(int uid);
 
     // =============== End of transactions used on native side as well ============================
 

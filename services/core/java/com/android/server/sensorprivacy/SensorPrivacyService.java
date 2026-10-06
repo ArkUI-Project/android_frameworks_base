@@ -96,6 +96,7 @@ import android.content.res.Configuration;
 import android.database.ContentObserver;
 import android.graphics.drawable.Icon;
 import android.hardware.ISensorPrivacyListener;
+import android.hardware.IMotionSensorPrivacyListener;
 import android.hardware.ISensorPrivacyManager;
 import android.hardware.SensorPrivacyManager;
 import android.hardware.SensorPrivacyManagerInternal;
@@ -189,6 +190,7 @@ public final class SensorPrivacyService extends SystemService {
     private final PackageManagerInternal mPackageManagerInternal;
     private final NotificationManager mNotificationManager;
     private final UserManager mUserManager;
+    private final MotionSensorPrivacyPolicy mMotionSensorPrivacyPolicy;
 
     private CameraPrivacyLightController mCameraPrivacyLightController;
 
@@ -217,6 +219,7 @@ public final class SensorPrivacyService extends SystemService {
         mPackageManagerInternal = getLocalService(PackageManagerInternal.class);
         mNotificationManager = mContext.getSystemService(NotificationManager.class);
         mUserManager = context.getSystemService(UserManager.class);
+        mMotionSensorPrivacyPolicy = new MotionSensorPrivacyPolicy(context);
         mSensorPrivacyServiceImpl = new SensorPrivacyServiceImpl();
         for (String entry : SystemConfig.getInstance().getCameraPrivacyAllowlist()) {
             mCameraPrivacyAllowlist.add(entry);
@@ -239,11 +242,13 @@ public final class SensorPrivacyService extends SystemService {
             mSensorPrivacyServiceImpl.registerSettingsObserver();
         } else if (phase == PHASE_ACTIVITY_MANAGER_READY) {
             mCameraPrivacyLightController = new CameraPrivacyLightController(mContext);
+            mMotionSensorPrivacyPolicy.start();
         }
     }
 
     @Override
     public void onUserStarting(TargetUser user) {
+        mMotionSensorPrivacyPolicy.reloadAsync();
         if (mCurrentUser == USER_NULL) {
             mCurrentUser = user.getUserIdentifier();
             mSensorPrivacyServiceImpl.userSwitching(USER_NULL, user.getUserIdentifier());
@@ -252,6 +257,7 @@ public final class SensorPrivacyService extends SystemService {
 
     @Override
     public void onUserSwitching(TargetUser from, TargetUser to) {
+        mMotionSensorPrivacyPolicy.reloadAsync();
         mCurrentUser = to.getUserIdentifier();
         mSensorPrivacyServiceImpl.userSwitching(from.getUserIdentifier(), to.getUserIdentifier());
     }
@@ -1011,6 +1017,26 @@ public final class SensorPrivacyService extends SystemService {
         }
 
         @Override
+        public void addMotionSensorPrivacyListener(IMotionSensorPrivacyListener listener) {
+            enforceObserveSensorPrivacyPermission();
+            mMotionSensorPrivacyPolicy.addListener(Objects.requireNonNull(listener));
+        }
+
+        @Override
+        public void removeMotionSensorPrivacyListener(IMotionSensorPrivacyListener listener) {
+            enforceObserveSensorPrivacyPermission();
+            mMotionSensorPrivacyPolicy.removeListener(listener);
+        }
+
+        @Override
+        public long getMotionSensorBlockedUntil(int uid) {
+            enforceObserveSensorPrivacyPermission();
+            final long identity = Binder.clearCallingIdentity();
+            try { return mMotionSensorPrivacyPolicy.getBlockedUntil(uid); }
+            finally { Binder.restoreCallingIdentity(identity); }
+        }
+
+        @Override
         @FlaggedApi(com.android.internal.camera.flags.Flags.FLAG_CAMERA_PRIVACY_ALLOWLIST)
         @RequiresPermission(Manifest.permission.OBSERVE_SENSOR_PRIVACY)
         public boolean isCameraPrivacyEnabled(String packageName) {
@@ -1593,6 +1619,7 @@ public final class SensorPrivacyService extends SystemService {
                 } else {
                     pw.println("SENSOR PRIVACY MANAGER STATE (dumpsys "
                             + Context.SENSOR_PRIVACY_SERVICE + ")");
+                    mMotionSensorPrivacyPolicy.dump(pw);
 
                     mSensorPrivacyStateController.dump(
                             new DualDumpOutputStream(new IndentingPrintWriter(pw, "  ")));
