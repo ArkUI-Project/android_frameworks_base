@@ -1,0 +1,17 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Copyright (C) 2026 The ArkUI Project; SPDX-License-Identifier: Apache-2.0 -->
+<resources>
+    <item type="id" name="recognition_canvas" />
+    <item type="id" name="recognition_text_mode" />
+    <item type="id" name="recognition_image_mode" />
+    <item type="id" name="recognition_more" />
+    <item type="id" name="recognition_word_drawer" />
+    <item type="id" name="recognition_drawer_handle" />
+    <item type="id" name="recognition_word_flow" />
+    <item type="id" name="recognition_words_select_all" />
+    <item type="id" name="recognition_words_copy" />
+    <item type="id" name="recognition_words_share" />
+    <item type="id" name="recognition_image_preview" />
+    <item type="id" name="recognition_preview_image" />
+    <item type="id" name="recognition_preview_more" />
+</resources>

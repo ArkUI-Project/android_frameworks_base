@@ -1,0 +1,7 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Copyright (C) 2026 The ArkUI Project; SPDX-License-Identifier: Apache-2.0 -->
+<shape xmlns:android="http://schemas.android.com/apk/res/android">
+    <solid android:color="@*android:color/materialColorSurfaceContainerHigh" />
+    <corners android:radius="20dp" />
+    <padding android:left="8dp" android:top="8dp" android:right="8dp" android:bottom="8dp" />
+</shape>

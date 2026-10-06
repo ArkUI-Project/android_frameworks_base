@@ -18,4 +18,9 @@
     <string name="select_image">选取图片</string>
     <string name="select_video">选取视频</string>
     <string name="media_protected">当前媒体不支持保存</string>
+    <string name="word_selection_hint">轻点词块，可多选后复制或分享</string>
+    <string name="words_selected">已选 %1$d 项</string>
+    <string name="clear_selection">取消全选</string>
+    <string name="image_preview">图片预览</string>
+    <string name="video_preview">视频画面</string>
 </resources>

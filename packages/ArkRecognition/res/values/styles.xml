@@ -7,5 +7,10 @@
         <item name="android:windowNoTitle">true</item>
         <item name="android:windowLightStatusBar">false</item>
         <item name="android:windowLightNavigationBar">false</item>
+        <item name="android:popupMenuStyle">@style/RecognitionPopupMenu</item>
+    </style>
+    <style name="RecognitionPopupMenu" parent="@android:style/Widget.DeviceDefault.PopupMenu">
+        <item name="android:popupBackground">@drawable/recognition_popup_background</item>
+        <item name="android:popupElevation">12dp</item>
     </style>
 </resources>

@@ -27,13 +27,18 @@ import java.text.BreakIterator;
 
 /** A screenshot remains in its original coordinates; selection uses actual content bounds. */
 final class RecognitionCanvas extends View {
-    interface Listener { void changed(boolean imageSelected); void selectionChanged(Rect anchor); }
+    interface Listener {
+        void changed(boolean imageSelected);
+        void selectionChanged(Rect anchor);
+        default void imageClicked(Rect bounds) { }
+    }
     private final Bitmap bitmap;
     private final Paint paint = new Paint(Paint.ANTI_ALIAS_FLAG | Paint.FILTER_BITMAP_FLAG);
     private final RectF imageBounds = new RectF();
     private final RectF crop = new RectF();
     private final Path clip = new Path();
     private final Listener listener;
+    private final boolean wholeImage;
     private final int dim;
     private RecognitionResult result;
     private ValueAnimator wave;
@@ -45,7 +50,10 @@ final class RecognitionCanvas extends View {
         if (!images && hit >= 0) { selectWord(hit); performHapticFeedback(HapticFeedbackConstants.LONG_PRESS); }
     };
     RecognitionCanvas(Context c, Bitmap bitmap, Listener listener) {
-        super(c); this.bitmap = bitmap; this.listener = listener;
+        this(c, bitmap, listener, false);
+    }
+    RecognitionCanvas(Context c, Bitmap bitmap, Listener listener, boolean wholeImage) {
+        super(c); this.bitmap = bitmap; this.listener = listener; this.wholeImage = wholeImage;
         dim = new RecognitionPreferences(c).get("recognition_dim", 40, 10, 70);
         setFocusableInTouchMode(true); setImportantForAccessibility(IMPORTANT_FOR_ACCESSIBILITY_YES);
         setContentDescription(c.getString(R.string.recognition_running));
@@ -144,7 +152,7 @@ final class RecognitionCanvas extends View {
             c.save(); c.clipRect(destination); c.drawBitmap(bitmap, null, imageBounds, paint); c.restore();
             paint.setStyle(Paint.Style.STROKE); paint.setStrokeWidth(dp(getContext(), 2)); paint.setColor(primary(getContext()));
             c.drawRect(destination, paint); paint.setStyle(Paint.Style.FILL);
-            for (int i = 0; i < 4; i++) c.drawCircle((i & 1) == 0 ? destination.left : destination.right,
+            if (adjusting) for (int i = 0; i < 4; i++) c.drawCircle((i & 1) == 0 ? destination.left : destination.right,
                     i < 2 ? destination.top : destination.bottom, dp(getContext(), 6), paint);
         }
     }
@@ -225,7 +233,7 @@ final class RecognitionCanvas extends View {
                 else if (Math.hypot(downX - b.right, downY - b.bottom - dp(getContext(), 10)) < dp(getContext(), 26)) handle = 1;
                 if (handle >= 0) listener.selectionChanged(null);
             }
-            if (images && !crop.isEmpty()) {
+            if (images && adjusting && !crop.isEmpty()) {
                 RectF r = mapped(crop);
                 for (int i = 0; i < 4; i++) if (Math.hypot(downX - ((i & 1) == 0 ? r.left : r.right), downY - (i < 2 ? r.top : r.bottom)) < dp(getContext(), 30)) corner = i;
             }
@@ -248,15 +256,29 @@ final class RecognitionCanvas extends View {
             removeCallbacks(longPress);
             if (handle >= 0) showActions();
             else if (images && corner < 0 && !moved && !adjusting && result != null) {
-                for (Rect region : result.images) if (mapped(region).contains(e.getX(), e.getY())) {
-                    crop.set(region); listener.changed(true); performHapticFeedback(HapticFeedbackConstants.CONFIRM); invalidate(); break;
-                }
+                openImage(e.getX(), e.getY());
             } else if (!images && !moved && e.getEventTime() - e.getDownTime() < ViewConfiguration.getLongPressTimeout()) {
-                int i = hit(e.getX(), e.getY(), false); if (i >= 0) selectWord(i); else clearSelection();
+                int i = hit(e.getX(), e.getY(), false);
+                if (i >= 0) selectWord(i); else if (!openImage(e.getX(), e.getY())) clearSelection();
             }
             handle = corner = -1; performClick();
         }
         return true;
+    }
+    private boolean openImage(float x, float y) {
+        if (result == null) return false;
+        for (Rect region : result.images) if (mapped(region).contains(x, y)) {
+            selectImage(region); listener.imageClicked(new Rect(region));
+            performHapticFeedback(HapticFeedbackConstants.CONFIRM); return true;
+        }
+        // An imported picture is still previewable when it contains only text and OCR
+        // finds no photo regions. Detected regions keep their normal crop behavior.
+        if (wholeImage && imageBounds.contains(x, y)) {
+            Rect region = new Rect(0, 0, bitmap.getWidth(), bitmap.getHeight());
+            selectImage(region); listener.imageClicked(region);
+            performHapticFeedback(HapticFeedbackConstants.CONFIRM); return true;
+        }
+        return false;
     }
     @Override public boolean performClick() { super.performClick(); return true; }
     @Override public boolean onKeyDown(int keyCode, KeyEvent event) {

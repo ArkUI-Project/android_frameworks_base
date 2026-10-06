@@ -18,4 +18,9 @@
     <string name="select_image">Select image</string>
     <string name="select_video">Select video</string>
     <string name="media_protected">This media cannot be saved</string>
+    <string name="word_selection_hint">Tap words to select, then copy or share</string>
+    <string name="words_selected">%1$d selected</string>
+    <string name="clear_selection">Clear selection</string>
+    <string name="image_preview">Image preview</string>
+    <string name="video_preview">Video frame</string>
 </resources>

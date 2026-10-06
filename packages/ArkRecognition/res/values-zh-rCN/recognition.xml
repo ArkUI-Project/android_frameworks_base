@@ -5,7 +5,7 @@
     <string name="recognition_summary">原位选字、提取图片，全程离线识别</string>
     <string name="recognition_intro">从侧边栏或轮盘开启识屏，在画面原位选择文字，保存图片与视频。也可以在这里打开图片，或接收其他应用分享的图片。</string>
     <string name="recognition_running">正在本地识别…</string>
-    <string name="recognition_ready">长按文字，自由选择</string>
+    <string name="recognition_ready">轻点「分词文本」选择词块</string>
     <string name="recognition_empty">未识别到文字，仍可提取图片</string>
     <string name="recognition_failed">未能识别，请尝试更清晰的图片</string>
     <string name="recognition_capture_failed">当前画面不支持截取</string>
