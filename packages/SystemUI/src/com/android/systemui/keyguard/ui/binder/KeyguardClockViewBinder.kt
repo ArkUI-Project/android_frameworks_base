@@ -32,6 +32,7 @@ import com.android.app.tracing.coroutines.launchTraced as launch
 import com.android.systemui.keyguard.domain.interactor.KeyguardBlueprintInteractor
 import com.android.systemui.keyguard.domain.interactor.KeyguardClockInteractor
 import com.android.systemui.keyguard.shared.model.ClockSize
+import com.android.systemui.keyguard.ui.view.KeyguardRootView
 import com.android.systemui.keyguard.ui.view.layout.blueprints.transitions.IntraBlueprintTransition.Config
 import com.android.systemui.keyguard.ui.view.layout.blueprints.transitions.IntraBlueprintTransition.Type
 import com.android.systemui.keyguard.ui.view.layout.sections.ClockSection
@@ -236,6 +237,7 @@ object KeyguardClockViewBinder {
         rootView: ConstraintLayout,
         burnInLayer: Layer?,
     ) {
+        (rootView as? KeyguardRootView)?.setDepthClockViews(emptyList(), emptyList())
         lastClock?.run {
             smallClock.layout.views.forEach {
                 burnInLayer?.removeView(it)
@@ -247,6 +249,10 @@ object KeyguardClockViewBinder {
 
     @VisibleForTesting
     fun addClockViews(clockController: ClockController?, rootView: ConstraintLayout) {
+        (rootView as? KeyguardRootView)?.setDepthClockViews(
+            clockController?.largeClock?.layout?.views ?: emptyList(),
+            clockController?.smallClock?.layout?.views ?: emptyList(),
+        )
         // We'll collect the same clock when exiting wallpaper picker without changing clock
         // so we need to remove clock views from parent before addView again
         clockController?.let { clock ->

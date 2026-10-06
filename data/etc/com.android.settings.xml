@@ -47,6 +47,7 @@
         <permission name="android.permission.READ_COMPAT_CHANGE_CONFIG" />
         <permission name="android.permission.READ_PRIVILEGED_PHONE_STATE"/>
         <permission name="android.permission.READ_SEARCH_INDEXABLES"/>
+        <permission name="android.permission.READ_WALLPAPER_INTERNAL"/>
         <permission name="android.permission.REBOOT"/>
         <permission name="android.permission.RECOVERY"/>
         <permission name="android.permission.SCHEDULE_EXACT_ALARM"/>

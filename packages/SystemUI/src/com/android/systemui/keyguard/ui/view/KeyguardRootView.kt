@@ -18,8 +18,11 @@
 package com.android.systemui.keyguard.ui.view
 
 import android.content.Context
+import android.graphics.Canvas
 import android.util.AttributeSet
+import android.view.View
 import androidx.constraintlayout.widget.ConstraintLayout
+import com.android.systemui.arkui.depth.DepthWallpaperRenderer
 
 /** Provides a container for all keyguard ui content. */
 class KeyguardRootView(
@@ -29,4 +32,37 @@ class KeyguardRootView(
     ConstraintLayout(
         context,
         attrs,
-    )
+    ) {
+    private val depthWallpaper = DepthWallpaperRenderer(this)
+    private val depthClockViews = mutableMapOf<View, Boolean>()
+
+    fun setDepthClockViews(large: List<View>, small: List<View>) {
+        depthWallpaper.clocksChanged()
+        depthClockViews.clear()
+        large.forEach { depthClockViews[it] = true }
+        small.forEach { depthClockViews[it] = false }
+        invalidate()
+    }
+
+    override fun onAttachedToWindow() {
+        super.onAttachedToWindow()
+        depthWallpaper.attach()
+    }
+
+    override fun onDetachedFromWindow() {
+        depthWallpaper.detach()
+        super.onDetachedFromWindow()
+    }
+
+    override fun onSizeChanged(w: Int, h: Int, oldw: Int, oldh: Int) {
+        super.onSizeChanged(w, h, oldw, oldh)
+        depthWallpaper.geometryChanged()
+    }
+
+    override fun drawChild(canvas: Canvas, child: View, drawingTime: Long): Boolean {
+        val save = depthClockViews[child]?.let { depthWallpaper.beginClock(canvas, child, it) } ?: -1
+        val drawn = super.drawChild(canvas, child, drawingTime)
+        depthWallpaper.endClock(canvas, save)
+        return drawn
+    }
+}
