@@ -26,6 +26,7 @@ final class ComboRecorder {
     private final JSONArray actions=new JSONArray();
     private FrameLayout root;
     private TextView count;
+    private TextView saveButton;
     ComboRecorder(Context c,WindowManager w,Consumer<JSONArray> save,Runnable cancel) {
         context=c; windows=w; this.save=save; this.cancel=cancel;
     }
@@ -38,7 +39,8 @@ final class ComboRecorder {
         count=text(context,context.getString(R.string.touch_hint,0),14);
         controls.addView(count,new LinearLayout.LayoutParams(0,-2,1));
         controls.addView(button(context,context.getString(R.string.cancel),false,() -> { close(); cancel.run(); }));
-        controls.addView(button(context,context.getString(R.string.done),true,() -> { close(); save.accept(actions); }));
+        saveButton=button(context,context.getString(R.string.done),true,() -> { close(); save.accept(actions); });
+        saveButton.setEnabled(false); saveButton.setAlpha(.4f); controls.addView(saveButton);
         var top=new FrameLayout.LayoutParams(-1,-2,Gravity.TOP); top.leftMargin=dp(context,12); top.rightMargin=dp(context,12);
         top.topMargin=windows.getCurrentWindowMetrics().getWindowInsets().getInsetsIgnoringVisibility(WindowInsets.Type.systemBars()|WindowInsets.Type.displayCutout()).top+dp(context,8);
         root.addView(controls,top);
@@ -64,17 +66,17 @@ final class ComboRecorder {
             if (e.getPointerCount()>1 || e.getActionMasked()==MotionEvent.ACTION_CANCEL) { pressed=false; return true; }
             switch (e.getActionMasked()) {
                 case MotionEvent.ACTION_DOWN:
-                    if (actions.length()>=30) return true;
                     x=endX=e.getX(); y=endY=e.getY(); down=SystemClock.uptimeMillis(); pressed=true; invalidate(); break;
                 case MotionEvent.ACTION_MOVE:
                     if (pressed) { endX=e.getX(); endY=e.getY(); invalidate(); } break;
                 case MotionEvent.ACTION_UP:
                     if (!pressed) break; pressed=false; endX=e.getX(); endY=e.getY();
-                    int duration=(int)Math.max(40,Math.min(2000,SystemClock.uptimeMillis()-down));
-                    int delay=lastUp==0?500:(int)Math.max(100,Math.min(3000,down-lastUp)); lastUp=SystemClock.uptimeMillis();
+                    int duration=Math.toIntExact(SystemClock.uptimeMillis()-down);
+                    int delay=lastUp==0?500:Math.toIntExact(down-lastUp); lastUp=SystemClock.uptimeMillis();
                     var action=new JSONArray(); action.put(norm(x,getWidth())).put(norm(y,getHeight()))
                             .put(norm(endX,getWidth())).put(norm(endY,getHeight())).put(duration).put(delay);
-                    actions.put(action); count.setText(context.getString(R.string.touch_hint,actions.length())); invalidate(); break;
+                    actions.put(action); count.setText(context.getString(R.string.touch_hint,actions.length()));
+                    saveButton.setEnabled(true); saveButton.setAlpha(1); invalidate(); break;
             } return true;
         }
         private int norm(float value,int size) { return Math.max(0,Math.min(10000,Math.round(value*10000/Math.max(1,size)))); }

@@ -9,12 +9,11 @@ import android.os.SystemClock;
 import android.view.Display;
 import android.view.InputDevice;
 import android.view.MotionEvent;
-import android.view.WindowInsets;
 import android.view.WindowManager;
 import java.util.function.Consumer;
 import java.util.function.Supplier;
 
-/** Bounded, user-recorded gestures. Every event is targeted to the captured game's UID. */
+/** User-recorded gestures. Every event is targeted to the captured game's UID. */
 final class GameComboPlayer {
     private final Context context;
     private final Handler handler;
@@ -22,7 +21,7 @@ final class GameComboPlayer {
     private final Consumer<Boolean> state;
     private int[] actions;
     private int index,repeat,uid,taskId,rotation;
-    private long down,start;
+    private long down;
     private boolean touching;
     private float x,y;
     private Rect bounds;
@@ -30,21 +29,15 @@ final class GameComboPlayer {
     GameComboPlayer(Context c,Handler h,Supplier<ActivityManager.RunningTaskInfo> t,Consumer<Boolean> s) { context=c; handler=h; task=t; state=s; }
     boolean play(ActivityManager.RunningTaskInfo target,int[] recorded,int repeats) {
         stop();
-        if (recorded==null || recorded.length==0 || recorded.length>180 || recorded.length%6!=0 || target.topActivityInfo==null) return false;
-        long duration=0;
+        if (recorded==null || recorded.length==0 || recorded.length%6!=0
+                || repeats<0 || target.topActivityInfo==null) return false;
         for (int i=0;i<recorded.length;i+=6) {
             for (int j=0;j<4;j++) if (recorded[i+j]<0 || recorded[i+j]>10000) return false;
-            if (recorded[i+4]<40 || recorded[i+4]>2000 || recorded[i+5]<100 || recorded[i+5]>3000) return false;
-            duration+=recorded[i+4]+recorded[i+5];
+            if (recorded[i+4]<0 || recorded[i+5]<0) return false;
         }
-        if (duration*repeats>120_000) return false;
         actions=recorded.clone(); repeat=repeats; index=0; uid=target.topActivityInfo.applicationInfo.uid; taskId=target.taskId;
         var metrics=context.getSystemService(WindowManager.class).getCurrentWindowMetrics(); bounds=metrics.getBounds();
-        Rect safe=new Rect(bounds); safe.inset(metrics.getWindowInsets().getInsetsIgnoringVisibility(WindowInsets.Type.systemBars()|WindowInsets.Type.displayCutout()));
-        for (int i=0;i<actions.length;i+=6) {
-            if (!safe.contains(px(actions[i]),py(actions[i+1])) || !safe.contains(px(actions[i+2]),py(actions[i+3]))) { actions=null; return false; }
-        }
-        rotation=rotation(); start=SystemClock.uptimeMillis(); state.accept(true); handler.postDelayed(tick,500); return true;
+        rotation=rotation(); state.accept(true); handler.postDelayed(tick,actions[5]); return true;
     }
     private int rotation() { return context.getSystemService(android.hardware.display.DisplayManager.class).getDisplay(Display.DEFAULT_DISPLAY).getRotation(); }
     private int px(int value) { return bounds.left+Math.round(value*bounds.width()/10000f); }
@@ -52,19 +45,20 @@ final class GameComboPlayer {
     private void step() {
         if (actions==null) return;
         var current=task.get();
-        if (current==null || current.taskId!=taskId || rotation()!=rotation || SystemClock.uptimeMillis()-start>120_000) { stop(); return; }
+        if (current==null || current.taskId!=taskId || rotation()!=rotation) { stop(); return; }
         int offset=index*6; long now=SystemClock.uptimeMillis();
         if (!touching) {
             down=now; x=px(actions[offset]); y=py(actions[offset+1]); touching=true;
             if (!inject(MotionEvent.ACTION_DOWN)) { stop(); return; }
         } else {
-            float fraction=Math.min(1,(now-down)/(float)actions[offset+4]);
+            float fraction=actions[offset+4]==0?1:Math.min(1,(now-down)/(float)actions[offset+4]);
             x=px(actions[offset])+(px(actions[offset+2])-px(actions[offset]))*fraction;
             y=py(actions[offset+1])+(py(actions[offset+3])-py(actions[offset+1]))*fraction;
             if (fraction>=1) {
-                inject(MotionEvent.ACTION_UP); touching=false;
+                boolean injected=inject(MotionEvent.ACTION_UP); touching=false;
+                if (!injected) { stop(); return; }
                 index++;
-                if (index==actions.length/6) { index=0; if (--repeat==0) { stop(); return; } }
+                if (index==actions.length/6) { index=0; if (repeat>0 && --repeat==0) { stop(); return; } }
                 handler.postDelayed(tick,actions[index*6+5]); return;
             }
             if (!inject(MotionEvent.ACTION_MOVE)) { stop(); return; }

@@ -16,3 +16,15 @@ android_app {
         "SettingsLibTopIntroPreference", "SettingsLibSliderPreference", "androidx.preference_preference",
         "androidx.dynamicanimation_dynamicanimation"],
 }
+
+android_test {
+    name: "ArkGameTests",
+    srcs: ["tests/src/**/*.java"],
+    resource_dirs: [],
+    manifest: "tests/AndroidManifest.xml",
+    instrumentation_for: "ArkGame",
+    platform_apis: true,
+    certificate: "platform",
+    static_libs: ["androidx.test.runner", "androidx.test.ext.junit", "junit"],
+    test_suites: ["device-tests"],
+}

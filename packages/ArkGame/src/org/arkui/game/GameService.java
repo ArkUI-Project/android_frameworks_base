@@ -84,6 +84,11 @@ public final class GameService extends Service implements SharedPreferences.OnSh
     };
     private View panel, returnChip, stopChip, messageView;
     private ComboRecorder recorder;
+    private ComboStore combos;
+    private GamePageContainer pages;
+    private Runnable panelBack;
+    private int panelContentWidth;
+    private boolean panelCompact;
     private SpringAnimation opening;
     private boolean left = true;
     private long timerEnd;
@@ -92,7 +97,6 @@ public final class GameService extends Service implements SharedPreferences.OnSh
     private final Runnable reload = this::loadApps;
     private TextView timerText;
     private TextView clockText, batteryText, memoryText;
-    private boolean libraryPage;
     private final Runnable statusTick = this::updatePanelStatus;
     private final BroadcastReceiver open = new BroadcastReceiver() {
         @Override public void onReceive(Context c, Intent intent) {
@@ -117,6 +121,7 @@ public final class GameService extends Service implements SharedPreferences.OnSh
         Display display = getSystemService(DisplayManager.class).getDisplay(Display.DEFAULT_DISPLAY);
         themed = new ContextThemeWrapper(createWindowContext(display, WindowManager.LayoutParams.TYPE_APPLICATION_OVERLAY,null),R.style.GameTheme);
         windows = themed.getSystemService(WindowManager.class); prefs = new GamePreferences(this);
+        combos = new ComboStore(prefs.store);
         overlayConfiguration=new Configuration(themed.getResources().getConfiguration());
         themed.registerComponentCallbacks(windowChanges);
         prefs.store.registerOnSharedPreferenceChangeListener(this);
@@ -231,6 +236,7 @@ public final class GameService extends Service implements SharedPreferences.OnSh
         if (opening!=null) { opening.cancel(); opening=null; }
         main.removeCallbacks(statusTick);
         remove(panel); panel=null; timerText=null; clockText=null; batteryText=null; memoryText=null;
+        pages=null; panelBack=null;
         if (restoreGuard) refreshGuard();
     }
     private void hideUi() {
@@ -242,9 +248,8 @@ public final class GameService extends Service implements SharedPreferences.OnSh
     private String gameLabel() { for (var app:apps) if (app.pkg().equals(foreground)) return app.label(); return foreground; }
     private void showPanel() {
         if (!canUse()) return;
-        boolean animate=panel==null;
+        if (panel!=null) { renderPrimary(panelBack==null?0:-1); return; }
         if (comboPlaying) send(STOP_COMBO,new Bundle());
-        closePanel(false);
         Rect bounds=safeBounds();
         int width=Math.min(dp(themed,480),bounds.width()-dp(themed,24));
         int height=Math.min(dp(themed,720),bounds.height()-dp(themed,24));
@@ -252,6 +257,7 @@ public final class GameService extends Service implements SharedPreferences.OnSh
         int contentWidth=width-railWidth-gap-dp(themed,28);
         boolean compact=height<dp(themed,440) && contentWidth>=dp(themed,300)
                 && themed.getResources().getConfiguration().fontScale<=1.05f;
+        panelContentWidth=contentWidth; panelCompact=compact;
         var root=new LinearLayout(themed);
         root.setClipChildren(true); root.setClipToPadding(true);
         root.setLayoutDirection(View.LAYOUT_DIRECTION_LTR);
@@ -261,28 +267,8 @@ public final class GameService extends Service implements SharedPreferences.OnSh
         rail.setLayoutDirection(direction); card.setLayoutDirection(direction);
         card.setBackground(shape(surface(themed),dp(themed,32)));
         card.setClipToOutline(true); card.setClipChildren(true); card.setClipToPadding(true);
-        var tabs=new LinearLayout(themed);
-        tabs.setPadding(dp(themed,8),dp(themed,compact?6:8),dp(themed,8),dp(themed,compact?2:4));
-        int[] pages={R.string.session,R.string.game_center};
-        for (int i=0;i<pages.length;i++) {
-            boolean library=i==1;
-            var tab=button(themed,getString(pages[i]),libraryPage==library,() -> {
-                libraryPage=library; showPanel();
-            });
-            if (compact) tab.setMinHeight(dp(themed,48));
-            var tabParams=new LinearLayout.LayoutParams(0,-2,1);
-            tabParams.setMargins(dp(themed,2),0,dp(themed,2),0);
-            tabs.addView(tab,tabParams);
-        }
-        card.addView(tabs,new LinearLayout.LayoutParams(-1,-2));
-        var body=column(themed,compact?8:14);
-        body.setClipChildren(true); body.setClipToPadding(true);
-        if (libraryPage) buildLibrary(body);
-        else buildTools(body,contentWidth,compact);
-        var scroll=new ScrollView(themed);
-        scroll.setFillViewport(false); scroll.setClipChildren(true); scroll.setClipToPadding(true);
-        scroll.setVerticalScrollBarEnabled(false); scroll.addView(body);
-        card.addView(scroll,new LinearLayout.LayoutParams(-1,0,1));
+        pages=new GamePageContainer(themed);
+        card.addView(pages,new LinearLayout.LayoutParams(-1,0,1));
         var railParams=new LinearLayout.LayoutParams(railWidth,-1);
         var cardParams=new LinearLayout.LayoutParams(0,-1,1);
         if (left) { railParams.rightMargin=gap; root.addView(rail,railParams); root.addView(card,cardParams); }
@@ -290,12 +276,55 @@ public final class GameService extends Service implements SharedPreferences.OnSh
         var lp=layout(width,height,"ArkGame:panel");
         lp.x=left?bounds.left+dp(themed,12):bounds.right-width-dp(themed,12);
         lp.y=bounds.top+dp(themed,12);
-        panel=root; attachPanel(panel,lp); refreshGuard(); updatePanelStatus(); updateTimer();
-        if (animate && ValueAnimator.areAnimatorsEnabled()) {
+        panel=root; renderPrimary(0); attachPanel(panel,lp); refreshGuard();
+        if (ValueAnimator.areAnimatorsEnabled()) {
             panel.setTranslationX((left?-1:1)*width); opening=new SpringAnimation(panel,SpringAnimation.TRANSLATION_X,0);
             opening.setSpring(new SpringForce(0).setStiffness(700).setDampingRatio(.85f)); opening.start();
         }
     }
+
+    private void resetPageStatus() {
+        main.removeCallbacks(statusTick);
+        timerText=null; clockText=null; batteryText=null; memoryText=null;
+    }
+
+    private void renderPrimary(int direction) {
+        if (pages==null) return;
+        resetPageStatus(); panelBack=null;
+        var body=column(themed,panelCompact?8:14);
+        add(body,heading(themed,getString(R.string.session),panelCompact?16:28));
+        buildTools(body,panelContentWidth,panelCompact);
+        pages.show(scrollPage(body),getString(R.string.session),direction);
+        updatePanelStatus(); updateTimer();
+    }
+
+    private ScrollView scrollPage(LinearLayout body) {
+        var scroll=new ScrollView(themed);
+        scroll.setVerticalScrollBarEnabled(false);
+        scroll.setClipChildren(true); scroll.setClipToPadding(true);
+        scroll.addView(body);
+        return scroll;
+    }
+
+    private LinearLayout subpage(int title,int info,Runnable back) {
+        resetPageStatus();
+        var body=column(themed,14);
+        var header=new LinearLayout(themed); header.setGravity(Gravity.CENTER_VERTICAL);
+        header.addView(iconButton(themed,R.string.back,false,back),new LinearLayout.LayoutParams(dp(themed,48),dp(themed,48)));
+        var titleParams=new LinearLayout.LayoutParams(0,-2,1); titleParams.setMarginStart(dp(themed,12));
+        header.addView(heading(themed,getString(title),24),titleParams); add(body,header);
+        if (info!=0) add(body,text(themed,getString(info),14));
+        return body;
+    }
+
+    private void showSubpage(LinearLayout body,int title,Runnable back,int direction) {
+        if (pages==null) return;
+        panelBack=back;
+        pages.show(scrollPage(body),getString(title),direction);
+        updateTimer();
+    }
+
+    private void panelBack() { if (panelBack!=null) panelBack.run(); else closePanel(); }
 
     private LinearLayout buildRail() {
         var rail=column(themed,4);
@@ -310,10 +339,9 @@ public final class GameService extends Service implements SharedPreferences.OnSh
             game.setPadding(dp(themed,8),dp(themed,8),dp(themed,8),dp(themed,8));
             game.setBackground(shape(accent(themed),dp(themed,24)));
             game.setContentDescription(gameLabel()+", "+getString(R.string.session)); game.setFocusable(true);
-            game.setOnClickListener(v -> { libraryPage=false; showPanel(); });
+            game.setOnClickListener(v -> showPanel());
             add(shortcuts,game); game.getLayoutParams().height=dp(themed,56);
         }
-        addRailButton(shortcuts,R.string.library,libraryPage,() -> { libraryPage=true; showPanel(); });
         addRailButton(shortcuts,R.string.apps_sidebar,false,this::openApps);
         addRailButton(shortcuts,R.string.settings,false,this::openSettings);
         scroll.addView(shortcuts);
@@ -347,25 +375,28 @@ public final class GameService extends Service implements SharedPreferences.OnSh
 
     private LinearLayout sessionCard() {
         var card=column(themed,14);
-        card.setBackground(shape(themed.getColor(com.android.internal.R.color.materialColorSurfaceContainer),dp(themed,28)));
+        card.setBackground(shape(accent(themed),dp(themed,28)));
+        int color=themed.getColor(com.android.internal.R.color.materialColorOnPrimaryContainer);
         var status=new LinearLayout(themed); status.setGravity(Gravity.CENTER_VERTICAL);
-        clockText=text(themed,"",12); batteryText=text(themed,"",12);
+        clockText=heading(themed,"",32); batteryText=text(themed,"",12);
+        clockText.setTextColor(color); batteryText.setTextColor(color);
         batteryText.setGravity(Gravity.END);
         status.addView(clockText,new LinearLayout.LayoutParams(0,-2,1));
         status.addView(batteryText,new LinearLayout.LayoutParams(0,-2,1)); add(card,status);
         var game=new LinearLayout(themed); game.setGravity(Gravity.CENTER_VERTICAL);
         var current=currentGame();
         if (current!=null) {
-            var icon=appIcon(current,48); var iconParams=new LinearLayout.LayoutParams(dp(themed,48),dp(themed,48));
+            var icon=appIcon(current,36); var iconParams=new LinearLayout.LayoutParams(dp(themed,36),dp(themed,36));
             iconParams.setMarginEnd(dp(themed,12)); game.addView(icon,iconParams);
         }
         var identity=column(themed,0);
-        var name=heading(themed,gameLabel(),22); name.setMaxLines(2);
+        var name=heading(themed,gameLabel(),20); name.setMaxLines(2); name.setTextColor(color);
         name.setEllipsize(android.text.TextUtils.TruncateAt.END);
-        add(identity,name); add(identity,text(themed,getString(R.string.in_game),12));
+        add(identity,name);
+        var subtitle=text(themed,getString(R.string.in_game),12); subtitle.setTextColor(color); add(identity,subtitle);
         game.addView(identity,new LinearLayout.LayoutParams(0,-2,1)); add(card,game);
-        memoryText=text(themed,"",12); add(card,memoryText);
-        timerText=heading(themed,"",20); add(card,timerText);
+        memoryText=text(themed,"",12); memoryText.setTextColor(color); add(card,memoryText);
+        timerText=heading(themed,"",24); timerText.setTextColor(color); add(card,timerText);
         return card;
     }
 
@@ -408,18 +439,22 @@ public final class GameService extends Service implements SharedPreferences.OnSh
         } else add(body,sessionCard());
         int mode=Math.max(0,Math.min(2,prefs.mode(foreground)));
         int[] modes={R.string.normal,R.string.danmaku,R.string.block};
+        var guard=featureCard(themed,R.string.guard,R.string.guard_card_summary,prefs.guard(foreground),() -> { },compact);
+        guard.setOnClickListener(v -> {
+            boolean selected=!prefs.guard(foreground);
+            prefs.store.edit().putBoolean("guard:"+foreground,selected).apply();
+            selectFeature(guard,selected);
+        });
         View[] features={
                 featureCard(themed,R.string.notifications,modes[mode],mode!=0,this::notificationMenu,compact),
-                featureCard(themed,R.string.guard,R.string.guard_card_summary,prefs.guard(foreground),() -> {
-                    prefs.store.edit().putBoolean("guard:"+foreground,!prefs.guard(foreground)).apply(); showPanel();
-                },compact),
+                guard,
                 featureCard(themed,R.string.brightness,R.string.brightness_card_summary,prefs.store.contains("brightness:"+foreground),this::brightnessMenu,compact),
                 featureCard(themed,R.string.memory,R.string.memory_summary,false,() -> send(MEMORY,new Bundle()),compact)
         };
         features[3].setEnabled(memoryAvailable); features[3].setAlpha(memoryAvailable?1f:.4f);
         float fontScale=themed.getResources().getConfiguration().fontScale;
         grid(body,features,width>=dp(themed,248) && fontScale<1.4f?2:1,compact);
-        if (!compact) add(body,heading(themed,getString(R.string.quick_tools),14));
+        if (!compact) add(body,heading(themed,getString(R.string.quick_tools),16));
         TextView[] tools={
                 shortcut(themed,R.string.screenshot,false,() -> capture(SCREENSHOT),compact),
                 shortcut(themed,R.string.record,false,() -> capture(RECORD),compact),
@@ -432,7 +467,6 @@ public final class GameService extends Service implements SharedPreferences.OnSh
         };
         tools[4].setEnabled(screenIdleAvailable); tools[4].setAlpha(screenIdleAvailable?1f:.4f);
         grid(body,tools,width>=dp(themed,248) && fontScale<1.3f?4:2,compact);
-        if (!compact && (!screenIdleAvailable || !memoryAvailable)) add(body,text(themed,getString(R.string.tools_unavailable),12));
     }
 
     private void grid(LinearLayout parent,View[] children,int columns,boolean compact) {
@@ -448,30 +482,6 @@ public final class GameService extends Service implements SharedPreferences.OnSh
         }
     }
 
-    private void buildLibrary(LinearLayout body) {
-        add(body,heading(themed,getString(R.string.library),24));
-        var selected=apps.stream().filter(a -> prefs.selected(a.pkg(),a.category())).toList();
-        add(body,text(themed,getResources().getQuantityString(R.plurals.game_count,selected.size(),selected.size()),12));
-        for (var app:selected) {
-            var entry=button(themed,app.label(),app.pkg().equals(foreground),() -> {
-                if (app.pkg().equals(foreground)) { libraryPage=false; showPanel(); return; }
-                Intent launch=getPackageManager().getLaunchIntentForPackage(app.pkg());
-                if (launch==null) { toast(getString(R.string.unavailable)); return; }
-                // Keep the visible overlay until the activity request passes the BAL check.
-                try { startActivity(launch.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)); closePanel(); }
-                catch (android.content.ActivityNotFoundException | SecurityException e) { toast(getString(R.string.unavailable)); }
-            });
-            var iconState=app.icon().getConstantState();
-            var icon=iconState==null?app.icon():iconState.newDrawable(themed.getResources()).mutate();
-            icon.setBounds(0,0,dp(themed,36),dp(themed,36));
-            entry.setCompoundDrawablesRelative(icon,null,null,null);
-            entry.setCompoundDrawablePadding(dp(themed,12)); entry.setGravity(Gravity.CENTER_VERTICAL);
-            entry.setMaxLines(2); entry.setEllipsize(android.text.TextUtils.TruncateAt.END); add(body,entry);
-        }
-        if (selected.isEmpty()) add(body,text(themed,getString(R.string.empty),14));
-        add(body,button(themed,getString(R.string.manage),true,this::openSettings));
-    }
-
     private void openApps() {
         closePanel(); sendBroadcast(new Intent(OPEN_APPS).setPackage("org.arkui.sidebar").putExtra("left",left),PERMISSION);
     }
@@ -481,22 +491,23 @@ public final class GameService extends Service implements SharedPreferences.OnSh
     }
 
     private void notificationMenu() {
-        int[] values={R.string.normal,R.string.danmaku,R.string.block};
-        String[] labels=new String[3]; Runnable[] actions=new Runnable[3];
-        for (int i=0;i<3;i++) {
-            int mode=i; labels[i]=getString(values[i]); actions[i]=() -> {
-                prefs.store.edit().putInt("mode:"+foreground,mode).apply(); showPanel();
-            };
-        }
-        menu(R.string.notifications,R.string.notification_summary,labels,actions,prefs.mode(foreground));
+        var body=subpage(R.string.notifications,R.string.notification_summary,this::showPanel);
+        int[] descriptions={R.string.normal_description,R.string.danmaku_description,R.string.block_description};
+        int selected=Math.max(0,Math.min(2,prefs.mode(foreground)));
+        var detail=text(themed,getString(descriptions[selected]),14);
+        add(body,new GameChoiceGroup(themed,new String[]{getString(R.string.normal_short),
+                getString(R.string.danmaku_short),getString(R.string.block_short)},selected,index -> {
+            prefs.store.edit().putInt("mode:"+foreground,index).apply();
+            detail.setText(descriptions[index]);
+        }));
+        detail.setAccessibilityLiveRegion(View.ACCESSIBILITY_LIVE_REGION_POLITE);
+        add(body,detail);
+        showSubpage(body,R.string.notifications,this::showPanel,1);
     }
 
     private void brightnessMenu() {
-        closePanel(false);
-        var body=column(themed,20); body.setBackground(shape(surface(themed),dp(themed,28)));
-        add(body,heading(themed,getString(R.string.brightness),24));
-        add(body,text(themed,getString(R.string.brightness_summary),14));
-        var value=heading(themed,"",28); add(body,value);
+        var body=subpage(R.string.brightness,R.string.brightness_summary,this::showPanel);
+        var value=heading(themed,"",40); add(body,value);
         var slider=(Slider) LayoutInflater.from(themed).inflate(R.layout.game_brightness,body,false);
         slider.setValue(Math.max(5,Math.min(100,prefs.store.getInt("brightness:"+foreground,50))));
         value.setText(getString(R.string.brightness_value,Math.round(slider.getValue())));
@@ -522,20 +533,16 @@ public final class GameService extends Service implements SharedPreferences.OnSh
         add(body,button(themed,getString(R.string.done),true,() -> {
             prefs.store.edit().putInt("brightness:"+foreground,Math.round(slider.getValue())).apply(); showPanel();
         }));
-        var scroll=new ScrollView(themed); scroll.setClipChildren(true); scroll.setClipToOutline(true);
-        scroll.setBackground(shape(surface(themed),dp(themed,28))); scroll.addView(body);
-        Rect bounds=safeBounds();
-        var lp=layout(Math.min(dp(themed,360),bounds.width()-dp(themed,24)),Math.min(dp(themed,420),bounds.height()-dp(themed,24)),"ArkGame:brightness");
-        lp.x=left?bounds.left+dp(themed,12):bounds.right-lp.width-dp(themed,12); lp.y=bounds.top+dp(themed,12);
-        panel=scroll; attachPanel(panel,lp); refreshGuard();
+        showSubpage(body,R.string.brightness,this::showPanel,1);
     }
     private void attachPanel(View view,WindowManager.LayoutParams lp) {
         lp.flags&=~WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE;
         lp.flags|=WindowManager.LayoutParams.FLAG_NOT_TOUCH_MODAL|WindowManager.LayoutParams.FLAG_WATCH_OUTSIDE_TOUCH;
+        lp.softInputMode=WindowManager.LayoutParams.SOFT_INPUT_ADJUST_RESIZE;
         view.setFocusableInTouchMode(true); view.setAccessibilityPaneTitle(getString(R.string.app_name));
         view.setOnKeyListener((v,key,event) -> {
             if (key!=android.view.KeyEvent.KEYCODE_BACK) return false;
-            if (event.getAction()==android.view.KeyEvent.ACTION_UP) closePanel(); return true;
+            if (event.getAction()==android.view.KeyEvent.ACTION_UP) panelBack(); return true;
         });
         view.setOnTouchListener((v,event) -> {
             if (event.getAction()==MotionEvent.ACTION_OUTSIDE) { closePanel(); return true; } return false;
@@ -544,7 +551,7 @@ public final class GameService extends Service implements SharedPreferences.OnSh
         view.post(() -> {
             if (panel==view && view.isAttachedToWindow()) {
                 var dispatcher=view.findOnBackInvokedDispatcher();
-                if (dispatcher!=null) dispatcher.registerOnBackInvokedCallback(android.window.OnBackInvokedDispatcher.PRIORITY_DEFAULT,this::closePanel);
+                if (dispatcher!=null) dispatcher.registerOnBackInvokedCallback(android.window.OnBackInvokedDispatcher.PRIORITY_DEFAULT,this::panelBack);
             }
         });
     }
@@ -552,14 +559,10 @@ public final class GameService extends Service implements SharedPreferences.OnSh
         menu(title,info,labels,actions,0);
     }
     private void menu(int title,int info,String[] labels,Runnable[] actions,int selected) {
-        closePanel(false); var body=column(themed,20); body.setBackground(shape(surface(themed),dp(themed,28)));
-        add(body,text(themed,getString(title),24)); if (info!=0) add(body,text(themed,getString(info),14));
+        var body=subpage(title,info,this::showPanel);
         for (int i=0;i<labels.length;i++) { int n=i; add(body,button(themed,labels[i],i==selected,() -> { closePanel(); actions[n].run(); })); }
-        add(body,button(themed,getString(R.string.cancel),false,this::closePanel));
-        var scroll=new ScrollView(themed); scroll.setClipChildren(true); scroll.setClipToOutline(true);
-        scroll.setBackground(shape(surface(themed),dp(themed,28))); scroll.addView(body); Rect bounds=safeBounds();
-        var lp=layout(Math.min(dp(themed,360),bounds.width()-dp(themed,24)),Math.min(dp(themed,500),bounds.height()-dp(themed,24)),"ArkGame:options");
-        lp.x=left?bounds.left+dp(themed,12):bounds.right-lp.width-dp(themed,12); lp.y=bounds.top+dp(themed,12); panel=scroll; attachPanel(panel,lp); refreshGuard();
+        add(body,button(themed,getString(R.string.cancel),false,this::showPanel));
+        showSubpage(body,title,this::showPanel,1);
     }
     private void capture(int action) { String source=foreground; closePanel(); main.postDelayed(() -> { if (canUse() && foreground.equals(source)) send(action,new Bundle()); },180); }
     private void idleMenu(boolean screenOff) {
@@ -568,25 +571,95 @@ public final class GameService extends Service implements SharedPreferences.OnSh
         }});
     }
     private void comboMenu() {
-        menu(R.string.combo,R.string.combo_intro,new String[]{getString(R.string.record_combo),getString(R.string.play_combo),getString(R.string.stop_combo)},new Runnable[]{
-            this::recordCombo,this::playCombo,() -> send(STOP_COMBO,new Bundle())});
+        showCombos(1);
     }
-    private String comboKey() { return "combo:"+foreground+":"+getResources().getConfiguration().orientation; }
+
+    private int comboOrientation() { return overlayConfiguration.orientation; }
+    private String legacyComboName() { return getString(R.string.combo_default_name,1); }
+
+    private void showCombos(int direction) {
+        boolean fresh=panel==null;
+        if (fresh) showPanel();
+        if (pages==null) return;
+        var body=subpage(R.string.combo,R.string.combo_intro,this::showPanel);
+        add(body,button(themed,getString(R.string.record_combo),true,this::recordCombo));
+        var saved=combos.list(foreground,comboOrientation(),legacyComboName());
+        if (saved.isEmpty()) add(body,text(themed,getString(R.string.combo_empty),14));
+        for (ComboStore.Combo combo:saved) {
+            var card=column(themed,14);
+            card.setBackground(shape(themed.getColor(com.android.internal.R.color.materialColorSurfaceContainer),dp(themed,24)));
+            var name=heading(themed,combo.name(),16); name.setMaxLines(2); name.setEllipsize(android.text.TextUtils.TruncateAt.END);
+            add(card,name); add(card,text(themed,combo.repeat()==0
+                    ?getString(R.string.combo_details_forever,combo.count())
+                    :getString(R.string.combo_details,combo.count(),combo.repeat()),12));
+            var actions=new LinearLayout(themed); actions.setBaselineAligned(false);
+            actions.addView(button(themed,getString(R.string.play_combo),true,() -> playCombo(combo)),new LinearLayout.LayoutParams(0,-2,1));
+            var params=new LinearLayout.LayoutParams(0,-2,1); params.setMarginStart(dp(themed,8));
+            actions.addView(button(themed,getString(R.string.edit_combo),false,() -> editCombo(combo)),params);
+            add(card,actions); add(body,card);
+        }
+        showSubpage(body,R.string.combo,this::showPanel,fresh?0:direction);
+    }
+
     private void recordCombo() {
-        if (!canUse()) return; send(STOP_COMBO,new Bundle());
-        String key=comboKey(); recorder=new ComboRecorder(themed,windows,(actions) -> {
-            prefs.store.edit().putString(key,actions.toString()).apply(); recorder=null; toast(getString(R.string.combo_saved,actions.length())); refreshGuard();
-        },() -> { recorder=null; refreshGuard(); }); recorder.show(); refreshGuard();
+        if (!canUse()) return;
+        String game=foreground; int orientation=comboOrientation();
+        closePanel(false); send(STOP_COMBO,new Bundle());
+        recorder=new ComboRecorder(themed,windows,actions -> {
+            recorder=null;
+            var saved=combos.list(game,orientation,legacyComboName());
+            int number=1;
+            String name=getString(R.string.combo_default_name,number);
+            while (containsComboName(saved,name)) name=getString(R.string.combo_default_name,++number);
+            try {
+                combos.save(game,orientation,name,actions,legacyComboName());
+                toast(getString(R.string.combo_saved,actions.length()));
+            } catch (IllegalArgumentException e) { toast(getString(R.string.combo_empty)); }
+            if (canUse() && game.equals(foreground) && orientation==comboOrientation()) showCombos(0);
+            refreshGuard();
+        },() -> { recorder=null; if (canUse()) showCombos(0); refreshGuard(); });
+        recorder.show(); refreshGuard();
     }
-    private void playCombo() {
-        try {
-            var array=new org.json.JSONArray(prefs.store.getString(comboKey(),"[]"));
-            if (array.length()==0) { toast(getString(R.string.combo_empty)); return; }
-            int[] values=new int[Math.min(30,array.length())*6];
-            for (int i=0;i<values.length;i++) values[i]=array.getJSONArray(i/6).getInt(i%6);
-            Bundle data=new Bundle(); data.putIntArray("actions",values); data.putInt("repeat",prefs.store.getInt("repeat",1));
+
+    private boolean containsComboName(List<ComboStore.Combo> saved,String name) {
+        return saved.stream().anyMatch(c -> c.name().equals(name));
+    }
+
+    private void playCombo(ComboStore.Combo combo) {
+        String game=foreground; int orientation=comboOrientation();
+        closePanel();
+        main.postDelayed(() -> {
+            if (!canUse() || !foreground.equals(game) || orientation!=comboOrientation()) return;
+            Bundle data=new Bundle(); data.putIntArray("actions",combo.actions()); data.putInt("repeat",combo.repeat());
             send(COMBO,data);
-        } catch (org.json.JSONException e) { toast(getString(R.string.combo_empty)); }
+        },180);
+    }
+
+    private void editCombo(ComboStore.Combo combo) {
+        var body=subpage(R.string.edit_combo,0,() -> showCombos(-1));
+        add(body,heading(themed,getString(R.string.combo_name),14));
+        var name=input(themed,getString(R.string.combo_name)); name.setText(combo.name()); add(body,name);
+        add(body,heading(themed,getString(R.string.repeat),14));
+        var repeat=new GameRepeatPicker(themed,combo.repeat(),value -> { }); add(body,repeat);
+        add(body,button(themed,getString(R.string.done),true,() -> {
+            if (name.getText().toString().isBlank()) { name.setError(getString(R.string.combo_name_required)); return; }
+            Integer repeats=repeat.repeat(); if (repeats==null) return;
+            combos.update(foreground,comboOrientation(),combo.id(),name.getText().toString(),repeats,legacyComboName());
+            showCombos(-1);
+        }));
+        var delete=button(themed,getString(R.string.delete_combo),false,() -> confirmDelete(combo));
+        delete.setTextColor(themed.getColor(com.android.internal.R.color.materialColorError)); add(body,delete);
+        showSubpage(body,R.string.edit_combo,() -> showCombos(-1),1);
+    }
+
+    private void confirmDelete(ComboStore.Combo combo) {
+        var body=subpage(R.string.delete_combo,0,() -> editCombo(combo));
+        add(body,text(themed,getString(R.string.delete_combo_confirmation,combo.name()),16));
+        add(body,button(themed,getString(R.string.delete_combo),true,() -> {
+            combos.delete(foreground,comboOrientation(),combo.id(),legacyComboName()); showCombos(-1);
+        }));
+        add(body,button(themed,getString(R.string.cancel),false,() -> editCombo(combo)));
+        showSubpage(body,R.string.delete_combo,() -> editCombo(combo),1);
     }
     private void updateStop() {
         remove(stopChip); stopChip=null;
@@ -603,12 +676,19 @@ public final class GameService extends Service implements SharedPreferences.OnSh
         lp.x=bounds.right-lp.width; lp.y=bounds.top+dp(themed,8); attach(returnChip,lp);
     }
     private void timerMenu() {
-        int[] minutes={1,5,15,30}; String[] labels=new String[5]; Runnable[] actions=new Runnable[5];
-        for (int i=0;i<4;i++) { int duration=minutes[i]; labels[i]=getString(R.string.minutes,duration); actions[i]=() -> {
-            timerEnd=SystemClock.elapsedRealtime()+duration*60_000L;
+        var body=subpage(R.string.timer,0,this::showPanel);
+        int[] minutes={1,5,15,30}, selected={0};
+        String[] labels=java.util.Arrays.stream(minutes).mapToObj(n -> getString(R.string.minutes,n)).toArray(String[]::new);
+        add(body,new GameChoiceGroup(themed,labels,0,index -> selected[0]=index));
+        add(body,button(themed,getString(R.string.start),true,() -> {
+            timerEnd=SystemClock.elapsedRealtime()+minutes[selected[0]]*60_000L;
             getSystemService(AlarmManager.class).setExact(AlarmManager.ELAPSED_REALTIME_WAKEUP,timerEnd,"ArkGame timer",timerAlarm,main);
-            updateTimer(); showPanel(); }; }
-        labels[4]=getString(R.string.timer_cancel); actions[4]=() -> { timerEnd=0; getSystemService(AlarmManager.class).cancel(timerAlarm); updateTimer(); }; menu(R.string.timer,0,labels,actions);
+            showPanel();
+        }));
+        if (timerEnd>0) add(body,button(themed,getString(R.string.timer_cancel),false,() -> {
+            timerEnd=0; getSystemService(AlarmManager.class).cancel(timerAlarm); showPanel();
+        }));
+        showSubpage(body,R.string.timer,this::showPanel,1);
     }
     private void updateTimer() {
         main.removeCallbacks(timerTick);

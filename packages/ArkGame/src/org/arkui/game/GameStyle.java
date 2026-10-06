@@ -1,8 +1,6 @@
 /* Copyright (C) 2026 The ArkUI Project; SPDX-License-Identifier: Apache-2.0 */
 package org.arkui.game;
 import android.content.Context;
-import android.content.res.ColorStateList;
-import android.graphics.Color;
 import android.graphics.drawable.GradientDrawable;
 import android.graphics.drawable.RippleDrawable;
 import android.text.TextUtils;
@@ -12,6 +10,7 @@ import android.view.View;
 import android.view.ViewGroup;
 import android.view.accessibility.AccessibilityNodeInfo;
 import android.widget.Button;
+import android.widget.EditText;
 import android.widget.ImageView;
 import android.widget.LinearLayout;
 import android.widget.TextView;
@@ -63,9 +62,7 @@ final class GameStyle {
     private static RippleDrawable buttonBackground(Context c, boolean selected, float radius) {
         int color = selected ? accent(c)
                 : c.getColor(com.android.internal.R.color.materialColorSurfaceContainerHighest);
-        return new RippleDrawable(ColorStateList.valueOf(
-                (buttonInk(c, selected) & 0xffffff) | 0x24000000),
-                shape(color, dp(c, radius)), shape(Color.WHITE, dp(c, radius)));
+        return new GameButtonBackground(c,color,buttonInk(c,selected),radius);
     }
     private static void buttonSemantics(View v, CharSequence description, boolean selected,
             Runnable action) {
@@ -84,12 +81,28 @@ final class GameStyle {
         });
     }
     static TextView button(Context c, CharSequence label, boolean selected, Runnable action) {
-        var v = styledText(c, label, 14, R.style.TextAppearance_SettingsLib_LabelLarge);
+        var v = styledText(c, label, 16, R.style.TextAppearance_SettingsLib_LabelLarge_Emphasized);
         v.setGravity(Gravity.CENTER); v.setMinHeight(dp(c,56));
         v.setPadding(dp(c,10),dp(c,10),dp(c,10),dp(c,10));
-        v.setBackground(buttonBackground(c, selected, selected ? 28 : 18));
-        v.setTextColor(buttonInk(c, selected));
-        buttonSemantics(v, label, selected, action);
+        int color = selected ? c.getColor(com.android.internal.R.color.materialColorPrimary)
+                : c.getColor(com.android.internal.R.color.materialColorSurfaceContainerHighest);
+        int foreground = selected ? c.getColor(com.android.internal.R.color.materialColorOnPrimary) : ink(c);
+        v.setBackground(new GameButtonBackground(c,color,foreground,28));
+        v.setTextColor(foreground);
+        buttonSemantics(v, label, false, action);
+        return v;
+    }
+    static EditText input(Context c,CharSequence label) {
+        var v = new EditText(c);
+        v.setTextAppearance(R.style.TextAppearance_SettingsLib_BodyLarge);
+        v.setSingleLine(true);
+        v.setMinHeight(dp(c,56));
+        v.setTextColor(ink(c));
+        v.setPadding(dp(c,16),dp(c,12),dp(c,16),dp(c,12));
+        v.setBackground(shape(c.getColor(com.android.internal.R.color.materialColorSurfaceContainerHighest),dp(c,16)));
+        v.setContentDescription(label);
+        v.setSelectAllOnFocus(true);
+        v.setImeOptions(android.view.inputmethod.EditorInfo.IME_ACTION_DONE);
         return v;
     }
     static LinearLayout featureCard(Context c, int label, int summary, boolean selected,
@@ -99,12 +112,12 @@ final class GameStyle {
     static LinearLayout featureCard(Context c, int label, int summary, boolean selected,
             Runnable action, boolean compact) {
         var card = new LinearLayout(c);
-        card.setOrientation(LinearLayout.HORIZONTAL);
+        card.setOrientation(compact ? LinearLayout.HORIZONTAL : LinearLayout.VERTICAL);
         card.setGravity(Gravity.CENTER_VERTICAL);
-        card.setMinimumHeight(dp(c, compact ? 56 : 88));
+        card.setMinimumHeight(dp(c, compact ? 56 : 112));
         int padding = dp(c, compact ? 8 : 12);
         card.setPadding(padding, padding, padding, padding);
-        card.setBackground(buttonBackground(c, selected, 24));
+        card.setBackground(buttonBackground(c, selected, selected ? 20 : 28));
         card.setDescendantFocusability(ViewGroup.FOCUS_BLOCK_DESCENDANTS);
 
         var copy = column(c, 0);
@@ -126,13 +139,18 @@ final class GameStyle {
             copy.addView(detail, detailParams);
         }
         var copyParams = new LinearLayout.LayoutParams(0, -2, 1);
-        copyParams.setMarginEnd(dp(c, compact ? 8 : 12));
-        card.addView(copy, copyParams);
+        if (compact) {
+            copyParams.setMarginEnd(dp(c,8));
+            card.addView(copy,copyParams);
+        }
         int iconSize = compact ? 24 : 28;
         var icon = new ImageView(c);
         icon.setImageDrawable(new ToolIcon(c, label, selected, iconSize));
         icon.setImportantForAccessibility(View.IMPORTANT_FOR_ACCESSIBILITY_NO);
-        card.addView(icon, new LinearLayout.LayoutParams(dp(c, iconSize), dp(c, iconSize)));
+        var iconParams = new LinearLayout.LayoutParams(dp(c,iconSize),dp(c,iconSize));
+        if (!compact) { iconParams.gravity = Gravity.START; iconParams.bottomMargin = dp(c,8); }
+        card.addView(icon,iconParams);
+        if (!compact) card.addView(copy,new LinearLayout.LayoutParams(-1,-2));
         buttonSemantics(card, summary == 0 ? c.getString(label)
                 : c.getString(label) + ", " + c.getString(summary), selected, action);
         return card;
@@ -140,12 +158,27 @@ final class GameStyle {
     static TextView shortcut(Context c, int label, boolean selected, Runnable action) {
         return shortcut(c, label, selected, action, false);
     }
+    static void selectFeature(LinearLayout card,boolean selected) {
+        var c = card.getContext();
+        card.setSelected(selected);
+        ((GameButtonBackground) card.getBackground()).select(selected ? accent(c)
+                : c.getColor(com.android.internal.R.color.materialColorSurfaceContainerHighest),dp(c,selected ? 20 : 28));
+        tintChildren(card,buttonInk(c,selected));
+    }
+    private static void tintChildren(ViewGroup group,int color) {
+        for (int i = 0; i < group.getChildCount(); i++) {
+            var child = group.getChildAt(i);
+            if (child instanceof TextView text) text.setTextColor(color);
+            else if (child instanceof ImageView icon) icon.getDrawable().setTint(color);
+            else if (child instanceof ViewGroup nested) tintChildren(nested,color);
+        }
+    }
     static TextView shortcut(Context c, int label, boolean selected, Runnable action,
             boolean compact) {
         var v = styledText(c, c.getString(label), compact ? 11 : 12,
                 R.style.TextAppearance_SettingsLib_LabelMedium);
         v.setGravity(Gravity.CENTER);
-        v.setMinHeight(dp(c, compact ? 56 : 80));
+        v.setMinHeight(dp(c, compact ? 56 : 72));
         v.setMinWidth(dp(c, compact ? 48 : 56));
         int horizontalPadding = dp(c, compact ? 4 : 8);
         int verticalPadding = dp(c, compact ? 6 : 12);
@@ -156,7 +189,18 @@ final class GameStyle {
                 null, null);
         v.setCompoundDrawablePadding(dp(c, compact ? 4 : 8));
         v.setTextColor(buttonInk(c, selected));
-        v.setBackground(buttonBackground(c, selected, 24));
+        if (label == org.arkui.game.R.string.combo || label == org.arkui.game.R.string.timer) {
+            int color = c.getColor(label == org.arkui.game.R.string.combo
+                    ? com.android.internal.R.color.materialColorSecondaryContainer
+                    : com.android.internal.R.color.materialColorTertiaryContainer);
+            int foreground = c.getColor(label == org.arkui.game.R.string.combo
+                    ? com.android.internal.R.color.materialColorOnSecondaryContainer
+                    : com.android.internal.R.color.materialColorOnTertiaryContainer);
+            v.setTextColor(foreground);
+            var icon = new ToolIcon(c,label,selected,compact ? 24 : 28); icon.setTint(foreground);
+            v.setCompoundDrawables(null,icon,null,null);
+            v.setBackground(new GameButtonBackground(c,color,foreground,selected ? 16 : 28));
+        } else v.setBackground(buttonBackground(c, selected, 28));
         buttonSemantics(v, c.getString(label), selected, action);
         return v;
     }

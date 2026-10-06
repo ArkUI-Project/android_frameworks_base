@@ -222,7 +222,7 @@ public final class GameBridge {
                     brightnessChanged=true;
                 }
                 case COMBO -> {
-                    if (!combo.play(task,b.getIntArray("actions"),Math.max(1,Math.min(10,b.getInt("repeat",1))))) {
+                    if (!combo.play(task,b.getIntArray("actions"),b.getInt("repeat",1))) {
                         Bundle result=new Bundle(); result.putBoolean("comboRejected",true); send(RESULT,result);
                     }
                 }

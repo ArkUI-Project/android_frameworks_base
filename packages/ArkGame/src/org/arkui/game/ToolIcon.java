@@ -45,6 +45,8 @@ final class ToolIcon extends Drawable {
                 if(i==0) path.moveTo(x,y); else path.lineTo(x,y);
             }
             path.close();c.drawPath(path,p);c.drawCircle(12,12,3,p);
+        } else if(kind==R.string.back) {
+            c.drawLine(5,12,20,12,p);c.drawLine(5,12,12,5,p);c.drawLine(5,12,12,19,p);
         } else if(kind==R.string.close) {
             c.drawLine(6,6,18,18,p);c.drawLine(18,6,6,18,p);
         } else if(kind==R.string.library) {
@@ -76,6 +78,7 @@ final class ToolIcon extends Drawable {
         } c.restore();
     }
     @Override public void setAlpha(int alpha) { p.setAlpha(alpha); }
+    @Override public void setTint(int color) { p.setColor(color); invalidateSelf(); }
     @Override public void setColorFilter(ColorFilter filter) { p.setColorFilter(filter); }
     @Override public int getIntrinsicWidth() { return size; }
     @Override public int getIntrinsicHeight() { return size; }
