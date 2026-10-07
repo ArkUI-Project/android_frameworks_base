@@ -94,6 +94,7 @@ constructor(
 
     fun fillTouchableBounds(internalInsetsInfo: InternalInsetsInfo) {
         for (child in touchableBoundsViews) {
+            if (!child.isShown || child.alpha == 0f) continue
             val boundsRect = Rect()
             internalInsetsInfo.setTouchableInsets(InternalInsetsInfo.TOUCHABLE_INSETS_REGION)
 

@@ -238,9 +238,9 @@ private fun ExpandButtonLegacy(
                 painter =
                     painterResource(
                         if (isExpanded) {
-                            R.drawable.ic_filled_arrow_down
-                        } else {
                             R.drawable.ic_filled_arrow_up
+                        } else {
+                            R.drawable.ic_filled_arrow_down
                         }
                     ),
                 contentDescription = null,
@@ -280,12 +280,12 @@ private fun RowScope.ExpandButton(
                     containerColor = MaterialTheme.colorScheme.surfaceContainerHighest,
                     contentColor = MaterialTheme.colorScheme.onSurface,
                 ),
-            shape = RoundedCornerShape(12.dp),
+            shape = RoundedCornerShape(20.dp),
             iconResource =
                 if (isExpanded) {
-                    R.drawable.ic_arrow_down_24dp
-                } else {
                     R.drawable.ic_arrow_up_24dp
+                } else {
+                    R.drawable.ic_arrow_down_24dp
                 },
             contentDescription = null,
         )

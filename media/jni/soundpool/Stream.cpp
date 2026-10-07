@@ -67,7 +67,8 @@ void Stream::mute(bool muting)
         if (mMuted) {
             mAudioTrack->setVolume(0.0f, 0.0f);
         } else {
-            mAudioTrack->setVolume(mLeftVolume, mRightVolume);
+            mAudioTrack->setVolume(mLeftVolume * mVolumeMultiplierLeft,
+                    mRightVolume * mVolumeMultiplierRight);
         }
     }
 }
@@ -118,7 +119,18 @@ void Stream::setVolume_l(float leftVolume, float rightVolume)
     mLeftVolume = leftVolume;
     mRightVolume = rightVolume;
     if (mAudioTrack != nullptr && !mMuted) {
-        mAudioTrack->setVolume(leftVolume, rightVolume);
+        mAudioTrack->setVolume(leftVolume * mVolumeMultiplierLeft,
+                rightVolume * mVolumeMultiplierRight);
+    }
+}
+
+void Stream::setVolumeMultiplier(float left, float right)
+{
+    std::lock_guard lock(mLock);
+    mVolumeMultiplierLeft = left;
+    mVolumeMultiplierRight = right;
+    if (mAudioTrack != nullptr && !mMuted) {
+        mAudioTrack->setVolume(mLeftVolume * left, mRightVolume * right);
     }
 }
 
@@ -361,7 +373,8 @@ void Stream::play_l(const std::shared_ptr<Sound>& sound, int32_t nextStreamID,
     if (mMuted) {
         mAudioTrack->setVolume(0.f, 0.f);
     } else {
-        mAudioTrack->setVolume(leftVolume, rightVolume);
+        mAudioTrack->setVolume(leftVolume * mVolumeMultiplierLeft,
+                rightVolume * mVolumeMultiplierRight);
     }
     mAudioTrack->setLoop(0, frameCount, loop);
     mAudioTrack->start();

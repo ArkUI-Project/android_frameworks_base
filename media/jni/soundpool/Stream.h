@@ -89,6 +89,7 @@ public:
     void resume(int32_t streamID);
     void autoResume();
     void mute(bool muting);
+    void setVolumeMultiplier(float left, float right);
     void dump() const NO_THREAD_SAFETY_ANALYSIS; // disable for ALOGV (see func for details).
 
     // returns the pair stream if successful, nullptr otherwise.
@@ -176,6 +177,8 @@ private:
     int32_t             mSoundID GUARDED_BY(mLock) = 0; // SoundID associated with AudioTrack.
     float               mLeftVolume GUARDED_BY(mLock) = 0.f;
     float               mRightVolume GUARDED_BY(mLock) = 0.f;
+    float               mVolumeMultiplierLeft GUARDED_BY(mLock) = 1.f;
+    float               mVolumeMultiplierRight GUARDED_BY(mLock) = 1.f;
     int32_t             mPriority GUARDED_BY(mLock) = INT32_MIN;
     int32_t             mLoop GUARDED_BY(mLock) = 0;
     float               mRate GUARDED_BY(mLock) = 0.f;

@@ -16,59 +16,36 @@
 
 package com.android.systemui.volume.panel.component.selector.ui.composable
 
-import androidx.compose.animation.core.Animatable
-import androidx.compose.animation.core.VectorConverter
-import androidx.compose.foundation.background
-import androidx.compose.foundation.clickable
+import androidx.compose.animation.animateColorAsState
+import androidx.compose.animation.core.animateDpAsState
 import androidx.compose.foundation.layout.Arrangement
-import androidx.compose.foundation.layout.PaddingValues
+import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.RowScope
-import androidx.compose.foundation.layout.Spacer
-import androidx.compose.foundation.layout.height
-import androidx.compose.foundation.layout.offset
+import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.selection.selectableGroup
 import androidx.compose.foundation.shape.CornerSize
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.LocalContentColor
 import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.TextButton
+import androidx.compose.material3.Surface
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.CompositionLocalProvider
-import androidx.compose.runtime.remember
-import androidx.compose.runtime.rememberCoroutineScope
+import androidx.compose.runtime.getValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.layout.Layout
-import androidx.compose.ui.layout.Measurable
-import androidx.compose.ui.layout.MeasurePolicy
-import androidx.compose.ui.layout.MeasureResult
-import androidx.compose.ui.layout.MeasureScope
-import androidx.compose.ui.layout.Placeable
-import androidx.compose.ui.layout.layoutId
-import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.semantics.Role
-import androidx.compose.ui.semantics.clearAndSetSemantics
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.role
 import androidx.compose.ui.semantics.selected
 import androidx.compose.ui.semantics.semantics
-import androidx.compose.ui.unit.Constraints
 import androidx.compose.ui.unit.Dp
-import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.unit.dp
-import androidx.compose.ui.util.fastFirst
-import kotlinx.coroutines.launch
 
-/**
- * Radio button group for the Volume Panel. It allows selecting a single item
- *
- * @param indicatorBackgroundPadding is the distance between the edge of the indicator and the
- *   indicator background
- * @param labelIndicatorBackgroundSpacing is the distance between indicator background and labels
- *   row
- */
+/** Connected MD3 Expressive options: icon, label and selected state share one surface. */
 @Composable
 fun VolumePanelRadioButtonBar(
     modifier: Modifier = Modifier,
@@ -84,185 +61,32 @@ fun VolumePanelRadioButtonBar(
     colors: VolumePanelRadioButtonBarColors = VolumePanelRadioButtonBarDefaults.defaultColors(),
     content: VolumePanelRadioButtonBarScope.() -> Unit,
 ) {
-    val scope =
-        VolumePanelRadioButtonBarScopeImpl().apply(content).apply {
-            require(hasSelectedItem) { "At least one item should be selected" }
-        }
-    val items = scope.items
-
-    val coroutineScope = rememberCoroutineScope()
-    val offsetAnimatable = remember { Animatable(UNSET_OFFSET, Int.VectorConverter) }
-    Layout(
-        modifier = modifier,
-        content = {
-            Spacer(
-                modifier =
-                    Modifier.layoutId(RadioButtonBarComponent.ButtonsBackground)
-                        .background(
-                            colors.indicatorBackgroundColor,
-                            RoundedCornerShape(indicatorBackgroundCornerSize),
-                        )
-            )
-            Spacer(
-                modifier =
-                    Modifier.layoutId(RadioButtonBarComponent.Indicator)
-                        .offset { IntOffset(offsetAnimatable.value, 0) }
-                        .padding(indicatorBackgroundPadding)
-                        .background(colors.indicatorColor, RoundedCornerShape(indicatorCornerSize))
-            )
-            Row(
-                modifier =
-                    Modifier.layoutId(RadioButtonBarComponent.Buttons)
-                        .padding(indicatorBackgroundPadding),
-                horizontalArrangement = Arrangement.spacedBy(spacing),
-            ) {
-                for (itemIndex in items.indices) {
-                    val item = items[itemIndex]
-                    val isSelected = itemIndex == scope.selectedIndex
-                    Row(
-                        modifier =
-                            Modifier.height(48.dp)
-                                .weight(1f)
-                                .semantics {
-                                    item.contentDescription?.let { contentDescription = it }
-                                    role = Role.Switch
-                                    selected = isSelected
-                                }
-                                .clickable(
-                                    interactionSource = null,
-                                    indication = null,
-                                    onClick = { items[itemIndex].onItemSelected() },
-                                ),
-                        horizontalArrangement = Arrangement.Center,
-                        verticalAlignment = Alignment.CenterVertically,
-                    ) {
-                        if (item.icon !== Empty) {
-                            CompositionLocalProvider(
-                                LocalContentColor provides colors.getIconColor(isSelected)
-                            ) {
-                                with(items[itemIndex]) { icon() }
-                            }
-                        }
+    val scope = VolumePanelRadioButtonBarScopeImpl().apply(content)
+    require(scope.hasSelectedItem) { "At least one item should be selected" }
+    Row(modifier = modifier.selectableGroup(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+        for ((index, item) in scope.items.withIndex()) {
+            val isSelected = index == scope.selectedIndex
+            val background by animateColorAsState(
+                if (isSelected) colors.indicatorColor else colors.indicatorBackgroundColor, label = "OptionColor")
+            val corner by animateDpAsState(if (isSelected) 28.dp else 20.dp, label = "OptionShape")
+            Surface(onClick = item.onItemSelected,
+                modifier = Modifier.weight(1f).semantics {
+                    role = Role.RadioButton
+                    selected = isSelected
+                    item.contentDescription?.let { contentDescription = it }
+                },
+                shape = RoundedCornerShape(corner), color = background) {
+                Column(Modifier.fillMaxWidth().heightIn(min = 80.dp).padding(vertical = 12.dp),
+                    horizontalAlignment = Alignment.CenterHorizontally,
+                    verticalArrangement = Arrangement.spacedBy(6.dp, Alignment.CenterVertically)) {
+                    CompositionLocalProvider(LocalContentColor provides colors.getIconColor(isSelected)) {
+                        Row { item.icon(this) }
+                    }
+                    CompositionLocalProvider(LocalContentColor provides colors.getLabelColor(isSelected)) {
+                        Row { item.label(this) }
                     }
                 }
             }
-            Row(
-                modifier =
-                    Modifier.layoutId(RadioButtonBarComponent.Labels)
-                        .padding(
-                            start = indicatorBackgroundPadding,
-                            top = labelIndicatorBackgroundSpacing,
-                            end = indicatorBackgroundPadding,
-                        )
-                        .clearAndSetSemantics {},
-                horizontalArrangement = Arrangement.spacedBy(spacing),
-            ) {
-                for (itemIndex in items.indices) {
-                    val cornersRadius = 4.dp
-                    TextButton(
-                        modifier = Modifier.weight(1f),
-                        onClick = { items[itemIndex].onItemSelected() },
-                        shape = RoundedCornerShape(cornersRadius),
-                        contentPadding = PaddingValues(cornersRadius),
-                    ) {
-                        val item = items[itemIndex]
-                        if (item.icon !== Empty) {
-                            val textColor = colors.getLabelColor(itemIndex == scope.selectedIndex)
-                            CompositionLocalProvider(LocalContentColor provides textColor) {
-                                with(items[itemIndex]) { label() }
-                            }
-                        }
-                    }
-                }
-            }
-        },
-        measurePolicy =
-            with(LocalDensity.current) {
-                val spacingPx =
-                    (spacing - indicatorBackgroundPadding * 2).roundToPx().coerceAtLeast(0)
-
-                BarMeasurePolicy(
-                    buttonsCount = items.size,
-                    selectedIndex = scope.selectedIndex,
-                    spacingPx = spacingPx,
-                ) {
-                    coroutineScope.launch {
-                        if (offsetAnimatable.value == UNSET_OFFSET) {
-                            offsetAnimatable.snapTo(it)
-                        } else {
-                            offsetAnimatable.animateTo(it)
-                        }
-                    }
-                }
-            },
-    )
-}
-
-private class BarMeasurePolicy(
-    private val buttonsCount: Int,
-    private val selectedIndex: Int,
-    private val spacingPx: Int,
-    private val onTargetIndicatorOffsetMeasured: (Int) -> Unit,
-) : MeasurePolicy {
-
-    override fun MeasureScope.measure(
-        measurables: List<Measurable>,
-        constraints: Constraints,
-    ): MeasureResult {
-        val fillWidthConstraints = constraints.copy(minWidth = constraints.maxWidth)
-        val buttonsPlaceable: Placeable =
-            measurables
-                .fastFirst { it.layoutId == RadioButtonBarComponent.Buttons }
-                .measure(fillWidthConstraints)
-        val labelsPlaceable: Placeable =
-            measurables
-                .fastFirst { it.layoutId == RadioButtonBarComponent.Labels }
-                .measure(fillWidthConstraints)
-
-        val buttonsBackgroundPlaceable: Placeable =
-            measurables
-                .fastFirst { it.layoutId == RadioButtonBarComponent.ButtonsBackground }
-                .measure(
-                    Constraints(
-                        minWidth = buttonsPlaceable.width,
-                        maxWidth = buttonsPlaceable.width,
-                        minHeight = buttonsPlaceable.height,
-                        maxHeight = buttonsPlaceable.height,
-                    )
-                )
-
-        val totalSpacing = spacingPx * (buttonsCount - 1)
-        val indicatorWidth = (buttonsBackgroundPlaceable.width - totalSpacing) / buttonsCount
-        val indicatorPlaceable: Placeable =
-            measurables
-                .fastFirst { it.layoutId == RadioButtonBarComponent.Indicator }
-                .measure(
-                    Constraints(
-                        minWidth = indicatorWidth,
-                        maxWidth = indicatorWidth,
-                        minHeight = buttonsBackgroundPlaceable.height,
-                        maxHeight = buttonsBackgroundPlaceable.height,
-                    )
-                )
-
-        onTargetIndicatorOffsetMeasured(
-            selectedIndex * indicatorWidth + (spacingPx * selectedIndex)
-        )
-
-        return layout(constraints.maxWidth, buttonsPlaceable.height + labelsPlaceable.height) {
-            buttonsBackgroundPlaceable.placeRelative(
-                0,
-                0,
-                RadioButtonBarComponent.ButtonsBackground.zIndex,
-            )
-            indicatorPlaceable.placeRelative(0, 0, RadioButtonBarComponent.Indicator.zIndex)
-
-            buttonsPlaceable.placeRelative(0, 0, RadioButtonBarComponent.Buttons.zIndex)
-            labelsPlaceable.placeRelative(
-                0,
-                buttonsBackgroundPlaceable.height,
-                RadioButtonBarComponent.Labels.zIndex,
-            )
         }
     }
 }
@@ -291,8 +115,8 @@ private fun VolumePanelRadioButtonBarColors.getLabelColor(selected: Boolean): Co
 object VolumePanelRadioButtonBarDefaults {
 
     val DefaultIndicatorBackgroundPadding = 8.dp
-    val DefaultSpacing = 24.dp
-    val DefaultLabelIndicatorBackgroundSpacing = 12.dp
+    val DefaultSpacing = 8.dp
+    val DefaultLabelIndicatorBackgroundSpacing = 6.dp
     val DefaultIndicatorCornerRadius = 20.dp
     val DefaultIndicatorBackgroundCornerRadius = 28.dp
 
@@ -304,12 +128,12 @@ object VolumePanelRadioButtonBarDefaults {
      */
     @Composable
     fun defaultColors(
-        indicatorColor: Color = MaterialTheme.colorScheme.tertiary,
-        indicatorBackgroundColor: Color = MaterialTheme.colorScheme.surface,
+        indicatorColor: Color = MaterialTheme.colorScheme.primary,
+        indicatorBackgroundColor: Color = MaterialTheme.colorScheme.surfaceContainerHigh,
         iconColor: Color = MaterialTheme.colorScheme.onSurfaceVariant,
-        selectedIconColor: Color = MaterialTheme.colorScheme.onTertiary,
+        selectedIconColor: Color = MaterialTheme.colorScheme.onPrimary,
         labelColor: Color = MaterialTheme.colorScheme.onSurfaceVariant,
-        selectedLabelColor: Color = MaterialTheme.colorScheme.onSurface,
+        selectedLabelColor: Color = MaterialTheme.colorScheme.onPrimary,
     ): VolumePanelRadioButtonBarColors =
         VolumePanelRadioButtonBarColors(
             indicatorColor = indicatorColor,
@@ -386,12 +210,3 @@ private class Item(
     val label: @Composable RowScope.() -> Unit,
     val contentDescription: String?,
 )
-
-private const val UNSET_OFFSET = -1
-
-private enum class RadioButtonBarComponent(val zIndex: Float) {
-    ButtonsBackground(0f),
-    Indicator(1f),
-    Buttons(2f),
-    Labels(2f),
-}

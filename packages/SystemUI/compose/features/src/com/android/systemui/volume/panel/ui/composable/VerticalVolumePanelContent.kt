@@ -31,11 +31,14 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.util.fastSumBy
 import com.android.systemui.volume.panel.ui.layout.ComponentsLayout
+import com.android.systemui.volume.AppVolumeController
+import com.android.systemui.volume.panel.component.volume.ui.composable.AppVolumeControls
 
 @Composable
 fun VolumePanelComposeScope.VerticalVolumePanelContent(
     layout: ComponentsLayout,
     modifier: Modifier = Modifier,
+    appVolumes: AppVolumeController? = null,
 ) {
     Column(
         modifier = modifier.verticalScroll(rememberScrollState()),
@@ -51,6 +54,8 @@ fun VolumePanelComposeScope.VerticalVolumePanelContent(
                 with(component.component as ComposeVolumePanelUiComponent) { Content(Modifier) }
             }
         }
+
+        appVolumes?.let { AppVolumeControls(it) }
 
         AnimatedContent(
             targetState = layout.footerComponents,

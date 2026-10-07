@@ -447,6 +447,13 @@ android_media_SoundPool_mute(JNIEnv *env, jobject thiz, jboolean muting)
 }
 
 static void
+android_media_SoundPool_setVolumeMultiplier(JNIEnv *env, jobject thiz, jfloat left, jfloat right)
+{
+    auto soundPool = getSoundPool(env, thiz);
+    if (soundPool != nullptr) soundPool->setVolumeMultiplier(left, right);
+}
+
+static void
 android_media_SoundPool_setPriority(JNIEnv *env, jobject thiz, jint channelID,
         jint priority)
 {
@@ -603,6 +610,10 @@ static JNINativeMethod gMethods[] = {
     {   "_mute",
         "(Z)V",
         (void *)android_media_SoundPool_mute
+    },
+    {   "_setVolumeMultiplier",
+        "(FF)V",
+        (void *)android_media_SoundPool_setVolumeMultiplier
     },
     {   "setPriority",
         "(II)V",

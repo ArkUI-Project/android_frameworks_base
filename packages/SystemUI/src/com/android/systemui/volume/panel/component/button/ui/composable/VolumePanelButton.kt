@@ -16,9 +16,7 @@
 
 package com.android.systemui.volume.panel.component.button.ui.composable
 
-import androidx.compose.foundation.basicMarquee
 import androidx.compose.foundation.layout.Arrangement
-import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
@@ -41,7 +39,7 @@ import com.android.systemui.animation.Expandable
 import com.android.systemui.common.shared.model.Icon
 import com.android.systemui.common.ui.compose.Icon
 
-/** Button with a label below it */
+/** A single expressive surface contains both the icon and its label. */
 @Composable
 fun VolumePanelButton(
     label: String,
@@ -59,7 +57,7 @@ fun VolumePanelButton(
     ) {
         Expandable(
             modifier =
-                Modifier.fillMaxWidth().height(56.dp).semantics {
+                Modifier.fillMaxWidth().height(80.dp).semantics {
                     role = semanticsRole
                     contentDescription = label
                 },
@@ -69,7 +67,7 @@ fun VolumePanelButton(
                     isActive -> MaterialTheme.colorScheme.primary
                     else -> MaterialTheme.colorScheme.surfaceContainerHigh
                 },
-            shape = RoundedCornerShape(20.dp),
+            shape = RoundedCornerShape(if (isActive) 28.dp else 20.dp),
             contentColor =
                 when {
                     !isEnabled -> MaterialTheme.colorScheme.outline
@@ -78,17 +76,12 @@ fun VolumePanelButton(
                 },
             onClick = { onClick(it) },
         ) {
-            icon?.let {
-                Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
-                    Icon(modifier = Modifier.size(24.dp), icon = it)
-                }
+            Column(modifier = Modifier.fillMaxSize(), horizontalAlignment = Alignment.CenterHorizontally,
+                verticalArrangement = Arrangement.spacedBy(6.dp, Alignment.CenterVertically)) {
+                icon?.let { Icon(modifier = Modifier.size(24.dp), icon = it) }
+                Text(modifier = Modifier.clearAndSetSemantics {}, text = label,
+                    style = MaterialTheme.typography.labelMedium, maxLines = 2)
             }
         }
-        Text(
-            modifier = Modifier.clearAndSetSemantics {}.basicMarquee(),
-            text = label,
-            style = MaterialTheme.typography.labelMedium,
-            maxLines = 2,
-        )
     }
 }

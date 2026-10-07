@@ -64,7 +64,9 @@ class VolumePanelViewModel(
     private val dumpManager: DumpManager,
     private val logger: VolumePanelLogger,
     private val volumePanelGlobalStateInteractor: VolumePanelGlobalStateInteractor,
+    private val onDismiss: (() -> Unit)? = null,
 ) : Dumpable {
+    private val dumpTag = if (onDismiss != null) "${TAG}Embedded" else TAG
 
     private val volumePanelComponent: VolumePanelComponent =
         daggerComponentFactory.create(this, coroutineScope)
@@ -122,8 +124,8 @@ class VolumePanelViewModel(
 
     init {
         scope.launchAndDispose {
-            dumpManager.registerNormalDumpable(TAG, this)
-            DisposableHandle { dumpManager.unregisterDumpable(TAG) }
+            dumpManager.registerNormalDumpable(dumpTag, this)
+            DisposableHandle { dumpManager.unregisterDumpable(dumpTag) }
         }
 
         volumePanelComponent.volumePanelStartables().onEach(VolumePanelStartable::start)
@@ -134,7 +136,8 @@ class VolumePanelViewModel(
     }
 
     fun dismissPanel() {
-        volumePanelGlobalStateInteractor.setVisible(false)
+        if (onDismiss != null) onDismiss.invoke()
+        else volumePanelGlobalStateInteractor.setVisible(false)
     }
 
     override fun dump(pw: PrintWriter, args: Array<out String>) {
@@ -156,7 +159,7 @@ class VolumePanelViewModel(
         private val volumePanelGlobalStateInteractor: VolumePanelGlobalStateInteractor,
     ) {
 
-        fun create(coroutineScope: CoroutineScope): VolumePanelViewModel {
+        fun create(coroutineScope: CoroutineScope, onDismiss: (() -> Unit)? = null): VolumePanelViewModel {
             return VolumePanelViewModel(
                 context.resources,
                 coroutineScope,
@@ -166,6 +169,7 @@ class VolumePanelViewModel(
                 dumpManager,
                 logger,
                 volumePanelGlobalStateInteractor,
+                onDismiss,
             )
         }
     }

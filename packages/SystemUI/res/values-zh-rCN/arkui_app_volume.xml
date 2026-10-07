@@ -1,0 +1,17 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Copyright (C) 2026 The ArkUI Project; SPDX-License-Identifier: Apache-2.0 -->
+<resources>
+    <string name="arkui_volume_expanded_title">音量</string>
+    <string name="arkui_volume_collapse">收起</string>
+    <string name="arkui_app_volume_title">分应用音量</string>
+    <string name="arkui_app_volume_summary">单独调节应用的媒体与游戏声音，受媒体总音量控制。共享音频身份的应用会同步调节。</string>
+    <string name="arkui_app_volume_reset">重置</string>
+    <string name="arkui_app_volume_playing">正在播放</string>
+    <string name="arkui_app_volume_effects">游戏与应用音效</string>
+    <string name="arkui_app_volume_saved">已保存音量</string>
+    <string name="arkui_app_volume_mute">静音</string>
+    <string name="arkui_app_volume_unmute">恢复</string>
+    <string name="arkui_app_volume_add">添加应用</string>
+    <string name="arkui_app_volume_close_picker">收起应用列表</string>
+    <string name="arkui_app_volume_remove">移除调节</string>
+</resources>

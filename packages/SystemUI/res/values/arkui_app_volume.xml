@@ -1,0 +1,17 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Copyright (C) 2026 The ArkUI Project; SPDX-License-Identifier: Apache-2.0 -->
+<resources>
+    <string name="arkui_volume_expanded_title">Volume</string>
+    <string name="arkui_volume_collapse">Collapse</string>
+    <string name="arkui_app_volume_title">App volume</string>
+    <string name="arkui_app_volume_summary">Adjust each app’s media and game audio relative to media volume. Apps sharing an audio identity are adjusted together.</string>
+    <string name="arkui_app_volume_reset">Reset</string>
+    <string name="arkui_app_volume_playing">Playing</string>
+    <string name="arkui_app_volume_effects">Game and app sound effects</string>
+    <string name="arkui_app_volume_saved">Saved volume</string>
+    <string name="arkui_app_volume_mute">Mute</string>
+    <string name="arkui_app_volume_unmute">Restore</string>
+    <string name="arkui_app_volume_add">Add app</string>
+    <string name="arkui_app_volume_close_picker">Close app list</string>
+    <string name="arkui_app_volume_remove">Remove adjustment</string>
+</resources>

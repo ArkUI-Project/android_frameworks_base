@@ -54,6 +54,7 @@ import androidx.compose.runtime.setValue
 import androidx.compose.runtime.snapshotFlow
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.semantics.CustomAccessibilityAction
@@ -173,7 +174,7 @@ fun VolumeSlider(
                                             icon = {
                                                 Icon(
                                                     icon = icon,
-                                                    tint = null,
+                                                    tint = if (state.isIconTinted) null else { { Color.Unspecified } },
                                                     modifier =
                                                         Modifier.size(24.dp)
                                                             .testTag(
@@ -193,7 +194,7 @@ fun VolumeSlider(
                                             icon = {
                                                 Icon(
                                                     icon = icon,
-                                                    tint = null,
+                                                    tint = if (state.isIconTinted) null else { { Color.Unspecified } },
                                                     modifier =
                                                         Modifier.size(24.dp)
                                                             .testTag(
@@ -340,6 +341,7 @@ private fun LegacyVolumeSlider(
                     icon = it,
                     onIconTapped = onIconTapped,
                     isTappable = state.isMutable,
+                    isTinted = state.isIconTinted,
                 )
             }
         },
@@ -380,6 +382,7 @@ private fun LegacySliderIcon(
     icon: IconModel,
     onIconTapped: () -> Unit,
     isTappable: Boolean,
+    isTinted: Boolean,
     modifier: Modifier = Modifier,
 ) {
     val boxModifier =
@@ -396,7 +399,8 @@ private fun LegacySliderIcon(
     Box(
         modifier = boxModifier,
         contentAlignment = Alignment.Center,
-        content = { Icon(modifier = Modifier.size(24.dp), icon = icon) },
+        content = { Icon(modifier = Modifier.size(24.dp), icon = icon,
+            tint = if (isTinted) null else { { Color.Unspecified } }) },
     )
 }
 

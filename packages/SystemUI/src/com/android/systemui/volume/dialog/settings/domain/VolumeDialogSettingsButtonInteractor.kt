@@ -52,6 +52,7 @@ constructor(
             .filterIsInstance(VolumeDialogVisibilityModel.Visible::class)
             .map { model ->
                 deviceProvisionedController.isCurrentUserSetup() &&
+                    !model.keyguardLocked &&
                     model.lockTaskModeState == ActivityManager.LOCK_TASK_MODE_NONE
             }
             .flowName("VDSBI#isVisible")
@@ -61,7 +62,8 @@ constructor(
         if (desktopAudioTileDetailsFeatureInteractor.isEnabled()) {
             shadeInteractor.expandQuickSettingsShade(QS_SHADE_EXPAND_REASON)
         } else {
-            volumePanelGlobalStateInteractor.setVisible(true)
+            visibilityInteractor.setExpanded(true)
+            return
         }
         visibilityInteractor.dismissDialog(Events.DISMISS_REASON_SETTINGS_CLICKED)
     }

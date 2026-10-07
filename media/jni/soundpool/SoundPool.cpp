@@ -168,6 +168,16 @@ void SoundPool::mute(bool muting)
     mStreamManager.forEach([=](soundpool::Stream *stream) { stream->mute(muting); });
 }
 
+void SoundPool::setVolumeMultiplier(float left, float right)
+{
+    if (checkVolume(&left, &right)) return;
+    std::lock_guard lock(mApiLock);
+    // Every pooled stream retains the multiplier, including queued and future playback.
+    mStreamManager.forEach([=](soundpool::Stream *stream) {
+        stream->setVolumeMultiplier(left, right);
+    });
+}
+
 void SoundPool::pause(int32_t streamID)
 {
     ALOGV("%s(%d)", __func__, streamID);

@@ -29,10 +29,45 @@ import android.view.View
 import android.view.ViewGroup
 import android.view.WindowManager
 import androidx.activity.ComponentDialog
+import androidx.activity.OnBackPressedCallback
+import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.expandIn
+import androidx.compose.animation.shrinkOut
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.fadeOut
+import androidx.compose.animation.core.CubicBezierEasing
+import androidx.compose.animation.core.tween
+import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.heightIn
+import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.Surface
+import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
+import androidx.compose.ui.Alignment
+import androidx.compose.ui.Modifier
+import androidx.compose.ui.platform.ComposeView
+import androidx.compose.ui.res.stringResource
+import androidx.compose.ui.unit.IntSize
+import androidx.compose.ui.unit.dp
+import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import com.android.compose.theme.PlatformTheme
 import com.android.app.tracing.coroutines.coroutineScopeTraced
 import com.android.systemui.dagger.qualifiers.Application
 import com.android.systemui.lifecycle.repeatWhenAttached
 import com.android.systemui.res.R
+import com.android.systemui.settings.UserTracker
+import com.android.systemui.statusbar.policy.KeyguardStateController
+import com.android.systemui.volume.AppVolumeController
+import com.android.systemui.volume.panel.ui.composable.VolumePanelRoot
+import com.android.systemui.volume.panel.ui.viewmodel.VolumePanelViewModel
 import com.android.systemui.volume.Events
 import com.android.systemui.volume.dialog.dagger.factory.VolumeDialogComponentFactory
 import com.android.systemui.volume.dialog.domain.interactor.DesktopAudioTileDetailsFeatureInteractor
@@ -47,12 +82,28 @@ constructor(
     @Application context: Context,
     private val componentFactory: VolumeDialogComponentFactory,
     private val visibilityInteractor: VolumeDialogVisibilityInteractor,
+    private val panelFactory: VolumePanelViewModel.Factory,
+    private val appVolumes: AppVolumeController,
+    private val userTracker: UserTracker,
+    private val keyguard: KeyguardStateController,
     desktopAudioTileDetailsFeatureInteractor: DesktopAudioTileDetailsFeatureInteractor,
 ) : ComponentDialog(context, R.style.Theme_SystemUI_Dialog_Volume) {
     // Use horizontal volume dialog if the audio tile details view is enabled
     private val isVolumeDialogVertical = !desktopAudioTileDetailsFeatureInteractor.isEnabled()
 
     private var volumePanelOnLeft: Boolean = false
+    private val userCallback = object : UserTracker.Callback {
+        override fun onUserChanged(id: Int, userContext: Context) {
+            visibilityInteractor.dismissDialog(Events.DISMISS_REASON_VOLUME_CONTROLLER)
+        }
+    }
+    private val keyguardCallback = object : KeyguardStateController.Callback {
+        override fun onKeyguardShowingChanged() {
+            if (keyguard.isShowing && visibilityInteractor.isExpanded.value) {
+                visibilityInteractor.dismissDialog(Events.DISMISS_REASON_SCREEN_OFF)
+            }
+        }
+    }
 
     private val volumePanelOnLeftObserver =
         object : ContentObserver(Handler(Looper.getMainLooper())) {
@@ -85,7 +136,8 @@ constructor(
 
         if (isVolumeDialogVertical) {
             win.setLayout(
-                ViewGroup.LayoutParams.WRAP_CONTENT,
+                (minOf(420, context.resources.configuration.screenWidthDp) *
+                    context.resources.displayMetrics.density).toInt(),
                 ViewGroup.LayoutParams.MATCH_PARENT,
             )
             win.setGravity(side)
@@ -122,7 +174,8 @@ constructor(
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         if (isVolumeDialogVertical) {
-            setContentView(R.layout.volume_dialog)
+            setContentView(R.layout.arkui_volume_dialog)
+            bindExpandedPanel()
         } else {
             setContentView(R.layout.volume_dialog_horizontal)
         }
@@ -140,6 +193,8 @@ constructor(
 
     override fun onStart() {
         super.onStart()
+        userTracker.addCallback(userCallback, java.util.concurrent.Executor { context.mainExecutor.execute(it) })
+        keyguard.addCallback(keyguardCallback)
         context.contentResolver.registerContentObserver(
             LineageSettings.Secure.getUriFor(LineageSettings.Secure.VOLUME_PANEL_ON_LEFT),
             false,
@@ -155,7 +210,86 @@ constructor(
 
     override fun onStop() {
         super.onStop()
+        visibilityInteractor.setExpanded(false, resetTimeout = false)
+        userTracker.removeCallback(userCallback)
+        keyguard.removeCallback(keyguardCallback)
         context.contentResolver.unregisterContentObserver(volumePanelOnLeftObserver)
+    }
+
+    /** A second state of the same volume window, anchored to the compact pill. */
+    private fun bindExpandedPanel() {
+        val compact = requireViewById<View>(R.id.arkui_volume_compact)
+        val expanded = requireViewById<ComposeView>(R.id.arkui_volume_expanded)
+        compact.alpha = 1f
+        onBackPressedDispatcher.addCallback(this, object : OnBackPressedCallback(true) {
+            override fun handleOnBackPressed() {
+                if (visibilityInteractor.isExpanded.value) visibilityInteractor.setExpanded(false)
+                else visibilityInteractor.dismissDialog(Events.DISMISS_REASON_DONE_CLICKED)
+            }
+        })
+        expanded.setContent {
+            PlatformTheme {
+                val isExpanded by visibilityInteractor.isExpanded.collectAsStateWithLifecycle()
+                val anchor = compact.findViewById<View>(R.id.volume_dialog_background)
+                val initial: (IntSize) -> IntSize = { size ->
+                    IntSize(minOf(anchor.width, size.width), minOf(anchor.height, size.height))
+                }
+                Box(Modifier.fillMaxWidth(), contentAlignment =
+                    if (volumePanelOnLeft) Alignment.CenterStart else Alignment.CenterEnd) {
+                    AnimatedVisibility(isExpanded,
+                        enter = expandIn(animationSpec = tween(420, easing = CubicBezierEasing(.2f, 0f, 0f, 1f)),
+                            expandFrom = if (volumePanelOnLeft) Alignment.CenterStart else Alignment.CenterEnd,
+                            initialSize = initial) + fadeIn(tween(180, 50)),
+                        exit = shrinkOut(animationSpec = tween(320, easing = CubicBezierEasing(.4f, 0f, .2f, 1f)),
+                            shrinkTowards = if (volumePanelOnLeft) Alignment.CenterStart else Alignment.CenterEnd,
+                            targetSize = initial) + fadeOut(tween(180))) {
+                        val scope = rememberCoroutineScope()
+                        val panel = remember(scope) {
+                            panelFactory.create(scope) {
+                                visibilityInteractor.dismissDialog(Events.DISMISS_REASON_DONE_CLICKED)
+                            }
+                        }
+                        Surface(shape = RoundedCornerShape(32.dp), color = MaterialTheme.colorScheme.surfaceContainerLow) {
+                            Column(Modifier.fillMaxWidth().heightIn(max =
+                                (context.resources.configuration.screenHeightDp - 72).coerceIn(180, 680).dp)) {
+                                Row(Modifier.fillMaxWidth().padding(start = 24.dp, end = 12.dp, top = 8.dp),
+                                    verticalAlignment = Alignment.CenterVertically) {
+                                    Text(stringResource(R.string.arkui_volume_expanded_title), Modifier.weight(1f),
+                                        style = MaterialTheme.typography.titleLarge)
+                                    TextButton(onClick = { visibilityInteractor.setExpanded(false) }) {
+                                        Text(stringResource(R.string.arkui_volume_collapse))
+                                    }
+                                }
+                                VolumePanelRoot(panel, Modifier.weight(1f, fill = false),
+                                    appVolumes = appVolumes, embedded = true)
+                            }
+                        }
+                    }
+                }
+            }
+        }
+        expanded.repeatWhenAttached {
+            coroutineScopeTraced("VolumeExpansion") {
+                visibilityInteractor.isExpanded.collect { value ->
+                    compact.animate().cancel()
+                    compact.visibility = View.VISIBLE
+                    compact.importantForAccessibility = if (value) View.IMPORTANT_FOR_ACCESSIBILITY_NO_HIDE_DESCENDANTS
+                        else View.IMPORTANT_FOR_ACCESSIBILITY_AUTO
+                    compact.animate().alpha(if (value) 0f else 1f).setDuration(180).withEndAction {
+                        if (value && visibilityInteractor.isExpanded.value) compact.visibility = View.INVISIBLE
+                    }.start()
+                    if (value) window?.clearFlags(WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE)
+                    else window?.addFlags(WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE)
+                }
+            }
+        }
+    }
+
+    override fun dispatchTouchEvent(event: MotionEvent): Boolean {
+        if (visibilityInteractor.isExpanded.value && event.actionMasked != MotionEvent.ACTION_OUTSIDE) {
+            visibilityInteractor.resetDismissTimeout()
+        }
+        return super.dispatchTouchEvent(event)
     }
 
     /**
@@ -166,6 +300,10 @@ constructor(
     override fun onTouchEvent(event: MotionEvent): Boolean {
         if (isShowing) {
             if (event.action == MotionEvent.ACTION_OUTSIDE) {
+                if (visibilityInteractor.isExpanded.value) {
+                    visibilityInteractor.setExpanded(false)
+                    return true
+                }
                 visibilityInteractor.dismissDialog(Events.DISMISS_REASON_TOUCH_OUTSIDE)
                 return true
             }

@@ -19,10 +19,21 @@ package com.android.systemui.volume.ui.navigation
 import android.app.Dialog
 import android.content.Intent
 import android.provider.Settings
+import android.view.Gravity
+import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.heightIn
+import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.widthIn
+import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.Surface
+import androidx.compose.material3.Text
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.platform.LocalConfiguration
+import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.unit.dp
 import com.android.internal.logging.UiEventLogger
 import com.android.systemui.compose.modifiers.sysUiResTagContainer
@@ -31,9 +42,11 @@ import com.android.systemui.dagger.qualifiers.Application
 import com.android.systemui.dagger.qualifiers.Main
 import com.android.systemui.plugins.ActivityStarter
 import com.android.systemui.statusbar.phone.SystemUIDialogFactory
-import com.android.systemui.statusbar.phone.createBottomSheet
+import com.android.systemui.statusbar.phone.create
+import com.android.systemui.res.R
 import com.android.systemui.utils.coroutines.flow.conflatedCallbackFlow
 import com.android.systemui.volume.VolumePanelFactory
+import com.android.systemui.volume.AppVolumeController
 import com.android.systemui.volume.domain.model.VolumePanelRoute
 import com.android.systemui.volume.panel.domain.interactor.VolumePanelGlobalStateInteractor
 import com.android.systemui.volume.panel.ui.VolumePanelUiEvent
@@ -62,6 +75,7 @@ constructor(
     private val dialogFactory: SystemUIDialogFactory,
     private val uiEventLogger: UiEventLogger,
     private val volumePanelGlobalStateInteractor: VolumePanelGlobalStateInteractor,
+    private val appVolumes: AppVolumeController,
 ) {
 
     init {
@@ -109,7 +123,8 @@ constructor(
     }
 
     private fun createNewVolumePanelDialog(): Dialog {
-        return dialogFactory.createBottomSheet(
+        return dialogFactory.create(
+            dialogGravity = Gravity.CENTER_VERTICAL or Gravity.END,
             content = { dialog ->
                 LaunchedEffect(dialog) {
                     dialog.setOnDismissListener {
@@ -119,14 +134,25 @@ constructor(
                 }
 
                 val coroutineScope = rememberCoroutineScope()
-                VolumePanelRoot(
-                    remember(coroutineScope) { viewModelFactory.create(coroutineScope) },
-                    Modifier.sysUiResTagContainer(),
-                )
+                Surface(
+                    modifier = Modifier.widthIn(max = 420.dp)
+                        .heightIn(max = (LocalConfiguration.current.screenHeightDp - 72).coerceAtMost(680).dp),
+                    shape = RoundedCornerShape(32.dp),
+                    color = MaterialTheme.colorScheme.surfaceContainerLow,
+                ) {
+                    Column {
+                        Text(stringResource(R.string.arkui_volume_expanded_title),
+                            Modifier.padding(start = 24.dp, top = 20.dp),
+                            style = MaterialTheme.typography.titleLarge)
+                        VolumePanelRoot(
+                            remember(coroutineScope) { viewModelFactory.create(coroutineScope) },
+                            Modifier.weight(1f, fill = false).sysUiResTagContainer(),
+                            appVolumes = appVolumes,
+                            embedded = true,
+                        )
+                    }
+                }
             },
-            isDraggable = false,
-            // TODO(b/337205027) change maxWidth
-            maxWidth = 800.dp,
         )
     }
 }

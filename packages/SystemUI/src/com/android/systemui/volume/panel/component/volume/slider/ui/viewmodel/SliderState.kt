@@ -32,6 +32,7 @@ sealed interface SliderState {
 
     // Force preloaded icon
     val icon: Icon.Loaded?
+    val isIconTinted: Boolean get() = true
     val isEnabled: Boolean
     val label: String
 

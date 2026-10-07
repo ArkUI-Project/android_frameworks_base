@@ -43,6 +43,8 @@ import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableSharedFlow
+import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.first
@@ -77,6 +79,13 @@ constructor(
 
     /** @see computeTimeout */
     private val defaultTimeout = 3.seconds
+    private val expanded = MutableStateFlow(false)
+    val isExpanded = expanded.asStateFlow()
+
+    fun setExpanded(value: Boolean, resetTimeout: Boolean = true) {
+        expanded.value = value
+        if (resetTimeout) resetDismissTimeout()
+    }
 
     private val showVolumeSliderInQsShade = desktopAudioTileDetailsFeatureInteractor.isEnabled()
 
@@ -169,6 +178,8 @@ constructor(
     }
 
     private suspend fun computeTimeout(): Duration {
+        if (expanded.value) return accessibilityRepository.getRecommendedTimeout(
+            30.seconds, AccessibilityManager.FLAG_CONTENT_TEXT or AccessibilityManager.FLAG_CONTENT_CONTROLS)
         val defaultDialogTimeoutMillis =
             secureSettingsRepository
                 .getInt(

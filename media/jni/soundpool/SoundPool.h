@@ -54,6 +54,7 @@ public:
 
     // not exposed in the public Java API, used for internal playerSetVolume() muting.
     void mute(bool muting);
+    void setVolumeMultiplier(float left, float right);
 
 private:
 

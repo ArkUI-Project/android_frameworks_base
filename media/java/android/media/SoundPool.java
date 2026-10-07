@@ -416,6 +416,7 @@ public class SoundPool extends PlayerBase {
     void playerSetVolume(boolean muting, float leftVolume, float rightVolume) {
         // not used here to control the player volume directly, but used to mute/unmute
         _mute(muting);
+        _setVolumeMultiplier(leftVolume, rightVolume);
     }
 
     @Override
@@ -527,6 +528,8 @@ public class SoundPool extends PlayerBase {
     private native final void _setVolume(int streamID, float leftVolume, float rightVolume);
 
     private native final void _mute(boolean muting);
+
+    private native final void _setVolumeMultiplier(float left, float right);
 
     // post event from native code to message handler
     @SuppressWarnings("unchecked")

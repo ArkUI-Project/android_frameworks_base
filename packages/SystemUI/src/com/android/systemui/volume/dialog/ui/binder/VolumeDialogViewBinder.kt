@@ -94,6 +94,9 @@ constructor(
         // Root view of the Volume Dialog.
         val root: ViewGroup = dialog.requireViewById(R.id.volume_dialog)
         val mainSliderContainer: View? = root.findViewById(R.id.volume_dialog_main_slider_container)
+        root.findViewById<View>(R.id.arkui_volume_expanded)?.let { expanded ->
+            launchTraced("VDVB#expandedTouchableBounds") { viewModel.addTouchableBounds(expanded) }
+        }
         root.accessibilityDelegate = Accessibility(viewModel)
         root.setOnHoverListener { _, event ->
             viewModel.onHover(

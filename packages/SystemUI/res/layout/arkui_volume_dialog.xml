@@ -1,0 +1,19 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Copyright (C) 2026 The ArkUI Project; SPDX-License-Identifier: Apache-2.0 -->
+<FrameLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    android:id="@+id/volume_dialog"
+    android:layout_width="match_parent"
+    android:layout_height="match_parent"
+    android:clipChildren="false"
+    android:alpha="0">
+    <include android:id="@+id/arkui_volume_compact"
+        layout="@layout/volume_dialog"
+        android:layout_width="match_parent"
+        android:layout_height="match_parent" />
+    <androidx.compose.ui.platform.ComposeView
+        android:id="@+id/arkui_volume_expanded"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:layout_gravity="center_vertical"
+        android:layout_marginHorizontal="12dp" />
+</FrameLayout>
