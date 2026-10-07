@@ -1,0 +1,16 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Copyright (C) 2026 The ArkUI Project
+     SPDX-License-Identifier: Apache-2.0 -->
+<resources xmlns:xliff="urn:oasis:names:tc:xliff:document:1.2">
+    <string name="arkui_aerr_summary">The app ran into a problem. You can view the crash details or close the app and open it again.</string>
+    <string name="arkui_anr_summary">The app is taking longer to respond. You can wait a little longer or close it and open it again.</string>
+    <string name="arkui_aerr_view_stack">View crash stack trace</string>
+    <string name="arkui_aerr_stack_title">Crash details</string>
+    <string name="arkui_aerr_no_stack">No stack trace was provided for this crash.</string>
+    <string name="arkui_aerr_process">Process: <xliff:g id="process">%1$s</xliff:g></string>
+    <string name="arkui_aerr_copied">Copied</string>
+    <string name="arkui_aerr_back">Back</string>
+    <item type="id" name="arkui_aerr_details" />
+    <item type="id" name="arkui_aerr_copy" />
+    <item type="id" name="arkui_aerr_back" />
+</resources>

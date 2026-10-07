@@ -1,5 +1,6 @@
 /*
  * Copyright (C) 2016 The Android Open Source Project
+ * Copyright (C) 2026 The ArkUI Project
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -667,6 +668,8 @@ class AppErrors {
             AppErrorDialog.Data data = new AppErrorDialog.Data();
             data.result = result;
             data.proc = r;
+            data.crashSummary = longMsg;
+            data.stackTrace = stackTrace;
 
             // If we can't identify the process or it's already exceeded its crash quota,
             // quit right away without showing a crash dialog.

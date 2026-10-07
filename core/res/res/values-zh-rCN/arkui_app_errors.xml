@@ -1,0 +1,13 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Copyright (C) 2026 The ArkUI Project
+     SPDX-License-Identifier: Apache-2.0 -->
+<resources xmlns:xliff="urn:oasis:names:tc:xliff:document:1.2">
+    <string name="arkui_aerr_summary">应用遇到问题而停止运行。你可以查看崩溃详情，或关闭后重新打开。</string>
+    <string name="arkui_anr_summary">应用暂时没有响应。你可以继续等待，或关闭后重新打开。</string>
+    <string name="arkui_aerr_view_stack">查看崩溃堆栈</string>
+    <string name="arkui_aerr_stack_title">崩溃详情</string>
+    <string name="arkui_aerr_no_stack">这次崩溃没有提供可显示的堆栈。</string>
+    <string name="arkui_aerr_process">进程：<xliff:g id="process">%1$s</xliff:g></string>
+    <string name="arkui_aerr_copied">已复制</string>
+    <string name="arkui_aerr_back">返回</string>
+</resources>

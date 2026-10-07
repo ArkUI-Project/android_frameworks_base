@@ -1,0 +1,13 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Copyright (C) 2026 The ArkUI Project
+     SPDX-License-Identifier: Apache-2.0 -->
+<resources xmlns:xliff="urn:oasis:names:tc:xliff:document:1.2">
+    <string name="arkui_aerr_summary">應用程式發生問題而停止運作。你可以查看當機詳情，或關閉後重新開啟。</string>
+    <string name="arkui_anr_summary">應用程式暫時沒有回應。你可以繼續等待，或關閉後重新開啟。</string>
+    <string name="arkui_aerr_view_stack">查看當機堆疊</string>
+    <string name="arkui_aerr_stack_title">當機詳情</string>
+    <string name="arkui_aerr_no_stack">這次當機沒有提供可顯示的堆疊。</string>
+    <string name="arkui_aerr_process">處理程序：<xliff:g id="process">%1$s</xliff:g></string>
+    <string name="arkui_aerr_copied">已複製</string>
+    <string name="arkui_aerr_back">返回</string>
+</resources>

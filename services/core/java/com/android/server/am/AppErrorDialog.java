@@ -1,5 +1,6 @@
 /*
  * Copyright (C) 2006 The Android Open Source Project
+ * Copyright (C) 2026 The ArkUI Project
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -18,19 +19,27 @@ package com.android.server.am;
 
 import static android.app.ActivityTaskManager.INVALID_TASK_ID;
 
+import android.app.KeyguardManager;
+import android.content.BroadcastReceiver;
+import android.content.ClipData;
+import android.content.ClipDescription;
+import android.content.ClipboardManager;
 import android.content.Context;
+import android.content.Intent;
+import android.content.IntentFilter;
 import android.content.res.Resources;
 import android.os.Build;
 import android.os.Bundle;
 import android.os.Handler;
 import android.os.Message;
+import android.os.PersistableBundle;
+import android.os.UserHandle;
 import android.provider.Settings;
 import android.text.BidiFormatter;
-import android.view.LayoutInflater;
+import android.text.TextUtils;
 import android.view.View;
 import android.view.WindowManager;
-import android.widget.FrameLayout;
-import android.widget.TextView;
+import android.widget.Button;
 
 final class AppErrorDialog extends BaseErrorDialog implements View.OnClickListener {
 
@@ -40,6 +49,16 @@ final class AppErrorDialog extends BaseErrorDialog implements View.OnClickListen
     private final AppErrorResult mResult;
     private final ProcessRecord mProc;
     private final boolean mIsRestartable;
+    private final CharSequence mDialogTitle;
+    private final String mCrashDetails;
+    private AppErrorDialogUi mUi;
+    private boolean mShowingCrashDetails;
+    private final BroadcastReceiver mPrivacyReceiver = new BroadcastReceiver() {
+        @Override
+        public void onReceive(Context context, Intent intent) {
+            if (mShowingCrashDetails) showOverview();
+        }
+    };
 
     static int CANT_SHOW = -1;
     static int BACKGROUND_USER = -2;
@@ -74,18 +93,25 @@ final class AppErrorDialog extends BaseErrorDialog implements View.OnClickListen
         CharSequence name;
         if (mProc.getPkgList().size() == 1
                 && (name = context.getPackageManager().getApplicationLabel(mProc.info)) != null) {
-            setTitle(res.getString(
+            mDialogTitle = res.getString(
                     data.repeating ? com.android.internal.R.string.aerr_application_repeated
                             : com.android.internal.R.string.aerr_application,
                     bidi.unicodeWrap(name.toString()),
-                    bidi.unicodeWrap(mProc.info.processName)));
+                    bidi.unicodeWrap(mProc.info.processName));
         } else {
             name = mProc.processName;
-            setTitle(res.getString(
+            mDialogTitle = res.getString(
                     data.repeating ? com.android.internal.R.string.aerr_process_repeated
                             : com.android.internal.R.string.aerr_process,
-                    bidi.unicodeWrap(name.toString())));
+                    bidi.unicodeWrap(name.toString()));
         }
+        setTitle(mDialogTitle);
+        // Strings captured with this dialog's result, never a later process report or logcat.
+        final String trace = !TextUtils.isEmpty(data.stackTrace) ? data.stackTrace
+                : (TextUtils.isEmpty(data.crashSummary) ? "" : data.crashSummary + "\n\n")
+                        + res.getString(com.android.internal.R.string.arkui_aerr_no_stack);
+        mCrashDetails = res.getString(com.android.internal.R.string.arkui_aerr_process,
+                mProc.processName) + "\n\n" + trace;
 
         setCancelable(true);
         setCancelMessage(mHandler.obtainMessage(CANCEL));
@@ -108,33 +134,108 @@ final class AppErrorDialog extends BaseErrorDialog implements View.OnClickListen
     @Override
     protected void onCreate(Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
-        final FrameLayout frame = findViewById(android.R.id.custom);
+        mUi = new AppErrorDialogUi(this);
+        showOverview();
+    }
+
+    private void showOverview() {
+        mShowingCrashDetails = false;
         final Context context = getContext();
-        LayoutInflater.from(context).inflate(
-                com.android.internal.R.layout.app_error_dialog, frame, true);
-
+        mUi.showHeader(mDialogTitle, null);
         final boolean hasReceiver = mProc.mErrorState.getErrorReportReceiver() != null;
-
-        final TextView restart = findViewById(com.android.internal.R.id.aerr_restart);
-        restart.setOnClickListener(this);
-        restart.setVisibility(mIsRestartable ? View.VISIBLE : View.GONE);
-        final TextView report = findViewById(com.android.internal.R.id.aerr_report);
-        report.setOnClickListener(this);
-        report.setVisibility(hasReceiver ? View.VISIBLE : View.GONE);
-        final TextView close = findViewById(com.android.internal.R.id.aerr_close);
-        close.setOnClickListener(this);
-        final TextView appInfo = findViewById(com.android.internal.R.id.aerr_app_info);
-        appInfo.setOnClickListener(this);
-
+        mUi.addAction(com.android.internal.R.id.aerr_app_info,
+                com.android.internal.R.string.app_info,
+                com.android.internal.R.drawable.ic_info_outline_24, AppErrorDialogUi.TEXT, this);
+        if (hasReceiver) {
+            mUi.addAction(com.android.internal.R.id.aerr_report,
+                    com.android.internal.R.string.aerr_report,
+                    com.android.internal.R.drawable.ic_lock_bugreport, AppErrorDialogUi.TEXT, this);
+        }
         boolean showMute = !Build.IS_USER && Settings.Global.getInt(context.getContentResolver(),
                 Settings.Global.DEVELOPMENT_SETTINGS_ENABLED, 0) != 0
                 && Settings.Global.getInt(context.getContentResolver(),
                 Settings.Global.SHOW_MUTE_IN_CRASH_DIALOG, 0) != 0;
-        final TextView mute = findViewById(com.android.internal.R.id.aerr_mute);
-        mute.setOnClickListener(this);
-        mute.setVisibility(showMute ? View.VISIBLE : View.GONE);
+        if (showMute) {
+            mUi.addAction(com.android.internal.R.id.aerr_mute,
+                    com.android.internal.R.string.aerr_mute,
+                    com.android.internal.R.drawable.ic_eject_24dp, AppErrorDialogUi.TEXT, this);
+        }
+        mUi.addAction(com.android.internal.R.id.aerr_close,
+                com.android.internal.R.string.aerr_close_app, com.android.internal.R.drawable.ic_close,
+                mIsRestartable ? AppErrorDialogUi.TONAL : AppErrorDialogUi.PRIMARY, this);
+        if (canViewCrashDetails()) {
+            mUi.addAction(com.android.internal.R.id.arkui_aerr_details,
+                    com.android.internal.R.string.arkui_aerr_view_stack,
+                    com.android.internal.R.drawable.ic_doc_codes, AppErrorDialogUi.PRIMARY,
+                    v -> showCrashDetails());
+        }
+        if (mIsRestartable) {
+            mUi.addAction(com.android.internal.R.id.aerr_restart,
+                    com.android.internal.R.string.aerr_restart,
+                    com.android.internal.R.drawable.ic_restart, AppErrorDialogUi.PRIMARY, this);
+        }
+    }
 
-        findViewById(com.android.internal.R.id.customPanel).setVisibility(View.VISIBLE);
+    private boolean canViewCrashDetails() {
+        final KeyguardManager keyguard = getContext().getSystemService(KeyguardManager.class);
+        return mService.mUserController.isCurrentProfile(mProc.userId)
+                && keyguard != null && !keyguard.isDeviceLocked(mProc.userId);
+    }
+
+    private void showCrashDetails() {
+        if (!canViewCrashDetails()) return;
+        mShowingCrashDetails = true;
+        final Context context = getContext();
+        mUi.showHeader(context.getText(com.android.internal.R.string.arkui_aerr_stack_title),
+                BidiFormatter.getInstance().unicodeWrap(mProc.info.packageName));
+        final Context userContext = context.createContextAsUser(UserHandle.of(mProc.userId), 0);
+        mUi.addStackTrace(mCrashDetails, userContext);
+        mUi.addAction(com.android.internal.R.id.arkui_aerr_copy,
+                com.android.internal.R.string.copy, com.android.internal.R.drawable.ic_file_copy,
+                AppErrorDialogUi.TONAL, v -> {
+                    if (!canViewCrashDetails()) {
+                        showOverview();
+                        return;
+                    }
+                    final ClipData clip = ClipData.newPlainText(
+                            context.getText(com.android.internal.R.string.arkui_aerr_stack_title),
+                            mCrashDetails);
+                    final PersistableBundle extras = new PersistableBundle();
+                    extras.putBoolean(ClipDescription.EXTRA_IS_SENSITIVE, true);
+                    clip.getDescription().setExtras(extras);
+                    userContext.getSystemService(ClipboardManager.class).setPrimaryClip(clip);
+                    ((Button) v).setText(com.android.internal.R.string.arkui_aerr_copied);
+                });
+        mUi.addAction(com.android.internal.R.id.arkui_aerr_back,
+                com.android.internal.R.string.arkui_aerr_back,
+                com.android.internal.R.drawable.ic_ime_nav_back, AppErrorDialogUi.PRIMARY,
+                v -> showOverview());
+    }
+
+    @Override
+    public void onStart() {
+        super.onStart();
+        mUi.start();
+        final IntentFilter privacyEvents = new IntentFilter(Intent.ACTION_SCREEN_OFF);
+        privacyEvents.addAction(Intent.ACTION_USER_SWITCHED);
+        privacyEvents.addAction(Intent.ACTION_MANAGED_PROFILE_UNAVAILABLE);
+        getContext().registerReceiver(mPrivacyReceiver, privacyEvents, Context.RECEIVER_NOT_EXPORTED);
+    }
+
+    @Override
+    protected void onStop() {
+        getContext().unregisterReceiver(mPrivacyReceiver);
+        mUi.stop();
+        super.onStop();
+    }
+
+    @Override
+    public void onBackPressed() {
+        if (mShowingCrashDetails) {
+            showOverview();
+        } else {
+            super.onBackPressed();
+        }
     }
 
     private final Handler mHandler = new Handler() {
@@ -205,5 +306,7 @@ final class AppErrorDialog extends BaseErrorDialog implements View.OnClickListen
         boolean repeating;
         ProcessRecord proc;
         boolean isRestartableForService;
+        String crashSummary;
+        String stackTrace;
     }
 }

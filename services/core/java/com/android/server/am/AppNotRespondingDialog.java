@@ -1,5 +1,6 @@
 /*
  * Copyright (C) 2006 The Android Open Source Project
+ * Copyright (C) 2026 The ArkUI Project
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -26,11 +27,8 @@ import android.os.Handler;
 import android.os.Message;
 import android.text.BidiFormatter;
 import android.util.Slog;
-import android.view.LayoutInflater;
 import android.view.View;
 import android.view.WindowManager;
-import android.widget.FrameLayout;
-import android.widget.TextView;
 
 import com.android.internal.logging.MetricsLogger;
 import com.android.internal.logging.nano.MetricsProto;
@@ -49,6 +47,8 @@ final class AppNotRespondingDialog extends BaseErrorDialog implements View.OnCli
     private final ActivityManagerService mService;
     private final ProcessRecord mProc;
     private final Data mData;
+    private final CharSequence mDialogTitle;
+    private AppErrorDialogUi mUi;
 
     public AppNotRespondingDialog(ActivityManagerService service, Context context, Data data) {
         super(context);
@@ -86,9 +86,10 @@ final class AppNotRespondingDialog extends BaseErrorDialog implements View.OnCli
 
         BidiFormatter bidi = BidiFormatter.getInstance();
 
-        setTitle(name2 != null
+        mDialogTitle = name2 != null
                 ? res.getString(resid, bidi.unicodeWrap(name1.toString()), bidi.unicodeWrap(name2.toString()))
-                : res.getString(resid, bidi.unicodeWrap(name1.toString())));
+                : res.getString(resid, bidi.unicodeWrap(name1.toString()));
+        setTitle(mDialogTitle);
 
         if (data.aboveSystem) {
             getWindow().setType(WindowManager.LayoutParams.TYPE_SYSTEM_ERROR);
@@ -103,21 +104,34 @@ final class AppNotRespondingDialog extends BaseErrorDialog implements View.OnCli
     @Override
     protected void onCreate(Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
-        final FrameLayout frame = findViewById(android.R.id.custom);
         final Context context = getContext();
-        LayoutInflater.from(context).inflate(
-                com.android.internal.R.layout.app_anr_dialog, frame, true);
-
-        final TextView report = findViewById(com.android.internal.R.id.aerr_report);
-        report.setOnClickListener(this);
+        mUi = new AppErrorDialogUi(this);
+        mUi.showHeader(mDialogTitle, null);
+        mUi.addAction(com.android.internal.R.id.aerr_close,
+                com.android.internal.R.string.aerr_close_app, com.android.internal.R.drawable.ic_close,
+                AppErrorDialogUi.TONAL, this);
         final boolean hasReceiver = mProc.mErrorState.getErrorReportReceiver() != null;
-        report.setVisibility(hasReceiver ? View.VISIBLE : View.GONE);
-        final TextView close = findViewById(com.android.internal.R.id.aerr_close);
-        close.setOnClickListener(this);
-        final TextView wait = findViewById(com.android.internal.R.id.aerr_wait);
-        wait.setOnClickListener(this);
+        if (hasReceiver) {
+            mUi.addAction(com.android.internal.R.id.aerr_report,
+                    com.android.internal.R.string.aerr_report,
+                    com.android.internal.R.drawable.ic_lock_bugreport, AppErrorDialogUi.TEXT, this);
+        }
+        mUi.addAction(com.android.internal.R.id.aerr_wait,
+                com.android.internal.R.string.aerr_wait,
+                com.android.internal.R.drawable.ic_zen_mode_type_schedule_time,
+                AppErrorDialogUi.PRIMARY, this);
+    }
 
-        findViewById(com.android.internal.R.id.customPanel).setVisibility(View.VISIBLE);
+    @Override
+    public void onStart() {
+        super.onStart();
+        mUi.start();
+    }
+
+    @Override
+    protected void onStop() {
+        mUi.stop();
+        super.onStop();
     }
 
     @Override

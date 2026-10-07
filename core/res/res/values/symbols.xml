@@ -6399,4 +6399,21 @@
     <java-symbol type="string" name="hyperos_window_resize" />
     <java-symbol type="string" name="hyperos_window_move" />
     <java-symbol type="string" name="hyperos_window_restore" />
+    <java-symbol type="string" name="arkui_aerr_summary" />
+    <java-symbol type="string" name="arkui_anr_summary" />
+    <java-symbol type="string" name="arkui_aerr_view_stack" />
+    <java-symbol type="string" name="arkui_aerr_stack_title" />
+    <java-symbol type="string" name="arkui_aerr_no_stack" />
+    <java-symbol type="string" name="arkui_aerr_process" />
+    <java-symbol type="string" name="arkui_aerr_copied" />
+    <java-symbol type="string" name="arkui_aerr_back" />
+    <java-symbol type="id" name="arkui_aerr_details" />
+    <java-symbol type="id" name="arkui_aerr_copy" />
+    <java-symbol type="id" name="arkui_aerr_back" />
+    <java-symbol type="string" name="aerr_close_app" />
+    <java-symbol type="string" name="aerr_report" />
+    <java-symbol type="string" name="aerr_wait" />
+    <java-symbol type="string" name="app_info" />
+    <java-symbol type="string" name="aerr_mute" />
+    <java-symbol type="string" name="aerr_restart" />
 </resources>
