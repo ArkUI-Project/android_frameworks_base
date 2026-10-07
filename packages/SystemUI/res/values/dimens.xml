@@ -706,6 +706,9 @@
         @*android:dimen/rounded_corner_content_padding
     </dimen>
 
+    <!-- ArkUI: product spacing is a minimum; device corner and cutout insets still take priority. -->
+    <dimen name="status_bar_content_min_padding">0dp</dimen>
+
     <dimen name="navigation_key_padding">0dp</dimen>
 
     <!-- Floating rotation button -->

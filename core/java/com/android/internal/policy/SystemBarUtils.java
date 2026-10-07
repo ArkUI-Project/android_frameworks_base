@@ -1,5 +1,6 @@
 /*
  * Copyright (C) 2021 The Android Open Source Project
+ * Copyright (C) 2026 The ArkUI Project
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -19,6 +20,7 @@ package com.android.internal.policy;
 import android.annotation.DimenRes;
 import android.annotation.NonNull;
 import android.content.Context;
+import android.content.res.Configuration;
 import android.content.res.Resources;
 import android.graphics.Insets;
 import android.view.Display;
@@ -78,8 +80,17 @@ public final class SystemBarUtils {
             insets = Insets.of(rotated.getSafeInsets());
             waterfallInsets = rotated.getWaterfallInsets();
         }
-        final int defaultSize =
-                context.getResources().getDimensionPixelSize(R.dimen.status_bar_height_default);
+        Resources resources = context.getResources();
+        if (((rotation ^ targetRot) & 1) != 0) {
+            // Resolve orientation-qualified heights for the requested rotation, including when
+            // SystemUI calculates its future window bounds before the display has rotated.
+            final Configuration override = new Configuration();
+            override.orientation = resources.getConfiguration().orientation
+                    == Configuration.ORIENTATION_PORTRAIT
+                    ? Configuration.ORIENTATION_LANDSCAPE : Configuration.ORIENTATION_PORTRAIT;
+            resources = context.createConfigurationContext(override).getResources();
+        }
+        final int defaultSize = resources.getDimensionPixelSize(R.dimen.status_bar_height_default);
         // The status bar height should be:
         // Max(top cutout size, (status bar default height + waterfall top size))
         return Math.max(insets.top, defaultSize + waterfallInsets.top);
