@@ -1,5 +1,6 @@
 /*
  * Copyright (C) 2019 The Android Open Source Project
+ * Copyright (C) 2026 The ArkUI Project
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -85,6 +86,7 @@ public class ApkLiteParseUtils {
     public static final String ANDROID_MANIFEST_FILENAME = "AndroidManifest.xml";
     private static final int PARSE_IS_SYSTEM_DIR = 1 << 4;
     private static final int PARSE_COLLECT_CERTIFICATES = 1 << 5;
+    private static final int PARSE_SKIP_SIGNATURE_VERIFICATION = 1 << 8;
     private static final String TAG_APPLICATION = "application";
     private static final String TAG_PACKAGE_VERIFIER = "package-verifier";
     private static final String TAG_PROFILEABLE = "profileable";
@@ -377,7 +379,8 @@ public class ApkLiteParseUtils {
 
             final SigningDetails signingDetails;
             if ((flags & PARSE_COLLECT_CERTIFICATES) != 0) {
-                final boolean skipVerify = (flags & PARSE_IS_SYSTEM_DIR) != 0;
+                final boolean skipVerify = (flags
+                        & (PARSE_IS_SYSTEM_DIR | PARSE_SKIP_SIGNATURE_VERIFICATION)) != 0;
                 Trace.traceBegin(TRACE_TAG_PACKAGE_MANAGER, "collectCertificates");
                 try {
                     final ParseResult<SigningDetails> result =

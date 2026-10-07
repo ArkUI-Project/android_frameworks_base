@@ -10,5 +10,7 @@ public final class CompatibilitySettings {
     public static final String BLOCK_SCREENSHOT_DETECTION = "arkui_block_screenshot_detection";
     // Global: an APK installation and its signing identity are shared by all users.
     public static final String DISABLE_UPDATE_SIGNATURE_CHECK = "arkui_disable_update_signature_check";
+    public static final String DISABLE_APK_SIGNATURE_VERIFICATION =
+            "arkui_disable_apk_signature_verification";
     public static final String ALLOW_APP_DOWNGRADE = "arkui_allow_app_downgrade";
 }

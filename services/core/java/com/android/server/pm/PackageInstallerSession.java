@@ -1,5 +1,6 @@
 /*
  * Copyright (C) 2014 The Android Open Source Project
+ * Copyright (C) 2026 The ArkUI Project
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -1781,11 +1782,18 @@ public class PackageInstallerSession extends IPackageInstallerSession.Stub {
             List<File> files = getAddedApksLocked();
             final List<ApkLite> result = new ArrayList<>(files.size());
 
+            // Keep certificate identities and split consistency checks. Only the APK content
+            // verification is optional; APEX and incremental v4 installs keep their own checks.
+            int parseFlags = ParsingPackageUtils.PARSE_COLLECT_CERTIFICATES;
+            if (!isApexSession() && !isIncrementalInstallation()
+                    && AppCompatibilityPolicy.shouldSkipApkSignatureVerification()) {
+                parseFlags |= ParsingPackageUtils.PARSE_SKIP_SIGNATURE_VERIFICATION;
+            }
             final ParseTypeImpl input = ParseTypeImpl.forDefaultParsing();
             for (int i = 0, size = files.size(); i < size; ++i) {
                 final ParseResult<ApkLite> parseResult = ApkLiteParseUtils.parseApkLite(
                         input.reset(), files.get(i),
-                        ParsingPackageUtils.PARSE_COLLECT_CERTIFICATES);
+                        parseFlags);
                 if (parseResult.isError()) {
                     throw new PackageManagerException(parseResult.getErrorCode(),
                             parseResult.getErrorMessage(), parseResult.getException());
@@ -4499,7 +4507,8 @@ public class PackageInstallerSession extends IPackageInstallerSession.Stub {
 
         // Needs to happen before the first v4 signature verification, which happens in
         // getAddedApkLitesLocked.
-        if (!isIncrementalInstallation()) {
+        if (!isIncrementalInstallation()
+                && !AppCompatibilityPolicy.shouldSkipApkSignatureVerification()) {
             enableFsVerityToAddedApksWithIdsig();
         }
 

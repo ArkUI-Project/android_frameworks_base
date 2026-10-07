@@ -1,5 +1,6 @@
 /*
  * Copyright (C) 2021 The Android Open Source Project
+ * Copyright (C) 2026 The ArkUI Project
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -1621,7 +1622,8 @@ final class InstallPackageHelper {
         } else {
             final ParseTypeImpl input = ParseTypeImpl.forDefaultParsing();
             final ParseResult<SigningDetails> result = ParsingPackageUtils.getSigningDetails(
-                    input, parsedPackage, false /*skipVerify*/);
+                    input, parsedPackage, !isApex
+                            && AppCompatibilityPolicy.shouldSkipApkSignatureVerification());
             if (result.isError()) {
                 throw new PrepareFailure("Failed collect during installPackageLI",
                         result.getException());
@@ -4490,9 +4492,11 @@ final class InstallPackageHelper {
                 Slog.d(TAG, "Force collect certificate of " + parsedPackage.getPackageName());
             }
 
-            // APK verification can be skipped during certificate collection, only if the file is in
-            // a verified partition.
-            final boolean skipVerify = scanSystemPartition;
+            // Verified partitions and the owner's APK compatibility opt-in can skip content
+            // verification. Preserve the opt-in when rescanning installed APKs after a reboot.
+            final boolean skipVerify = scanSystemPartition
+                    || ((scanFlags & SCAN_AS_APEX) == 0
+                            && AppCompatibilityPolicy.shouldSkipApkSignatureVerification());
             ScanPackageUtils.collectCertificatesLI(pkgSetting, parsedPackage,
                     mPm.getSettingsVersionForPackage(parsedPackage), forceCollect, skipVerify,
                     mPm.isPreNMR1Upgrade());

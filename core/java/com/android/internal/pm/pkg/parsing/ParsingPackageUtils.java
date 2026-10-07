@@ -1,5 +1,6 @@
 /*
  * Copyright (C) 2020 The Android Open Source Project
+ * Copyright (C) 2026 The ArkUI Project
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -249,6 +250,8 @@ public class ParsingPackageUtils {
      * of required system property within the overlay tag.
      */
     public static final int PARSE_IGNORE_OVERLAY_REQUIRED_SYSTEM_PROPERTY = 1 << 7;
+    /** Collect signing certificates without checking APK contents in an opted-in install session. */
+    public static final int PARSE_SKIP_SIGNATURE_VERIFICATION = 1 << 8;
     public static final int PARSE_APK_IN_APEX = 1 << 9;
     public static final int PARSE_APEX = 1 << 10;
 
@@ -263,6 +266,7 @@ public class ParsingPackageUtils {
             PARSE_IS_SYSTEM_DIR,
             PARSE_MUST_BE_APK,
             PARSE_IGNORE_OVERLAY_REQUIRED_SYSTEM_PROPERTY,
+            PARSE_SKIP_SIGNATURE_VERIFICATION,
     })
     @Retention(RetentionPolicy.SOURCE)
     public @interface ParseFlags {}
