@@ -1,0 +1,9 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Copyright (C) 2026 The ArkUI Project; SPDX-License-Identifier: Apache-2.0 -->
+<resources>
+    <string name="config_bodyFontFamily" translatable="false">monospace</string>
+    <string name="config_bodyFontFamilyMedium" translatable="false">monospace</string>
+    <string name="config_headlineFontFamily" translatable="false">monospace</string>
+    <string name="config_headlineFontFamilyMedium" translatable="false">monospace</string>
+    <string name="config_clockFontFamily" translatable="false">monospace</string>
+</resources>

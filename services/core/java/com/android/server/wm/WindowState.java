@@ -15,6 +15,7 @@
  * limitations under the License.
  */
 
+// Modified by the ArkUI Project in 2026 for opt-in FLAG_SECURE compatibility.
 package com.android.server.wm;
 
 import static android.app.ActivityTaskManager.INVALID_TASK_ID;
@@ -1883,7 +1884,8 @@ class WindowState extends WindowContainer<WindowState> implements WindowManagerP
             return false;
         }
 
-        if ((mAttrs.flags & WindowManager.LayoutParams.FLAG_SECURE) != 0) {
+        if ((mAttrs.flags & WindowManager.LayoutParams.FLAG_SECURE) != 0
+                && !mWmService.ignoreSecureFlagForUser(mShowUserId)) {
             return true;
         }
 

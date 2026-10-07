@@ -15,6 +15,7 @@
  * limitations under the License.
  */
 
+// Modified by the ArkUI Project in 2026 for per-user capture compatibility controls.
 package com.android.server.wm;
 
 import static android.Manifest.permission.ACCESS_SURFACE_FLINGER;
@@ -840,6 +841,10 @@ public class WindowManagerService extends IWindowManager.Stub
                 Settings.Secure.getUriFor(Settings.Secure.IMMERSIVE_MODE_CONFIRMATIONS);
         private final Uri mDisableSecureWindowsUri =
                 Settings.Secure.getUriFor(Settings.Secure.DISABLE_SECURE_WINDOWS);
+        private final Uri mIgnoreSecureFlagUri = Settings.Secure.getUriFor(
+                com.android.internal.arkui.CompatibilitySettings.IGNORE_SECURE_FLAG);
+        private final Uri mBlockScreenshotDetectionUri = Settings.Secure.getUriFor(
+                com.android.internal.arkui.CompatibilitySettings.BLOCK_SCREENSHOT_DETECTION);
         private final Uri mMagnifyImeEnabledUri = Settings.Secure.getUriFor(
                 Settings.Secure.ACCESSIBILITY_MAGNIFICATION_MAGNIFY_NAV_AND_IME);
         private final Uri mPolicyControlUri =
@@ -873,6 +878,9 @@ public class WindowManagerService extends IWindowManager.Stub
             resolver.registerContentObserver(mImmersiveModeConfirmationsUri, false, this,
                     UserHandle.USER_ALL);
             resolver.registerContentObserver(mDisableSecureWindowsUri, false, this,
+                    UserHandle.USER_ALL);
+            resolver.registerContentObserver(mIgnoreSecureFlagUri, false, this, UserHandle.USER_ALL);
+            resolver.registerContentObserver(mBlockScreenshotDetectionUri, false, this,
                     UserHandle.USER_ALL);
             if (com.android.server.accessibility.Flags.enableMagnificationMagnifyNavBarAndIme()) {
                 resolver.registerContentObserver(mMagnifyImeEnabledUri, false, this,
@@ -939,6 +947,11 @@ public class WindowManagerService extends IWindowManager.Stub
                 return;
             }
 
+            if (mIgnoreSecureFlagUri.equals(uri) || mBlockScreenshotDetectionUri.equals(uri)) {
+                updateCaptureCompatibility();
+                return;
+            }
+
             if (mMagnifyImeEnabledUri.equals(uri)) {
                 updateMagnifyIme();
             }
@@ -967,7 +980,27 @@ public class WindowManagerService extends IWindowManager.Stub
         void loadSettings() {
             updateMaximumObscuringOpacityForTouch();
             updateDisableSecureWindows();
+            updateCaptureCompatibility();
             updateMagnifyIme();
+        }
+
+        void updateCaptureCompatibility() {
+            final int userId = mCurrentUserId;
+            final ContentResolver resolver = mContext.getContentResolver();
+            final boolean ignore = Settings.Secure.getIntForUser(resolver,
+                    com.android.internal.arkui.CompatibilitySettings.IGNORE_SECURE_FLAG,
+                    0, userId) == 1;
+            final boolean blockDetection = Settings.Secure.getIntForUser(resolver,
+                    com.android.internal.arkui.CompatibilitySettings.BLOCK_SCREENSHOT_DETECTION,
+                    0, userId) == 1;
+            synchronized (mGlobalLock) {
+                if (userId != mCurrentUserId) return;
+                mBlockScreenshotDetection = blockDetection;
+                if (mIgnoreSecureFlag != ignore) {
+                    mIgnoreSecureFlag = ignore;
+                    mRoot.refreshSecureSurfaceState();
+                }
+            }
         }
 
         void updateMaximumObscuringOpacityForTouch() {
@@ -1253,6 +1286,8 @@ public class WindowManagerService extends IWindowManager.Stub
     private final ScreenRecordingCallbackController mScreenRecordingCallbackController;
 
     private volatile boolean mDisableSecureWindows = false;
+    private boolean mIgnoreSecureFlag;
+    private boolean mBlockScreenshotDetection;
 
     /** Creates an instance of the WindowManagerService for the system server. */
     public static WindowManagerService main(@NonNull final Context context,
@@ -4024,13 +4059,18 @@ public class WindowManagerService extends IWindowManager.Stub
      */
     public void prepareUserStart(@UserIdInt int newUserId) {
         synchronized (mGlobalLock) {
+            final boolean hadCaptureOverride = mIgnoreSecureFlag;
+            mIgnoreSecureFlag = false;
+            mBlockScreenshotDetection = false;
             mCurrentUserId = newUserId;
+            if (hadCaptureOverride) mRoot.refreshSecureSurfaceState();
             mDisplayWindowSettingsProvider.setOverrideSettingsForUser(newUserId);
             mPolicy.setCurrentUserLw(newUserId);
             mKeyguardDisableHandler.setCurrentUser(newUserId);
             // This call is crucial on user switch to ensure the Magnify IME state
             // is correctly re-evaluated and applied for the new user.
             mSettingsObserver.updateMagnifyIme();
+            mH.post(mSettingsObserver::updateCaptureCompatibility);
         }
     }
 
@@ -7287,6 +7327,8 @@ public class WindowManagerService extends IWindowManager.Stub
         });
         pw.print("  mBlurEnabled="); pw.println(mBlurController.getBlurEnabled());
         pw.print("  mDisableSecureWindows="); pw.println(mDisableSecureWindows);
+        pw.print("  mIgnoreSecureFlag="); pw.println(mIgnoreSecureFlag);
+        pw.print("  mBlockScreenshotDetection="); pw.println(mBlockScreenshotDetection);
 
         mInputManagerCallback.dump(pw, "  ");
         mSnapshotController.dump(pw, " ");
@@ -10800,6 +10842,7 @@ public class WindowManagerService extends IWindowManager.Stub
                 return new ArrayList<>();
             }
             ArraySet<ComponentName> notifiedApps = new ArraySet<>();
+            if (mBlockScreenshotDetection) return List.of();
             displayContent.forAllActivities(
                     (ar) -> {
                         if (!notifiedApps.contains(ar.mActivityComponent) && ar.isVisible()
@@ -10924,6 +10967,10 @@ public class WindowManagerService extends IWindowManager.Stub
 
     boolean getDisableSecureWindows() {
         return mDisableSecureWindows;
+    }
+
+    boolean ignoreSecureFlagForUser(int userId) {
+        return mIgnoreSecureFlag && userId == mCurrentUserId;
     }
 
     /**

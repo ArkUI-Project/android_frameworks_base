@@ -1,0 +1,9 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Copyright (C) 2026 The ArkUI Project; SPDX-License-Identifier: Apache-2.0 -->
+<resources>
+    <string name="config_bodyFontFamily" translatable="false">source-sans-pro</string>
+    <string name="config_bodyFontFamilyMedium" translatable="false">source-sans-pro-semi-bold</string>
+    <string name="config_headlineFontFamily" translatable="false">source-sans-pro</string>
+    <string name="config_headlineFontFamilyMedium" translatable="false">source-sans-pro-semi-bold</string>
+    <string name="config_clockFontFamily" translatable="false">source-sans-pro</string>
+</resources>

@@ -14,6 +14,7 @@
  * limitations under the License.
  */
 
+// Modified by the ArkUI Project in 2026 for opt-in app installation compatibility.
 package com.android.server.pm;
 
 import static android.content.pm.PackageManager.INSTALL_FAILED_SHARED_USER_INCOMPATIBLE;
@@ -524,6 +525,10 @@ public class PackageManagerServiceUtils {
                 match = pkgSetting.getSigningDetails().hasAncestorOrSelf(parsedSignatures);
             }
 
+            if (!match && AppCompatibilityPolicy.canReplaceSigningKey(
+                    pkgSetting, sharedUserSetting, disabledPkgSetting)) {
+                match = true;
+            }
             if (!match) {
                 throw new PackageManagerException(INSTALL_FAILED_UPDATE_INCOMPATIBLE,
                         "Existing package " + packageName

@@ -14,6 +14,7 @@
  * limitations under the License.
  */
 
+// Modified by the ArkUI Project in 2026 for status bar date controls.
 package com.android.systemui.statusbar.policy;
 
 import android.annotation.NonNull;
@@ -34,9 +35,11 @@ import android.icu.lang.UCharacter;
 import android.icu.text.DateTimePatternGenerator;
 import android.os.Bundle;
 import android.os.Handler;
+import android.os.Looper;
 import android.os.Parcelable;
 import android.os.SystemClock;
 import android.os.UserHandle;
+import android.provider.Settings;
 import android.text.Layout;
 import android.text.Spannable;
 import android.text.SpannableStringBuilder;
@@ -123,6 +126,9 @@ public class Clock extends TextView implements
     private static final int AM_PM_STYLE_GONE    = 2;
 
     private int mAmPmStyle = AM_PM_STYLE_GONE;
+    private static final String CLOCK_DATE_STYLE = "arkui_clock_date_style";
+    private int mDateStyle;
+    private SimpleDateFormat mDateFormat;
     private boolean mShowSeconds;
     private ContentObserver mContentObserver;
     private Handler mSecondsHandler;
@@ -141,6 +147,10 @@ public class Clock extends TextView implements
                 @Override
                 public void onUserChanged(int newUser, @NonNull Context userContext) {
                     mCurrentUserId = newUser;
+                    mAmPmStyle = readClockAmPm(getContext());
+                    mDateStyle = readDateStyle();
+                    mDateFormat = null;
+                    mContentDescriptionFormatString = "";
                     updateClock();
                 }
             };
@@ -158,10 +168,13 @@ public class Clock extends TextView implements
                 0, 0);
         try {
             mAmPmStyle = readClockAmPm(context);
-            mContentObserver = new ContentObserver(null) {
+            mDateStyle = readDateStyle();
+            mContentObserver = new ContentObserver(new Handler(Looper.getMainLooper())) {
                 @Override
                 public void onChange(boolean selfChange) {
                     mAmPmStyle = readClockAmPm(context);
+                    mDateStyle = readDateStyle();
+                    mDateFormat = null;
                     // Force refresh of dependent variables.
                     mContentDescriptionFormatString = "";
                     mDateTimePatternGenerator = null;
@@ -243,6 +256,9 @@ public class Clock extends TextView implements
             mContext.getContentResolver().registerContentObserver(
                     LineageSettings.System.getUriFor(LineageSettings.System.STATUS_BAR_AM_PM),
                     false, mContentObserver);
+            mContext.getContentResolver().registerContentObserver(
+                    Settings.Secure.getUriFor(CLOCK_DATE_STYLE), false,
+                    mContentObserver, UserHandle.USER_ALL);
             mCommandQueue.addCallback(this);
             mUserTracker.addCallback(mUserChangedCallback, mContext.getMainExecutor());
             mCurrentUserId = mUserTracker.getUserId();
@@ -252,6 +268,7 @@ public class Clock extends TextView implements
         mCalendar = Calendar.getInstance(TimeZone.getDefault());
         mContentDescriptionFormatString = "";
         mDateTimePatternGenerator = null;
+        mDateFormat = null;
 
         // Make sure we update to the current time
         updateClock();
@@ -313,6 +330,7 @@ public class Clock extends TextView implements
                         // Force refresh of dependent variables.
                         mContentDescriptionFormatString = "";
                         mDateTimePatternGenerator = null;
+                        mDateFormat = null;
                     }
                 });
             }
@@ -367,7 +385,7 @@ public class Clock extends TextView implements
         if (forceTextUpdate || !TextUtils.equals(smallTime, getText())) {
             setText(smallTime);
         }
-        setContentDescription(mContentDescriptionFormat.format(mCalendar.getTime()));
+        setContentDescription(withDate(mContentDescriptionFormat.format(mCalendar.getTime())));
     }
 
     final void updateClock() {
@@ -672,12 +690,30 @@ public class Clock extends TextView implements
                     formatted.delete(magic2, magic2 + 1);
                     formatted.delete(magic1, magic1 + 1);
                 }
-                return formatted;
+                return withDate(formatted);
             }
         }
 
-        return result;
+        return withDate(result);
 
+    }
+
+    private int readDateStyle() {
+        final int value = Settings.Secure.getIntForUser(getContext().getContentResolver(),
+                CLOCK_DATE_STYLE, 0, UserHandle.USER_CURRENT);
+        return value >= 0 && value <= 2 ? value : 0;
+    }
+
+    private CharSequence withDate(CharSequence time) {
+        if (mDateStyle == 0) return time;
+        if (mDateFormat == null) {
+            final java.util.Locale locale = getResources().getConfiguration().getLocales().get(0);
+            mDateFormat = new SimpleDateFormat(DateFormat.getBestDateTimePattern(locale,
+                    mDateStyle == 1 ? "EEE" : "Md"), locale);
+        }
+        mDateFormat.setTimeZone(mCalendar.getTimeZone());
+        return new SpannableStringBuilder(time).append(" · ")
+                .append(mDateFormat.format(mCalendar.getTime()));
     }
 
     private boolean mDemoMode;

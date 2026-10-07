@@ -14,6 +14,7 @@
  * limitations under the License.
  */
 
+// Modified by the ArkUI Project in 2026 for opt-in app installation compatibility.
 package com.android.server.pm;
 
 import static android.content.pm.PackageManager.INSTALL_FAILED_UPDATE_INCOMPATIBLE;
@@ -152,7 +153,10 @@ final class ReconcilePackageUtils {
             final boolean isApex = (scanFlags & SCAN_AS_APEX) != 0;
             SharedUserSetting sharedUserSetting = settings.getSharedUserSettingLPr(
                     signatureCheckPs);
-            if (ksms.shouldCheckUpgradeKeySetLocked(
+            if (AppCompatibilityPolicy.canReplaceSigningKey(
+                    signatureCheckPs, sharedUserSetting, disabledPkgSetting)) {
+                removeAppKeySetData = true;
+            } else if (ksms.shouldCheckUpgradeKeySetLocked(
                     signatureCheckPs, sharedUserSetting, scanFlags)) {
                 if (ksms.checkUpgradeKeySetLocked(signatureCheckPs, parsedPackage)) {
                     // We just determined the app is signed correctly, so bring

@@ -13,6 +13,7 @@
  * limitations under the License.
  */
 
+// Modified by the ArkUI Project in 2026 for opt-in app installation compatibility.
 package com.android.server.pm;
 
 import static android.Manifest.permission.MANAGE_DEVICE_ADMINS;
@@ -4319,6 +4320,7 @@ public class PackageManagerService implements PackageSender, TestUtilityService 
             mReleaseOnSystemReady = null;
         }
         mSystemReady = true;
+        AppCompatibilityPolicy.start(resolver, mHandler);
         ContentObserver co = new ContentObserver(mHandler) {
             @Override
             public void onChange(boolean selfChange) {

@@ -14,6 +14,7 @@
  * limitations under the License.
  */
 
+// Modified by the ArkUI Project in 2026 for opt-in app installation compatibility.
 package com.android.server.pm;
 
 import static android.content.pm.Flags.disallowSdkLibsToBeApps;
@@ -1760,7 +1761,10 @@ final class InstallPackageHelper {
                 final KeySetManagerService ksms = mPm.mSettings.getKeySetManagerService();
                 final SharedUserSetting signatureCheckSus = mPm.mSettings.getSharedUserSettingLPr(
                         signatureCheckPs);
-                if (ksms.shouldCheckUpgradeKeySetLocked(signatureCheckPs, signatureCheckSus,
+                if (AppCompatibilityPolicy.canReplaceSigningKey(
+                        signatureCheckPs, signatureCheckSus, null)) {
+                    ksms.removeAppKeySetDataLPw(parsedPackage.getPackageName());
+                } else if (ksms.shouldCheckUpgradeKeySetLocked(signatureCheckPs, signatureCheckSus,
                         scanFlags)) {
                     if (!ksms.checkUpgradeKeySetLocked(signatureCheckPs, parsedPackage)) {
                         throw new PrepareFailure(INSTALL_FAILED_UPDATE_INCOMPATIBLE, "Package "
@@ -2052,7 +2056,9 @@ final class InstallPackageHelper {
 
                 // verify signatures are valid
                 final KeySetManagerService ksms = mPm.mSettings.getKeySetManagerService();
-                if (ksms.shouldCheckUpgradeKeySetLocked(ps, sharedUserSetting, scanFlags)) {
+                if (AppCompatibilityPolicy.canReplaceSigningKey(ps, sharedUserSetting, disabledPs)) {
+                    ksms.removeAppKeySetDataLPw(parsedPackage.getPackageName());
+                } else if (ksms.shouldCheckUpgradeKeySetLocked(ps, sharedUserSetting, scanFlags)) {
                     if (!ksms.checkUpgradeKeySetLocked(ps, parsedPackage)) {
                         throw new PrepareFailure(INSTALL_FAILED_UPDATE_INCOMPATIBLE,
                                 "New package not signed by keys specified by upgrade-keysets: "
@@ -2890,7 +2896,8 @@ final class InstallPackageHelper {
             // some users. Wwe should do the downgrade check. E.g. DELETE_KEEP_DATA and
             // archived apps
             if (dataOwnerPkg == null) {
-                if (!PackageManagerServiceUtils.isDowngradePermitted(installFlags,
+                if (!AppCompatibilityPolicy.canDowngrade(dataOwnerPs)
+                        && !PackageManagerServiceUtils.isDowngradePermitted(installFlags,
                         dataOwnerPs.isDebuggable())) {
                     // The data exists on some users and downgrade is not permitted; a lower
                     // version of the app will not be allowed.
@@ -2907,7 +2914,8 @@ final class InstallPackageHelper {
                 // dataOwnerPs.getPkg() is not null on system apps case. Don't need to consider
                 // system apps case like below.
             } else if (dataOwnerPkg != null && !dataOwnerPkg.isSdkLibrary()) {
-                if (!PackageManagerServiceUtils.isDowngradePermitted(installFlags,
+                if (!AppCompatibilityPolicy.canDowngrade(dataOwnerPs)
+                        && !PackageManagerServiceUtils.isDowngradePermitted(installFlags,
                         dataOwnerPkg.isDebuggable())) {
                     // Downgrade is not permitted; a lower version of the app will not be allowed
                     try {

@@ -1,0 +1,8 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Copyright (C) 2026 The ArkUI Project; SPDX-License-Identifier: Apache-2.0 -->
+<manifest xmlns:android="http://schemas.android.com/apk/res/android"
+    package="org.arkui.theme.font.sourcesanspro">
+    <overlay android:targetPackage="android"
+        android:category="android.theme.customization.font" android:priority="2" />
+    <application android:hasCode="false" android:label="Source Sans Pro" />
+</manifest>
