@@ -16,13 +16,15 @@ import androidx.preference.Preference;
 import androidx.preference.PreferenceCategory;
 import androidx.preference.PreferenceGroup;
 import androidx.preference.PreferenceScreen;
+import androidx.recyclerview.widget.ConcatAdapter;
+import androidx.recyclerview.widget.ItemTouchHelper;
+import androidx.recyclerview.widget.RecyclerView;
 import com.android.settingslib.widget.AppSwitchPreference;
 import com.android.settingslib.widget.MainSwitchPreference;
 import com.android.settingslib.widget.SettingsBasePreferenceFragment;
 import com.android.settingslib.widget.SliderPreference;
 import com.android.settingslib.widget.TopIntroPreference;
 import java.util.ArrayList;
-import java.util.Collections;
 import java.util.List;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
@@ -32,6 +34,8 @@ public final class WheelSettingsFragment extends SettingsBasePreferenceFragment 
     private String page, query = "";
     private List<WheelCatalog.Item> apps = List.of();
     private boolean loaded;
+    private WheelShortcutsAdapter shortcutsAdapter;
+    private ItemTouchHelper shortcutsTouchHelper;
     private final Handler main = new Handler(Looper.getMainLooper());
     private final ExecutorService loader = Executors.newSingleThreadExecutor();
     static WheelSettingsFragment create(String page) {
@@ -56,6 +60,36 @@ public final class WheelSettingsFragment extends SettingsBasePreferenceFragment 
         super.onViewCreated(view, state); view.setBackgroundColor(WheelStyle.surface(requireContext()));
     }
     @Override public void onResume() { super.onResume(); build(); requireActivity().setTitle(title()); }
+    @Override public void onPause() {
+        if (shortcutsAdapter != null) shortcutsAdapter.persist();
+        super.onPause();
+    }
+    @Override public RecyclerView.Adapter<?> onCreateAdapter(PreferenceScreen screen) {
+        releaseShortcuts();
+        RecyclerView.Adapter<?> settings = super.onCreateAdapter(screen);
+        if (!ITEMS.equals(page) || !loaded) return settings;
+        Preference empty = screen.findPreference("empty_shortcuts");
+        shortcutsAdapter = new WheelShortcutsAdapter(prefs, WheelCatalog.selected(c(), prefs, apps),
+                empty::setVisible);
+        return new ConcatAdapter(settings, shortcutsAdapter);
+    }
+    @Override protected void onBindPreferences() {
+        super.onBindPreferences();
+        if (shortcutsAdapter != null) {
+            shortcutsTouchHelper = shortcutsAdapter.touchHelper();
+            shortcutsTouchHelper.attachToRecyclerView(getListView());
+        }
+    }
+    @Override protected void onUnbindPreferences() {
+        releaseShortcuts();
+        super.onUnbindPreferences();
+    }
+    private void releaseShortcuts() {
+        if (shortcutsAdapter != null) shortcutsAdapter.persist();
+        if (shortcutsTouchHelper != null) shortcutsTouchHelper.attachToRecyclerView(null);
+        shortcutsTouchHelper = null;
+        shortcutsAdapter = null;
+    }
     @Override public void onSaveInstanceState(Bundle state) { super.onSaveInstanceState(state); state.putString("query", query); }
     @Override public void onDestroy() { loader.shutdownNow(); main.removeCallbacksAndMessages(null); super.onDestroy(); }
     private boolean appPage() { return ITEMS.equals(page) || EXCLUDED.equals(page) || "add".equals(page); }
@@ -175,24 +209,11 @@ public final class WheelSettingsFragment extends SettingsBasePreferenceFragment 
         if (ITEMS.equals(page)) {
             help(root, R.string.order_hint);
             link(root, R.string.add, 0, () -> navigate("add"));
-            List<WheelCatalog.Item> selected = WheelCatalog.selected(c(), prefs, apps);
-            if (selected.isEmpty()) help(root, R.string.empty_pinned);
-            int n = 1;
-            for (WheelCatalog.Item item : selected) {
-                Preference p = new Preference(c()); p.setKey(item.id); p.setTitle(n++ + " · " + item.label); p.setIcon(item.icon);
-                p.setOnPreferenceClickListener(v -> {
-                    List<String> ids = selectedIds(); int index = ids.indexOf(item.id);
-                    List<String> options = new ArrayList<>(); List<Integer> commands = new ArrayList<>();
-                    if (index > 0) { options.add(getString(R.string.move_up)); commands.add(-1); }
-                    if (index < ids.size() - 1) { options.add(getString(R.string.move_down)); commands.add(1); }
-                    options.add(getString(R.string.remove)); commands.add(0);
-                    new AlertDialog.Builder(c()).setTitle(item.label).setItems(options.toArray(new String[0]), (d, which) -> {
-                        int command = commands.get(which);
-                        if (command == 0) ids.remove(index); else Collections.swap(ids, index, index + command);
-                        prefs.putList(ITEMS, ids); build();
-                    }).show(); return true;
-                }); root.addPreference(p);
-            }
+            TopIntroPreference empty = new TopIntroPreference(c());
+            empty.setKey("empty_shortcuts");
+            empty.setTitle(R.string.empty_pinned);
+            empty.setVisible(WheelCatalog.selected(c(), prefs, apps).isEmpty());
+            root.addPreference(empty);
             return;
         }
         EditTextPreference search = new EditTextPreference(c()); configure(search, "search", R.string.search);

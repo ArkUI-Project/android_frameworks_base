@@ -61,7 +61,7 @@
     <string name="loading">Loading applications…</string>
     <string name="empty">No matching applications</string>
     <string name="empty_pinned">Choose shortcuts below. More always stays at the end of the arc.</string>
-    <string name="order_hint">Shortcuts run from the top of the arc to the bottom. Tap a selected shortcut to move or remove it. Extra shortcuts remain available in More.</string>
+    <string name="order_hint">Shortcuts run from the top of the arc to the bottom. Touch and hold a shortcut to drag it into a new position. Swipe left to remove it. Extra shortcuts remain available in More.</string>
     <string name="add">Add shortcuts</string>
     <string name="remove">Remove</string>
     <string name="move_up">Move toward top</string>

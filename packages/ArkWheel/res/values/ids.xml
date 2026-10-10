@@ -1,0 +1,7 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Copyright (C) 2026 The ArkUI Project; SPDX-License-Identifier: Apache-2.0 -->
+<resources>
+    <item name="shortcut_move_up" type="id" />
+    <item name="shortcut_move_down" type="id" />
+    <item name="shortcut_remove" type="id" />
+</resources>

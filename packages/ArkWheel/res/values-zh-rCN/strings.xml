@@ -61,7 +61,7 @@
     <string name="loading">正在加载应用…</string>
     <string name="empty">没有匹配的应用</string>
     <string name="empty_pinned">从下方添加快捷方式。“更多”始终保留在圆弧末端。</string>
-    <string name="order_hint">快捷方式沿圆弧从上到下排列。点按已添加的项目可移动或移除，超出显示数量的项目仍可从“更多”访问。</string>
+    <string name="order_hint">快捷方式沿圆弧从上到下排列。长按项目后上下拖动可调整顺序，向左滑动可移除。超出显示数量的项目仍可从“更多”访问。</string>
     <string name="add">添加快捷方式</string>
     <string name="remove">移除</string>
     <string name="move_up">向圆弧上方移动</string>
