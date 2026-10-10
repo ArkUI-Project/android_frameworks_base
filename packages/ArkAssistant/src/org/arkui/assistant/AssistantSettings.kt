@@ -154,7 +154,7 @@ private fun ConfigScreen(activity: AssistantSettingsActivity, requestRemove: Boo
     var testClient by remember { mutableStateOf<AiClient?>(null) }
     DisposableEffect(Unit) { onDispose { testClient?.cancel(); executor.shutdownNow(); main.removeCallbacksAndMessages(null) } }
     DisposableEffect(editing) {
-        if (editing == "key" || editing == "speech_key") activity.window.addFlags(WindowManager.LayoutParams.FLAG_SECURE)
+        if (editing == "speech_key") activity.window.addFlags(WindowManager.LayoutParams.FLAG_SECURE)
         else activity.window.clearFlags(WindowManager.LayoutParams.FLAG_SECURE)
         onDispose { activity.window.clearFlags(WindowManager.LayoutParams.FLAG_SECURE) }
     }
@@ -162,10 +162,17 @@ private fun ConfigScreen(activity: AssistantSettingsActivity, requestRemove: Boo
 
     fun save(next: AssistantConfig) {
         runCatching {
-            store.save(next, requireValid = false); config = next
-            if (!next.valid()) { store.setEnabled(false); enabled = false }
-            if (TaskState.current.running) activity.stopService(Intent(activity, AssistantService::class.java))
-        }.onFailure { message = activity.getString(R.string.invalid_config) }
+            if (speechOnly) store.saveSpeech(next) else store.save(next, requireValid = false)
+            config = next
+            if (!speechOnly) {
+                testClient?.cancel(); testClient = null; testing = false; message = ""
+                if (!next.valid()) { store.setEnabled(false); enabled = false }
+                if (TaskState.current.running) activity.stopService(Intent(activity, AssistantService::class.java))
+            }
+        }.onFailure {
+            message = activity.getString(R.string.save_failed)
+            Toast.makeText(activity, message, Toast.LENGTH_LONG).show()
+        }
     }
     fun edit(field: String, current: String) { value = current; editing = field }
     fun test() {
@@ -175,7 +182,7 @@ private fun ConfigScreen(activity: AssistantSettingsActivity, requestRemove: Boo
         executor.submit {
             val result = runCatching { testConnection(client); activity.getString(R.string.connection_ok) }
                 .getOrElse { it.message?.take(120) ?: activity.getString(R.string.network_error) }
-            main.post { testing = false; message = result; testClient = null }
+            main.post { if (testClient === client) { testing = false; message = result; testClient = null } }
         }
     }
 
@@ -188,7 +195,8 @@ private fun ConfigScreen(activity: AssistantSettingsActivity, requestRemove: Boo
                         contentColor = MaterialTheme.colorScheme.onSurfaceVariant)) {
                     Icon(Icons.AutoMirrored.Rounded.ArrowBack, stringResource(R.string.close))
                 }
-                Text(stringResource(when (page) { "apps" -> R.string.blocked_apps; "speech" -> R.string.voice_input; else -> R.string.settings }),
+                Text(stringResource(when (page) { "apps" -> R.string.blocked_apps; "speech" -> R.string.voice_input;
+                    "providers" -> R.string.manage_providers; else -> R.string.settings }),
                     Modifier.weight(1f).padding(start = SettingsSpace.small1), style = MaterialTheme.typography.titleLarge)
             }
         }
@@ -203,7 +211,8 @@ private fun ConfigScreen(activity: AssistantSettingsActivity, requestRemove: Boo
                 if (TaskState.current.running) activity.stopService(Intent(activity, AssistantService::class.java))
             } else key(selected) { Column(Modifier.fillMaxSize().padding(padding).verticalScroll(rememberScrollState()).imePadding()
                 .padding(bottom = 32.dp)) {
-                if (selected == "main") {
+                if (selected == "providers") ProvidersScreen(config) { save(it) }
+                else if (selected == "main") {
                     MainSwitchPreference(object : SwitchPreferenceModel {
                         override val title = activity.getString(R.string.enabled)
                         override val checked = { enabled }
@@ -217,9 +226,11 @@ private fun ConfigScreen(activity: AssistantSettingsActivity, requestRemove: Boo
                         }
                     })
                     Category(stringResource(R.string.provider)) {
-                        SettingsCell(R.string.endpoint, config.endpoint) { edit("endpoint", config.endpoint) }
-                        SettingsCell(R.string.model, config.model) { edit("model", config.model) }
-                        SettingsCell(R.string.api_key, activity.getString(if (config.key.isBlank()) R.string.not_configured else R.string.key_saved)) { edit("key", config.key) }
+                        SettingsCell(R.string.select_provider, config.provider.name) { editing = "provider_picker" }
+                        SettingsCell(R.string.model, config.model.ifBlank { activity.getString(R.string.not_configured) }) {
+                            if (config.provider.models.isEmpty()) page = "providers" else editing = "model_picker"
+                        }
+                        SettingsCell(R.string.manage_providers, activity.getString(R.string.provider_count, config.providers.size)) { page = "providers" }
                         SettingsCell(R.string.test_connection, message, enabled = !testing) { test() }
                     }
                     Category(stringResource(R.string.assistant_behavior)) {
@@ -290,7 +301,13 @@ private fun ConfigScreen(activity: AssistantSettingsActivity, requestRemove: Boo
             } },
             confirmButton = { TextButton(onClick = { shortcutEditing = null }) { Text(stringResource(R.string.cancel)) } })
     }
-    if (editing == "steps") {
+    if (editing == "provider_picker") {
+        ProviderPicker(config, { editing = "" }) { id -> save(config.copy(providerId = id)); editing = "" }
+    } else if (editing == "model_picker") {
+        ModelPicker(config.provider, { editing = "" }) { model ->
+            save(config.withProvider(config.provider.copy(model = model))); editing = ""
+        }
+    } else if (editing == "steps") {
         var unlimited by remember { mutableStateOf(config.steps == 0) }
         var steps by remember { mutableStateOf(if (config.steps == 0) 12f else config.steps.toFloat()) }
         AlertDialog(onDismissRequest = { editing = "" }, icon = { Icon(Icons.Rounded.Route, null) }, title = { Text(stringResource(R.string.step_limit)) },
@@ -306,10 +323,10 @@ private fun ConfigScreen(activity: AssistantSettingsActivity, requestRemove: Boo
             } }, confirmButton = { TextButton(onClick = { save(config.copy(steps = if (unlimited) 0 else steps.toInt())); editing = "" }) { Text(stringResource(R.string.save)) } },
             dismissButton = { TextButton(onClick = { editing = "" }) { Text(stringResource(R.string.cancel)) } })
     } else if (editing.isNotBlank()) {
-        val secret = editing == "key" || editing == "speech_key"
+        val secret = editing == "speech_key"
         var reveal by remember(editing) { mutableStateOf(false) }
-        val label = when (editing) { "endpoint" -> R.string.endpoint; "speech_endpoint" -> R.string.speech_endpoint;
-            "model", "speech_model" -> R.string.model; else -> R.string.api_key }
+        val label = when (editing) { "speech_endpoint" -> R.string.speech_endpoint;
+            "speech_model" -> R.string.model; else -> R.string.api_key }
         AlertDialog(onDismissRequest = { editing = "" }, icon = { Icon(if (secret) Icons.Rounded.Key else Icons.Rounded.Tune, null) },
             properties = DialogProperties(securePolicy = if (secret) SecureFlagPolicy.SecureOn else SecureFlagPolicy.Inherit),
             title = { Text(stringResource(label)) }, text = {
@@ -318,8 +335,7 @@ private fun ConfigScreen(activity: AssistantSettingsActivity, requestRemove: Boo
                     keyboardOptions = KeyboardOptions(keyboardType = if (secret) KeyboardType.Password else if (editing.endsWith("endpoint")) KeyboardType.Uri else KeyboardType.Text),
                     trailingIcon = { if (secret) IconButton(onClick = { reveal = !reveal }) { Icon(if (reveal) Icons.Rounded.VisibilityOff else Icons.Rounded.Visibility, stringResource(R.string.show_key)) } })
             }, confirmButton = { TextButton(onClick = {
-                save(when (editing) { "endpoint" -> config.copy(endpoint = value.trim()); "model" -> config.copy(model = value.trim());
-                    "key" -> config.copy(key = value.trim()); "speech_endpoint" -> config.copy(speechEndpoint = value.trim());
+                save(when (editing) { "speech_endpoint" -> config.copy(speechEndpoint = value.trim());
                     "speech_model" -> config.copy(speechModel = value.trim()); else -> config.copy(speechKey = value.trim()) })
                 editing = ""
             }) { Text(stringResource(R.string.save)) } }, dismissButton = { TextButton(onClick = { editing = "" }) { Text(stringResource(R.string.cancel)) } })
@@ -331,7 +347,7 @@ private fun ConfigScreen(activity: AssistantSettingsActivity, requestRemove: Boo
 }
 
 @Composable
-private fun SettingsCell(title: Int, subtitle: String, enabled: Boolean = true, action: () -> Unit) {
+internal fun SettingsCell(title: Int, subtitle: String, enabled: Boolean = true, action: () -> Unit) {
     val label = stringResource(title)
     Preference(object : PreferenceModel {
         override val title = label
