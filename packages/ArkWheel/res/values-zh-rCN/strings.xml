@@ -2,10 +2,9 @@
 <!-- Copyright (C) 2026 The ArkUI Project; SPDX-License-Identifier: Apache-2.0 -->
 <resources>
     <string name="app_name">快捷轮盘</string>
-    <string name="enabled">使用快捷轮盘</string>
     <string name="intro">从屏幕底角向内斜上滑动，快捷方式沿圆弧展开。滑到图标上松手，或展开后点按图标即可使用。“更多”会打开悬浮的应用与功能面板。</string>
     <string name="preview">试用轮盘</string>
-    <string name="preview_summary">开启轮盘后，体验当前布局与动画</string>
+    <string name="preview_summary">体验当前布局与动画</string>
     <string name="items">轮盘快捷方式</string>
     <string name="items_summary">选择应用与功能，自由调整排列顺序</string>
     <string name="appearance">外观与动效</string>

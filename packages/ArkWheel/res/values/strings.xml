@@ -2,10 +2,9 @@
 <!-- Copyright (C) 2026 The ArkUI Project; SPDX-License-Identifier: Apache-2.0 -->
 <resources>
     <string name="app_name">Quick wheel</string>
-    <string name="enabled">Use quick wheel</string>
     <string name="intro">Swipe diagonally up and inward from a bottom corner to fan out your shortcuts. Slide onto an icon and release, or tap an icon after opening the wheel. More opens a floating app and action library.</string>
     <string name="preview">Try the wheel</string>
-    <string name="preview_summary">Enable the wheel, then try your current layout</string>
+    <string name="preview_summary">Try your current layout and animation</string>
     <string name="items">Wheel shortcuts</string>
     <string name="items_summary">Choose apps and actions, then arrange their order</string>
     <string name="appearance">Appearance and motion</string>

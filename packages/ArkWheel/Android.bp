@@ -27,7 +27,6 @@ android_app {
         "ArkWheelProtocol",
         "SettingsLibCollapsingToolbarBaseActivity",
         "SettingsLibSettingsTheme",
-        "SettingsLibMainSwitchPreference",
         "SettingsLibAppPreference",
         "SettingsLibSliderPreference",
         "SettingsLibTopIntroPreference",

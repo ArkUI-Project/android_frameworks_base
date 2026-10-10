@@ -20,7 +20,6 @@ import androidx.recyclerview.widget.ConcatAdapter;
 import androidx.recyclerview.widget.ItemTouchHelper;
 import androidx.recyclerview.widget.RecyclerView;
 import com.android.settingslib.widget.AppSwitchPreference;
-import com.android.settingslib.widget.MainSwitchPreference;
 import com.android.settingslib.widget.SettingsBasePreferenceFragment;
 import com.android.settingslib.widget.SliderPreference;
 import com.android.settingslib.widget.TopIntroPreference;
@@ -180,12 +179,9 @@ public final class WheelSettingsFragment extends SettingsBasePreferenceFragment 
                 link(root, R.string.excluded, R.string.excluded_summary, () -> navigate(EXCLUDED));
                 break;
             default:
-                MainSwitchPreference enabled = new MainSwitchPreference(c()); configure(enabled, ENABLED, R.string.enabled);
-                enabled.setChecked(prefs.enabled());
-                enabled.setOnPreferenceChangeListener((p, v) -> { prefs.put(ENABLED, (Boolean) v ? 1 : 0); main.post(this::build); return true; }); root.addPreference(enabled);
                 help(root, R.string.intro);
                 link(root, R.string.preview, R.string.preview_summary, () -> requireContext().sendBroadcast(
-                        new Intent(WheelService.PREVIEW).setPackage(requireContext().getPackageName()))).setEnabled(prefs.enabled());
+                        new Intent(WheelService.PREVIEW).setPackage(requireContext().getPackageName())));
                 link(root, R.string.items, R.string.items_summary, () -> navigate(ITEMS));
                 link(root, R.string.recognize, R.string.recognition_summary, this::openRecognitionSettings);
                 link(root, R.string.invocation_title, R.string.invocation_summary, () -> navigate("invocation"));
@@ -194,8 +190,8 @@ public final class WheelSettingsFragment extends SettingsBasePreferenceFragment 
                 link(root, R.string.reset, 0, () -> new AlertDialog.Builder(c()).setTitle(R.string.reset)
                         .setMessage(R.string.reset_message).setNegativeButton(android.R.string.cancel, null)
                         .setPositiveButton(R.string.reset, (d, which) -> {
-                            String excluded = prefs.store.getString(EXCLUDED, ""); boolean on = prefs.enabled();
-                            prefs.store.edit().clear().putString(EXCLUDED, excluded).putInt(ENABLED, on ? 1 : 0).apply(); build();
+                            String excluded = prefs.store.getString(EXCLUDED, "");
+                            prefs.store.edit().clear().putString(EXCLUDED, excluded).apply(); build();
                         }).show());
         }
     }

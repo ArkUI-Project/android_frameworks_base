@@ -149,24 +149,22 @@ public final class WheelService extends Service implements SharedPreferences.OnS
         try { host.send(m); } catch (RemoteException e) { allowed = false; detach(); hide(); }
     }
     private void configuration() {
-        Bundle data = new Bundle(); data.putBoolean(WheelProtocol.ENABLED, prefs.enabled());
+        Bundle data = new Bundle(); data.putBoolean(WheelProtocol.ENABLED, true);
         send(WheelProtocol.CONFIGURATION, data);
     }
     @Override public void onSharedPreferenceChanged(SharedPreferences p, String key) {
         if (DISMISSED_RECENT.equals(key)) return;
         excluded = Set.copyOf(prefs.list(EXCLUDED));
         hide(); configuration();
-        if (!prefs.enabled()) {
-            generation++; dirty = true; loaded = false; apps = List.of(); main.removeCallbacks(reload);
-        } else if (!loaded) load();
+        if (!loaded) load();
         refresh();
     }
     private void invalidateCatalog() {
         generation++; dirty = true; loaded = false; hide(); main.removeCallbacks(reload);
-        if (prefs.enabled()) main.postDelayed(reload, 180);
+        main.postDelayed(reload, 180);
     }
     private void load() {
-        if (destroyed || !prefs.enabled() || loading || !dirty) return;
+        if (destroyed || loading || !dirty) return;
         loading = true; dirty = false;
         int token = generation;
         Context snapshot = createConfigurationContext(new Configuration(getResources().getConfiguration()));
@@ -177,13 +175,13 @@ public final class WheelService extends Service implements SharedPreferences.OnS
             main.post(() -> {
                 loading = false;
                 if (destroyed) return;
-                if (token == generation && prefs.enabled()) { apps = found; loaded = true; refresh(); }
+                if (token == generation) { apps = found; loaded = true; refresh(); }
                 if (dirty) { main.removeCallbacks(reload); main.postDelayed(reload, 180); }
             });
         });
     }
     private boolean canShow() {
-        return !destroyed && !externalRecognition && host != null && allowed && loaded && prefs.enabled()
+        return !destroyed && !externalRecognition && host != null && allowed && loaded
                 && !excluded.contains(foreground)
                 && getSystemService(PowerManager.class).isInteractive()
                 && !getSystemService(KeyguardManager.class).isKeyguardLocked()
