@@ -55,7 +55,7 @@
         <service android:name=".AssistantService" android:exported="false"
             android:foregroundServiceType="specialUse|microphone">
             <property android:name="android.app.PROPERTY_SPECIAL_USE_FGS_SUBTYPE"
-                android:value="User-initiated visual assistant performing a bounded interactive task with ongoing progress and cancellation" />
+                android:value="User-initiated visual assistant performing an interactive task with ongoing progress and cancellation" />
         </service>
         <!-- Binder messages are accepted only from the currently selected IME's UID. -->
         <service android:name=".ImeDictationService" android:exported="true"

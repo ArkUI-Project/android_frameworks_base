@@ -99,7 +99,8 @@ internal fun ProgressPanel(host: AssistantOverlay) {
         }
         }
         PanelReveal(!enlarged) {
-            Text(stringResource(R.string.step_count, task.step, task.limit), style = MaterialTheme.typography.labelSmall,
+            Text(if (task.limit == 0) stringResource(R.string.step_count_unlimited, task.step)
+                else stringResource(R.string.step_count, task.step, task.limit), style = MaterialTheme.typography.labelSmall,
                 color = MaterialTheme.colorScheme.onSurfaceVariant)
         }
         TaskConfirmation(host)

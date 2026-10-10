@@ -20,7 +20,7 @@ data class AssistantConfig(
     val model: String = "deepseek-flash",
     val key: String = "",
     val control: Boolean = true,
-    val steps: Int = 12,
+    val steps: Int = 0,
     val speechEndpoint: String = "",
     val speechModel: String = "whisper-1",
     val speechKey: String = "",
@@ -29,7 +29,7 @@ data class AssistantConfig(
         val uri = URI(endpoint.trim())
         uri.scheme == "https" && !uri.host.isNullOrBlank() && uri.userInfo == null &&
             uri.query == null && uri.fragment == null && model.isNotBlank() &&
-            key.isNotBlank() && !key.any { it.isWhitespace() } && steps in 4..30
+            key.isNotBlank() && !key.any { it.isWhitespace() } && (steps == 0 || steps in 4..30)
     }.getOrDefault(false)
 
     fun completionsUrl(): String {
@@ -60,7 +60,7 @@ class ConfigStore(private val context: Context) {
         model = prefs.getString("model", "deepseek-flash")!!,
         key = runCatching { decrypt(prefs.getString("key", "")!!) }.getOrDefault(""),
         control = prefs.getBoolean("control", true),
-        steps = prefs.getInt("steps", 12).coerceIn(4, 30),
+        steps = prefs.getInt("steps", 0).let { if (it == 0) 0 else it.coerceIn(4, 30) },
         speechEndpoint = prefs.getString("speech_endpoint", "")!!,
         speechModel = prefs.getString("speech_model", "whisper-1")!!,
         speechKey = runCatching { decrypt(prefs.getString("speech_key", "")!!) }.getOrDefault(""),

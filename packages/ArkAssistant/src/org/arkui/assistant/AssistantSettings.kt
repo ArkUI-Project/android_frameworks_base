@@ -234,7 +234,7 @@ private fun ConfigScreen(activity: AssistantSettingsActivity, requestRemove: Boo
                         }
                     }
                     Category(stringResource(R.string.advanced)) {
-                        SettingsCell(R.string.step_limit, config.steps.toString()) { editing = "steps" }
+                        SettingsCell(R.string.step_limit, if (config.steps == 0) activity.getString(R.string.unlimited_steps) else config.steps.toString()) { editing = "steps" }
                         SettingsCell(R.string.default_assistant, "") {
                             activity.startActivity(Intent(android.provider.Settings.ACTION_VOICE_INPUT_SETTINGS))
                         }
@@ -286,12 +286,19 @@ private fun ConfigScreen(activity: AssistantSettingsActivity, requestRemove: Boo
             confirmButton = { TextButton(onClick = { shortcutEditing = null }) { Text(stringResource(R.string.cancel)) } })
     }
     if (editing == "steps") {
-        var steps by remember { mutableStateOf(config.steps.toFloat()) }
+        var unlimited by remember { mutableStateOf(config.steps == 0) }
+        var steps by remember { mutableStateOf(if (config.steps == 0) 12f else config.steps.toFloat()) }
         AlertDialog(onDismissRequest = { editing = "" }, icon = { Icon(Icons.Rounded.Route, null) }, title = { Text(stringResource(R.string.step_limit)) },
             text = { Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                Text(steps.toInt().toString(), style = MaterialTheme.typography.displaySmall, color = MaterialTheme.colorScheme.primary)
-                Slider(steps, { steps = it }, valueRange = 4f..30f, steps = 25)
-            } }, confirmButton = { TextButton(onClick = { save(config.copy(steps = steps.toInt())); editing = "" }) { Text(stringResource(R.string.save)) } },
+                Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+                    Text(stringResource(R.string.unlimited_steps), Modifier.weight(1f))
+                    Switch(unlimited, { unlimited = it })
+                }
+                if (!unlimited) {
+                    Text(steps.toInt().toString(), style = MaterialTheme.typography.displaySmall, color = MaterialTheme.colorScheme.primary)
+                    Slider(steps, { steps = it }, valueRange = 4f..30f, steps = 25)
+                }
+            } }, confirmButton = { TextButton(onClick = { save(config.copy(steps = if (unlimited) 0 else steps.toInt())); editing = "" }) { Text(stringResource(R.string.save)) } },
             dismissButton = { TextButton(onClick = { editing = "" }) { Text(stringResource(R.string.cancel)) } })
     } else if (editing.isNotBlank()) {
         val secret = editing == "key" || editing == "speech_key"

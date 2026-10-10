@@ -48,6 +48,8 @@
     <string name="control">允许操作手机</string>
     <string name="control_summary">在任务中点击、滑动、输入文字和打开应用</string>
     <string name="step_limit">最多执行步数</string>
+    <string name="unlimited_steps">不限制</string>
+    <string name="step_count_unlimited">第 %1$d 步</string>
     <string name="default_assistant">默认数字助理</string>
     <string name="add_tile">添加快捷设置磁贴</string>
     <string name="remove">卸载 ArkAI</string>

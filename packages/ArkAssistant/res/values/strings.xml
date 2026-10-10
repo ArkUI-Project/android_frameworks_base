@@ -48,6 +48,8 @@
     <string name="control">Allow phone operations</string>
     <string name="control_summary">Tap, swipe, type and open apps during a task</string>
     <string name="step_limit">Maximum steps</string>
+    <string name="unlimited_steps">Unlimited</string>
+    <string name="step_count_unlimited">Step %1$d</string>
     <string name="default_assistant">Default digital assistant</string>
     <string name="add_tile">Add Quick Settings tile</string>
     <string name="remove">Uninstall ArkAI</string>

@@ -42,7 +42,7 @@ internal data class TaskSnapshot(
     val detail: String = "",
     val result: String = "",
     val step: Int = 0,
-    val limit: Int = 12,
+    val limit: Int = 0,
     val running: Boolean = false,
     val paused: Boolean = false,
     val confirmation: String? = null,
@@ -220,7 +220,9 @@ class AssistantService : Service() {
             history.forEach { messages.put(JSONObject().put("role", if (it.user) "user" else "assistant").put("content", it.text)) }
             var observing = false
             var connected = false
-            for (step in 1..config.steps) {
+            var step = 0
+            while (config.steps == 0 || step < config.steps) {
+                step++
                 checkActive()
                 while (true) {
                     val text = supplements.poll() ?: break
@@ -425,7 +427,7 @@ class AssistantService : Service() {
         To open an app, use list_apps then open_app directly. Opening an app or URL does not require reading the current screen.
         For taps, swipes, text entry and navigation keys, capture before your first operation. Never guess screen contents.
         ArkAI's own pages are protected from screen reading to keep credentials private. They are not user-blacklisted apps.
-        Phone operations are ${if (config.control) "enabled" else "disabled"}. You have at most ${config.steps} turns.
+        Phone operations are ${if (config.control) "enabled" else "disabled"}. ${if (config.steps == 0) "There is no step limit." else "You have at most ${config.steps} turns."}
         ${if (background) "You operate an independent virtual display. Use open_app, not home or recents. Never operate the user's physical display." else ""}
         Call exactly one tool per turn. Use coordinates from the latest screenshot, normalized to 0..1000 over the full image.
         After each operation inspect the fresh screenshot. Never claim success until the resulting screen confirms it.
@@ -578,7 +580,8 @@ class AssistantService : Service() {
             .setColor(Color.rgb(33, 107, 234)).setShowWhen(false)
             .setPublicVersion(Notification.Builder(this, CHANNEL).setSmallIcon(R.drawable.ic_assistant)
                 .setContentTitle(getString(R.string.assistant_title) + " · " + getString(snapshot.status))
-                .setContentText(getString(R.string.step_count, snapshot.step, snapshot.limit))
+                .setContentText(if (snapshot.limit == 0) getString(R.string.step_count_unlimited, snapshot.step)
+                    else getString(R.string.step_count, snapshot.step, snapshot.limit))
                 .setContentIntent(open).setShowWhen(false).build())
         if (voiceForeground) builder.setContentTitle(getString(R.string.voice_input)).setContentText(getString(R.string.voice_listening)).setOngoing(true)
         if (snapshot.running) {

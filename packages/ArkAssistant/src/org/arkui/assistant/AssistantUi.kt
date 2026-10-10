@@ -469,7 +469,8 @@ private fun ConversationPanel(host: AssistantOverlay) {
                         }
                     }
                     if (task.detail.isNotBlank()) Text(task.detail, color = MaterialTheme.colorScheme.onSurfaceVariant, style = MaterialTheme.typography.bodyMedium)
-                    Text(stringResource(R.string.step_count, task.step, task.limit), color = MaterialTheme.colorScheme.onSurfaceVariant, style = MaterialTheme.typography.labelSmall)
+                    Text(if (task.limit == 0) stringResource(R.string.step_count_unlimited, task.step)
+                        else stringResource(R.string.step_count, task.step, task.limit), color = MaterialTheme.colorScheme.onSurfaceVariant, style = MaterialTheme.typography.labelSmall)
                 } }
                 TaskConfirmation(host)
             }
