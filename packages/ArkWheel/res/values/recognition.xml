@@ -2,8 +2,6 @@
 <!-- Copyright (C) 2026 The ArkUI Project; SPDX-License-Identifier: Apache-2.0 -->
 <resources>
     <string name="recognize">Recognize screen</string>
-    <string name="recognition_summary">Select text in place and extract pictures, entirely offline</string>
-    <string name="recognition_intro">Choose Recognize screen in the wheel’s Actions tab, or add it to your shortcuts. Long press recognized text and drag the handles to copy any selection. You can also share a picture here from another app.</string>
     <string name="recognition_running">Recognizing on device…</string>
     <string name="recognition_ready">Long press text to select</string>
     <string name="recognition_empty">No text found. You can still extract an image.</string>
@@ -28,6 +26,5 @@
     <string name="ocr_english">English</string>
     <string name="recognition_wave">Recognition animation</string>
     <string name="recognition_dim">Recognition background dimming</string>
-    <string name="open_picture">Open a picture</string>
     <string name="recognition_close">Close recognition</string>
 </resources>

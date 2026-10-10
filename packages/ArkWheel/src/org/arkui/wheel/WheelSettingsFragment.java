@@ -101,7 +101,6 @@ public final class WheelSettingsFragment extends SettingsBasePreferenceFragment 
             case "appearance": return R.string.appearance;
             case "invocation": return R.string.invocation_title;
             case "behavior": return R.string.behavior;
-            case "recognition": return R.string.recognize;
             default: return R.string.app_name;
         }
     }
@@ -120,9 +119,6 @@ public final class WheelSettingsFragment extends SettingsBasePreferenceFragment 
         p.setOnPreferenceClickListener(v -> { run.run(); return true; }); root.addPreference(p); return p;
     }
     private void navigate(String page) { ((WheelSettingsActivity) requireActivity()).navigate(page, true); }
-    private void openRecognitionSettings() {
-        startActivity(new Intent("org.arkui.recognition.SETTINGS").setPackage("org.arkui.recognition"));
-    }
     private void toggle(PreferenceGroup root, String key, int title, int summary, boolean fallback) {
         AppSwitchPreference p = new AppSwitchPreference(c()); configure(p, key, title);
         if (summary != 0) p.setSummary(summary); p.setChecked(prefs.on(key, fallback));
@@ -148,12 +144,6 @@ public final class WheelSettingsFragment extends SettingsBasePreferenceFragment 
         PreferenceScreen root = getPreferenceManager().createPreferenceScreen(c()); setPreferenceScreen(root);
         if (appPage()) { buildApps(root); return; }
         switch (page) {
-            case "recognition":
-                help(root, R.string.recognition_intro);
-                link(root, R.string.open_picture, 0, () -> startActivity(new Intent().setComponent(
-                        new android.content.ComponentName("org.arkui.recognition", "org.arkui.recognition.RecognitionActivity"))));
-                link(root, R.string.recognize, R.string.recognition_summary, this::openRecognitionSettings);
-                break;
             case "appearance":
                 slider(root, RADIUS, R.string.radius, 280, 180, 360, " dp");
                 slider(root, ICON_SIZE, R.string.icon_size, 44, 32, 64, " dp");
@@ -183,7 +173,6 @@ public final class WheelSettingsFragment extends SettingsBasePreferenceFragment 
                 link(root, R.string.preview, R.string.preview_summary, () -> requireContext().sendBroadcast(
                         new Intent(WheelService.PREVIEW).setPackage(requireContext().getPackageName())));
                 link(root, R.string.items, R.string.items_summary, () -> navigate(ITEMS));
-                link(root, R.string.recognize, R.string.recognition_summary, this::openRecognitionSettings);
                 link(root, R.string.invocation_title, R.string.invocation_summary, () -> navigate("invocation"));
                 link(root, R.string.appearance, R.string.appearance_summary, () -> navigate("appearance"));
                 link(root, R.string.behavior, R.string.behavior_summary, () -> navigate("behavior"));

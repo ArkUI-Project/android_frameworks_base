@@ -2,8 +2,6 @@
 <!-- Copyright (C) 2026 The ArkUI Project; SPDX-License-Identifier: Apache-2.0 -->
 <resources>
     <string name="recognize">识图</string>
-    <string name="recognition_summary">原位选字、提取图片，全程离线识别</string>
-    <string name="recognition_intro">在轮盘的「功能」页选择「识图」，也可以将它添加到快捷方式。长按识别出的文字，拖动选区手柄即可复制任意内容。其他应用中的图片也可以分享至识图。</string>
     <string name="recognition_running">正在本地识别…</string>
     <string name="recognition_ready">长按文字，自由选择</string>
     <string name="recognition_empty">未识别到文字，仍可提取图片</string>
@@ -28,6 +26,5 @@
     <string name="ocr_english">英语</string>
     <string name="recognition_wave">识图动画</string>
     <string name="recognition_dim">识图背景暗度</string>
-    <string name="open_picture">打开图片</string>
     <string name="recognition_close">关闭识图</string>
 </resources>
