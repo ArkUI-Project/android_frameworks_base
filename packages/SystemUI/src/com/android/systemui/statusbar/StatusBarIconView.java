@@ -60,6 +60,8 @@ import com.android.internal.statusbar.StatusBarIcon;
 import com.android.internal.statusbar.StatusBarIcon.Shape;
 import com.android.internal.util.ContrastColorUtil;
 import com.android.systemui.res.R;
+import com.android.systemui.Dependency;
+import com.android.systemui.tuner.TunerService;
 import com.android.systemui.scene.shared.flag.SceneContainerFlag;
 import com.android.systemui.statusbar.notification.NotificationContentDescription;
 import com.android.systemui.statusbar.notification.NotificationDozeHelper;
@@ -112,6 +114,37 @@ public class StatusBarIconView extends AnimatedImageView implements StatusIconDi
     }
 
     private static final String TAG = "StatusBarIconView";
+    private static final String ORIGINAL_APP_ICONS = "arkui_status_bar_app_icons";
+    private boolean mShowOriginalAppIcons;
+    private boolean mUsingAppIcon;
+    private TunerService mIconStyleTuner;
+    private final TunerService.Tunable mIconStyleListener = (key, value) -> {
+        boolean enabled = TunerService.parseIntegerSwitch(value, false);
+        if (mShowOriginalAppIcons != enabled) {
+            mShowOriginalAppIcons = enabled;
+            updateDrawable();
+            maybeUpdateIconScaleDimens();
+            updateIconColor();
+        }
+    };
+
+    @Override
+    public void onAttachedToWindow() {
+        super.onAttachedToWindow();
+        if (isNotification()) {
+            mIconStyleTuner = Dependency.get(TunerService.class);
+            mIconStyleTuner.addTunable(mIconStyleListener, ORIGINAL_APP_ICONS);
+        }
+    }
+
+    @Override
+    public void onDetachedFromWindow() {
+        if (mIconStyleTuner != null) {
+            mIconStyleTuner.removeTunable(mIconStyleListener);
+            mIconStyleTuner = null;
+        }
+        super.onDetachedFromWindow();
+    }
     private static final Property<StatusBarIconView, Float> ICON_APPEAR_AMOUNT
             = new FloatProperty<StatusBarIconView>("iconAppearAmount") {
 
@@ -460,6 +493,7 @@ public class StatusBarIconView extends AnimatedImageView implements StatusIconDi
             setImageDrawable(null);
         }
         setImageDrawable(drawable);
+        updateIconColor();
         mLayoutDirectionForLoadedDrawable = getLayoutDirection();
         return true;
     }
@@ -515,6 +549,22 @@ public class StatusBarIconView extends AnimatedImageView implements StatusIconDi
 
     @Nullable
     private Drawable loadDrawable(Context context, StatusBarIcon statusBarIcon) {
+        // AviumUI's original-app-icon style, restricted to real app notifications.
+        mUsingAppIcon = false;
+        if (mShowOriginalAppIcons && isNotification()
+                && !getContext().getPackageName().equals(mNotification.getPackageName())
+                && !"android".equals(mNotification.getPackageName())) {
+            try {
+                UserHandle user = statusBarIcon.user.getIdentifier() == UserHandle.USER_ALL
+                        ? UserHandle.SYSTEM : statusBarIcon.user;
+                Drawable appIcon = getContext().createContextAsUser(user, 0)
+                        .getPackageManager().getApplicationIcon(mNotification.getPackageName());
+                mUsingAppIcon = true;
+                return appIcon;
+            } catch (android.content.pm.PackageManager.NameNotFoundException | SecurityException e) {
+                // Removed/inaccessible packages retain their notification's small icon.
+            }
+        }
         if (statusBarIcon.preloadedIcon != null) {
             Drawable.ConstantState cached = statusBarIcon.preloadedIcon.getConstantState();
             if (cached != null) {
@@ -674,6 +724,11 @@ public class StatusBarIconView extends AnimatedImageView implements StatusIconDi
     }
 
     private void updateIconColor() {
+        if (mUsingAppIcon) {
+            // Keep natural colors while awake, and retain the normal AOD grayscale transition.
+            mDozer.updateGrayscale(this, mDozeAmount);
+            return;
+        }
         if (mShowsConversation) {
             setColorFilter(null);
             return;
