@@ -1,6 +1,14 @@
 <?xml version="1.0" encoding="utf-8"?>
 <!-- Copyright (C) 2026 The ArkUI Project; SPDX-License-Identifier: Apache-2.0 -->
 <resources>
+    <string name="invoke_methods">唤出方式</string>
+    <string name="invoke_power">长按电源键</string>
+    <string name="invoke_double_tap">双击导航条</string>
+    <string name="invoke_long_press">长按导航条</string>
+    <string name="invoke_voice">语音输入</string>
+    <string name="invoke_text">文字输入</string>
+    <string name="invoke_screen">识别当前屏幕</string>
+    <string name="invoke_disabled">关闭</string>
     <string name="app_name">ArkAI</string>
     <string name="assistant_title">ArkAI</string>
     <string name="settings">AI 设置</string>
@@ -82,6 +90,8 @@
     <string name="chat_mode">对话</string>
     <string name="screen_mode">屏幕问答</string>
     <string name="background_mode">后台运行</string>
+    <string name="moving_background">正在转入后台</string>
+    <string name="background_transfer_failed">此应用未能转入后台，任务已暂停。</string>
     <string name="background_summary">在独立虚拟屏幕中运行应用，前台可继续使用</string>
     <string name="assistant_behavior">助手行为</string>
     <string name="advanced">进阶</string>
@@ -107,6 +117,27 @@
     <string name="voice_configure">请安装系统语音识别服务，或在语音输入设置中配置转写服务。</string>
     <string name="voice_failed">语音识别失败，请检查麦克风和语音服务。</string>
     <string name="voice_no_speech">没有听到说话声</string>
-    <string name="blocked_screen">此应用已在黑名单中，仍可切换到纯文字对话。</string>
+    <string name="blocked_screen">此应用在你设置的黑名单中。仍可继续对话或打开其他允许的应用。</string>
+    <string name="assistant_screen_protected">为保护密钥，不能读取 ArkAI 设置页面。仍可继续对话，或让我打开其他应用。</string>
+    <string name="blocklist_unavailable">无法读取应用黑名单，请在 ArkAI 设置中检查名单。</string>
     <string name="background_unavailable">无法启动后台模式，请打开一个全屏应用后重试。</string>
+    <string name="task_progress">任务进度</string>
+    <string name="live_screen">实时画面</string>
+    <string name="execution_log">执行记录</string>
+    <string name="preview_connecting">正在连接任务画面…</string>
+    <string name="preview_unavailable">画面暂不可用，正在重新连接…</string>
+    <string name="preview_updated">%1$d 秒前更新</string>
+    <string name="user_in_control">已交给你操作，准备好后可继续任务。</string>
+    <string name="takeover_failed">切换画面失败，任务已暂停，请重试。</string>
+    <string name="opening_app">正在打开%1$s</string>
+    <string name="reply">回复</string>
+    <string name="speak">按住说话</string>
+    <string name="voice_release">松手发送</string>
+    <string name="enlarge_preview">放大任务画面</string>
+    <string name="shrink_preview">缩小任务画面</string>
+    <string name="ime_voice_listening">正在聆听并输入文字</string>
+    <string name="ime_voice_permission">请先在 ArkAI 的语音输入设置中允许麦克风权限。</string>
+    <string name="ime_voice_disabled">请启用 ArkAI 并解锁设备后使用语音输入。</string>
+    <string name="ime_voice_cancelled">已取消听写</string>
+    <string name="microphone_permission">麦克风权限</string>
 </resources>

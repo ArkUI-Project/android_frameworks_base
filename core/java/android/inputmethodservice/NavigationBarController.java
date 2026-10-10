@@ -26,7 +26,7 @@ import android.animation.ValueAnimator;
 import android.annotation.FloatRange;
 import android.annotation.NonNull;
 import android.annotation.Nullable;
-import android.graphics.Color;
+import android.content.res.Configuration;
 import android.graphics.Insets;
 import android.graphics.Rect;
 import android.graphics.Region;
@@ -71,6 +71,8 @@ final class NavigationBarController implements Window.DecorCallback,
 
     @Nullable
     private NavigationBarFrame mNavigationBarFrame;
+    @Nullable
+    private ImeVoiceInputController mVoiceInput;
     @Nullable
     private Insets mLastInsets;
 
@@ -133,9 +135,16 @@ final class NavigationBarController implements Window.DecorCallback,
         final Insets systemInsets = getSystemInsets();
         if (mNavigationBarFrame == null) {
             mNavigationBarFrame = new NavigationBarFrame(mService);
-            LayoutInflater.from(mService).inflate(
-                    com.android.internal.R.layout.input_method_navigation_bar,
-                    mNavigationBarFrame);
+            if (ImeVoiceInputController.isAvailable(mService)) {
+                mVoiceInput = new ImeVoiceInputController(mService);
+                mVoiceInput.setSwitcherVisible(mShouldShowImeSwitcherWhenImeIsShown);
+                mNavigationBarFrame.addView(mVoiceInput.getView(), new FrameLayout.LayoutParams(
+                        ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT));
+            } else {
+                LayoutInflater.from(mService).inflate(
+                        com.android.internal.R.layout.input_method_navigation_bar,
+                        mNavigationBarFrame);
+            }
             if (systemInsets != null) {
                 decorView.addView(mNavigationBarFrame, new FrameLayout.LayoutParams(
                         ViewGroup.LayoutParams.MATCH_PARENT,
@@ -166,11 +175,7 @@ final class NavigationBarController implements Window.DecorCallback,
             mLastInsets = systemInsets;
         }
 
-        if (mDrawLegacyNavigationBarBackground) {
-            mNavigationBarFrame.setBackgroundColor(Color.BLACK);
-        } else {
-            mNavigationBarFrame.setBackground(null);
-        }
+        updateBackground();
 
         setIconTintInternal(calculateTargetDarkIntensity(mAppearance,
                 mDrawLegacyNavigationBarBackground));
@@ -181,6 +186,7 @@ final class NavigationBarController implements Window.DecorCallback,
                 // IME navigation bar.
                 boolean visible = insets.isVisible(captionBar());
                 mNavigationBarFrame.setVisibility(visible ? View.VISIBLE : View.GONE);
+                if (!visible && mVoiceInput != null) mVoiceInput.cancel();
                 checkCustomImeSwitcherButtonRequestedVisible(mShouldShowImeSwitcherWhenImeIsShown,
                         mImeDrawsImeNavBar, !visible /* imeNavBarNotVisible */);
             }
@@ -189,6 +195,10 @@ final class NavigationBarController implements Window.DecorCallback,
     }
 
     private void uninstallNavigationBarFrameIfNecessary() {
+        if (mVoiceInput != null) {
+            mVoiceInput.cancel();
+            mVoiceInput = null;
+        }
         if (mNavigationBarFrame == null) {
             return;
         }
@@ -362,13 +372,31 @@ final class NavigationBarController implements Window.DecorCallback,
             mTintAnimator.cancel();
             mTintAnimator = null;
         }
+        if (mVoiceInput != null) mVoiceInput.cancel();
         mDestroyed = true;
     }
 
+    void onInputChanged() {
+        if (mVoiceInput != null) mVoiceInput.updateEditor();
+    }
+
+    void onInputHidden() {
+        if (mVoiceInput != null) mVoiceInput.cancel();
+    }
+
     void onWindowShown() {
+        if (!mDestroyed && mImeDrawsImeNavBar && mNavigationBarFrame != null
+                && (mVoiceInput != null) != ImeVoiceInputController.isAvailable(mService)) {
+            uninstallNavigationBarFrameIfNecessary();
+            mService.mWindow.getWindow().getDecorView().getWindowInsetsController()
+                    .setImeCaptionBarInsetsHeight(getImeCaptionBarHeight(true));
+            installNavigationBarFrameIfNecessary();
+        }
         if (mDestroyed || !mImeDrawsImeNavBar || mNavigationBarFrame == null) {
             return;
         }
+        updateBackground();
+        if (mVoiceInput != null) mVoiceInput.updateEditor();
         final Insets systemInsets = getSystemInsets();
         if (systemInsets != null) {
             if (!Objects.equals(systemInsets, mLastInsets)) {
@@ -406,6 +434,7 @@ final class NavigationBarController implements Window.DecorCallback,
         final boolean prevShouldShowImeSwitcherWhenImeIsShown =
                 mShouldShowImeSwitcherWhenImeIsShown;
         mShouldShowImeSwitcherWhenImeIsShown = shouldShowImeSwitcherWhenImeIsShown;
+        if (mVoiceInput != null) mVoiceInput.setSwitcherVisible(shouldShowImeSwitcherWhenImeIsShown);
 
         mService.mWindow.getWindow().getDecorView().getWindowInsetsController()
                 .setImeCaptionBarInsetsHeight(getImeCaptionBarHeight(imeDrawsImeNavBar));
@@ -471,7 +500,19 @@ final class NavigationBarController implements Window.DecorCallback,
         if (navigationBarView == null) {
             return;
         }
-        navigationBarView.setDarkIntensity(darkIntensity);
+        navigationBarView.setDarkIntensity(isNightMode() ? 0f : 1f);
+    }
+
+    private boolean isNightMode() {
+        return (mService.getResources().getConfiguration().uiMode & Configuration.UI_MODE_NIGHT_MASK)
+                == Configuration.UI_MODE_NIGHT_YES;
+    }
+
+    private void updateBackground() {
+        if (mNavigationBarFrame == null) return;
+        mNavigationBarFrame.setBackgroundColor(mService.getColor(isNightMode()
+                ? com.android.internal.R.color.system_surface_container_dark
+                : com.android.internal.R.color.system_surface_container_light));
     }
 
     @FloatRange(from = 0.0f, to = 1.0f)
@@ -492,11 +533,7 @@ final class NavigationBarController implements Window.DecorCallback,
         if (drawLegacyNavigationBarBackground != mDrawLegacyNavigationBarBackground) {
             mDrawLegacyNavigationBarBackground = drawLegacyNavigationBarBackground;
             if (mNavigationBarFrame != null) {
-                if (mDrawLegacyNavigationBarBackground) {
-                    mNavigationBarFrame.setBackgroundColor(Color.BLACK);
-                } else {
-                    mNavigationBarFrame.setBackground(null);
-                }
+                updateBackground();
                 scheduleRelayout();
             }
             onSystemBarAppearanceChanged(mAppearance);
@@ -521,10 +558,11 @@ final class NavigationBarController implements Window.DecorCallback,
      * @param imeDrawsImeNavBar whether the IME should show the IME navigation bar.
      */
     private int getImeCaptionBarHeight(boolean imeDrawsImeNavBar) {
-        return imeDrawsImeNavBar
-                ? mService.getResources().getDimensionPixelSize(
-                        com.android.internal.R.dimen.input_method_navigation_bar_height)
-                : 0;
+        if (!imeDrawsImeNavBar) return 0;
+        int height = mService.getResources().getDimensionPixelSize(
+                com.android.internal.R.dimen.input_method_navigation_bar_height);
+        return ImeVoiceInputController.isAvailable(mService) ? Math.max(height,
+                Math.round(64 * mService.getResources().getDisplayMetrics().density)) : height;
     }
 
     /**

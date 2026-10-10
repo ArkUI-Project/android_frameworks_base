@@ -5,6 +5,7 @@ import android.app.Notification
 import android.app.NotificationChannel
 import android.app.NotificationManager
 import android.app.PendingIntent
+import android.app.RemoteInput
 import android.app.Service
 import android.content.Intent
 import android.content.pm.PackageManager
@@ -18,6 +19,7 @@ import android.os.Looper
 import android.os.SystemClock
 import android.util.Base64
 import android.view.ScreenContent
+import org.arkui.assistant.protocol.AssistantInvocation
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
@@ -44,13 +46,19 @@ internal data class TaskSnapshot(
     val running: Boolean = false,
     val paused: Boolean = false,
     val confirmation: String? = null,
-    val events: List<String> = emptyList(),
+    val events: List<TaskEvent> = emptyList(),
     val background: Boolean = false,
-    val mode: String = "screen",
+    val operating: Boolean = false,
     val appPackage: String = "",
     val appLabel: String = "",
+    val appLaunched: Boolean = false,
+    val startedAt: Long = 0,
+    val finishedAt: Long = 0,
 )
 
+internal data class TaskEvent(val title: String, val time: Long, val step: Int)
+internal data class PreviewFrame(val bitmap: Bitmap? = null, val packageName: String = "",
+    val takenAt: Long = 0, val error: String = "")
 internal data class ChatMessage(val text: String, val user: Boolean)
 
 internal object TaskState {
@@ -66,11 +74,14 @@ internal object TaskState {
 class AssistantService : Service() {
     private val main = Handler(Looper.getMainLooper())
     private val executor: ExecutorService = Executors.newSingleThreadExecutor()
+    private val controls: ExecutorService = Executors.newSingleThreadExecutor()
     private var job: Future<*>? = null
     @Volatile private var bridge: SystemBridge? = null
     @Volatile private var client: AiClient? = null
     @Volatile private var cancelled = false
     @Volatile private var paused = false
+    @Volatile private var changingDisplay = false
+    @Volatile private var operating = false
     @Volatile private var observationVersion = 0
     @Volatile private var resumeAfter = 0L
     @Volatile private var confirmation: CompletableFuture<Boolean>? = null
@@ -95,13 +106,31 @@ class AssistantService : Service() {
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
         when (intent?.action) {
+            INVOKE -> {
+                if (!ConfigStore(this).enabled) return START_NOT_STICKY
+                overlay.show(); overlay.voice.cancel(); overlay.closeProgress()
+                when (intent.getIntExtra(AssistantInvocation.EXTRA_ACTION, 0)) {
+                    AssistantInvocation.VOICE -> { overlay.textInput = false; overlay.startVoice() }
+                    AssistantInvocation.TEXT -> if (snapshot.running) overlay.edit() else overlay.openKeyboard()
+                    AssistantInvocation.SCREEN -> overlay.submit(getString(R.string.summarize_prompt))
+                }
+            }
             SHOW -> overlay.show()
+            PROGRESS -> { overlay.show(); overlay.openProgress() }
             HIDE -> overlay.hide()
             STOP -> stopTask()
-            TAKEOVER -> { bridge?.takeOver(); stopTask(); overlay.expanded = true }
-            NEW -> { stopTask(); TaskState.clear(); snapshot = TaskSnapshot(); overlay.draft = "" }
+            TAKEOVER -> takeOver()
+            REPLY -> {
+                val text = RemoteInput.getResultsFromIntent(intent)?.getCharSequence(REPLY_TEXT)?.toString().orEmpty()
+                if (text.isNotBlank()) command(START, text, snapshot.running && snapshot.background)
+            }
+            NEW -> {
+                stopTask(); TaskState.clear(); snapshot = TaskSnapshot(); overlay.draft = ""
+                overlay.closeProgress(); overlay.expanded = false
+            }
             PAUSE -> if (snapshot.running && confirmation == null) {
                 paused = !paused
+                bridge?.setExecutionActive(operating && !paused)
                 ++observationVersion
                 if (!paused) resumeAfter = SystemClock.uptimeMillis() + 650
                 publish(snapshot.copy(paused = paused, status = if (paused) R.string.paused else R.string.thinking))
@@ -129,23 +158,25 @@ class AssistantService : Service() {
                     confirmation?.complete(false)
                     ++observationVersion
                     paused = false; resumeAfter = SystemClock.uptimeMillis() + 400
+                    bridge?.setExecutionActive(operating)
                     overlay.supplement = false; overlay.setFocus(false)
                     publish(snapshot.copy(prompt = (snapshot.prompt + "\n" + prompt).takeLast(6000), paused = false, status = R.string.thinking))
                     return START_NOT_STICKY
                 }
                 supplements.clear()
-                cancelled = false; paused = false
+                cancelled = false; paused = false; changingDisplay = false; operating = false
                 val token = ++generation
-                val mode = intent.getStringExtra("mode").takeIf { it in setOf("chat", "screen", "operate") } ?: "screen"
-                val background = mode == "operate" && intent.getBooleanExtra("background", config.background)
+                val background = intent.getBooleanExtra("background", false)
+                overlay.background = background
                 TaskState.append(prompt, true)
                 val history = TaskState.messages.takeLast(20)
-                snapshot = TaskSnapshot(prompt = prompt, status = if (mode == "chat") R.string.thinking else R.string.capturing,
-                    limit = config.steps, running = true, mode = mode, background = background)
+                snapshot = TaskSnapshot(prompt = prompt, status = R.string.thinking,
+                    limit = config.steps, running = true, background = background,
+                    startedAt = SystemClock.elapsedRealtime())
                 TaskState.update(snapshot)
                 overlay.show()
                 startForeground(NOTIFICATION, notification(), ServiceInfo.FOREGROUND_SERVICE_TYPE_SPECIAL_USE)
-                job = executor.submit { runTask(config, token, mode, background, history) }
+                job = executor.submit { runTask(config, token, background, history) }
             }
         }
         if (!snapshot.running && !overlay.shown) stopSelf()
@@ -165,7 +196,7 @@ class AssistantService : Service() {
     private fun checkActive() {
         if (cancelled || Thread.currentThread().isInterrupted) throw CancellationException()
         check(bridge?.unavailable != true) { getString(R.string.host_unavailable) }
-        while (paused) {
+        while (paused || changingDisplay) {
             Thread.sleep(150)
             if (cancelled || Thread.currentThread().isInterrupted) throw CancellationException()
             check(bridge?.unavailable != true) { getString(R.string.host_unavailable) }
@@ -177,7 +208,7 @@ class AssistantService : Service() {
         if (!ConfigStore(this).enabled) throw CancellationException()
     }
 
-    private fun runTask(config: AssistantConfig, token: Int, mode: String, background: Boolean, history: List<ChatMessage>) {
+    private fun runTask(config: AssistantConfig, token: Int, background: Boolean, history: List<ChatMessage>) {
         val system = SystemBridge(this, overlay)
         val ai = AiClient(config)
         bridge = system; client = ai
@@ -185,24 +216,35 @@ class AssistantService : Service() {
             // Allow the keyboard to leave; the overlay itself stays visible and is excluded by WM.
             Thread.sleep(400)
             checkActive()
-            val messages = JSONArray().put(JSONObject().put("role", "system").put("content", systemPrompt(config, mode, background)))
+            val messages = JSONArray().put(JSONObject().put("role", "system").put("content", systemPrompt(config, background)))
             history.forEach { messages.put(JSONObject().put("role", if (it.user) "user" else "assistant").put("content", it.text)) }
-            if (mode != "chat") { system.connect(background); Thread.sleep(if (background) 700 else 100); addScreen(messages, system, token) }
+            var observing = false
+            var connected = false
             for (step in 1..config.steps) {
                 checkActive()
-                var supplemented = false
                 while (true) {
                     val text = supplements.poll() ?: break
                     messages.put(JSONObject().put("role", "user").put("content", text))
-                    supplemented = true
                 }
-                if (supplemented && mode != "chat") addScreen(messages, system, token)
-                update(token) { it.copy(status = R.string.thinking, step = step, detail = "") }
                 val observed = observationVersion
-                val answer = ai.complete(messages, if (mode == "chat") JSONArray() else AiClient.tools(config.control && mode == "operate"))
+                // Capture after every resume, including a pause between two model turns.
+                if (observing) {
+                    if (!connected) {
+                        system.setExecutionActive(operating && !paused)
+                        system.connect(background, true)
+                        connected = true
+                        Thread.sleep(if (background) 700 else 100)
+                    }
+                    try { addScreen(messages, system, token) }
+                    catch (error: IllegalStateException) {
+                        if (observed != observationVersion) continue else throw error
+                    }
+                }
+                messages.getJSONObject(0).put("content", systemPrompt(config, system.background))
+                update(token) { it.copy(status = R.string.thinking, step = step, detail = "") }
+                val answer = ai.complete(messages, AiClient.tools(config.control))
                 checkActive()
                 if (observed != observationVersion) {
-                    if (mode != "chat") addScreen(messages, system, token)
                     continue
                 }
                 messages.put(answer)
@@ -221,22 +263,38 @@ class AssistantService : Service() {
                     val name = function.getString("name")
                     val arguments = function.optString("arguments", "{}")
                     require(arguments.length <= 12000)
-                    val result = if (index > 0) "Skipped. Call one tool at a time using a fresh screenshot."
-                        else runTool(name, JSONObject(arguments), config.copy(control = config.control && mode == "operate"), system, token, observed)
+                    val launching = name == "open_app" || name == "open_url"
+                    if (index == 0 && launching && !connected) {
+                        system.connect(background, true)
+                        connected = true
+                    }
+                    val result = when {
+                        index > 0 -> "Skipped. Call one tool at a time using a fresh screenshot."
+                        !observing && !launching && name !in setOf("capture", "list_apps", "wait", "request_confirmation") -> {
+                            observing = true
+                            "Read the fresh screenshot that follows before choosing a phone operation."
+                        }
+                        else -> {
+                            if (name == "capture") observing = true
+                            runTool(name, JSONObject(arguments), config, system, token, observed)
+                        }
+                    }
+                    if (index == 0 && launching) observing = true
                     messages.put(JSONObject().put("role", "tool").put("tool_call_id", call.getString("id"))
                         .put("content", result))
                 }
                 checkActive()
                 Thread.sleep(500)
-                update(token) { it.copy(status = R.string.capturing) }
-                if (mode != "chat") addScreen(messages, system, token)
+                update(token) { it.copy(status = if (observing) R.string.capturing else R.string.thinking) }
             }
             finishTask(token, R.string.stopped, getString(R.string.limit_reached))
         } catch (e: Exception) {
             if (!cancelled && e !is CancellationException && e !is InterruptedException) {
                 val detail = when {
                     e.message?.startsWith("AI service returned HTTP") == true -> e.message!!
-                    e.message?.contains("blocked") == true -> getString(R.string.blocked_screen)
+                    e is SystemOperationException && e.code == APP_BLOCKED -> getString(R.string.blocked_screen)
+                    e is SystemOperationException && e.code == SCREEN_PROTECTED -> getString(R.string.assistant_screen_protected)
+                    e is SystemOperationException && e.code == POLICY_UNAVAILABLE -> getString(R.string.blocklist_unavailable)
                     e.message?.contains("Background mode unavailable") == true -> getString(R.string.background_unavailable)
                     e.message?.contains("protected") == true || e.message?.contains("capture") == true -> getString(R.string.screen_unavailable)
                     e is java.io.IOException -> getString(R.string.network_error)
@@ -252,9 +310,15 @@ class AssistantService : Service() {
     }
 
     private fun runTool(name: String, args: JSONObject, config: AssistantConfig, system: SystemBridge, token: Int, observed: Int): String {
-        val title = resources.getIdentifier("tool_$name", "string", packageName)
+        var title = resources.getIdentifier("tool_$name", "string", packageName)
             .takeIf { it != 0 }?.let { getString(it) } ?: "Unknown tool"
-        update(token) { it.copy(status = R.string.acting, detail = title, events = (it.events + title).takeLast(30)) }
+        if (name == "open_app") {
+            val target = args.optString("package")
+            val label = runCatching { packageManager.getApplicationLabel(packageManager.getApplicationInfo(target, 0)).toString() }.getOrDefault(target)
+            title = getString(R.string.opening_app, label)
+        }
+        update(token) { it.copy(status = R.string.acting, detail = title,
+            events = (it.events + TaskEvent(title, SystemClock.elapsedRealtime(), it.step)).takeLast(50)) }
         when (name) {
             "capture" -> return "A fresh screenshot will follow."
             "wait" -> { Thread.sleep(args.getInt("milliseconds").coerceIn(100, 3000).toLong()); return "Waited." }
@@ -272,8 +336,11 @@ class AssistantService : Service() {
                 require(question.isNotBlank())
                 val pending = CompletableFuture<Boolean>()
                 confirmation = pending
+                system.setExecutionActive(false)
                 update(token) { it.copy(status = R.string.waiting, confirmation = question) }
-                val approved = try { pending.get(2, TimeUnit.MINUTES) } finally { confirmation = null }
+                val approved = try { pending.get(2, TimeUnit.MINUTES) } finally {
+                    confirmation = null; system.setExecutionActive(operating && !paused)
+                }
                 update(token) { it.copy(status = R.string.thinking, confirmation = null) }
                 Thread.sleep(650)
                 checkActive()
@@ -296,10 +363,21 @@ class AssistantService : Service() {
         }
         checkActive()
         if (observed != observationVersion) return "Task was paused. Read the fresh screenshot before acting."
+        if (!operating) {
+            operating = true
+            system.setExecutionActive(!paused)
+            update(token) { overlay.collapse(); it.copy(operating = true) }
+        }
         return try {
             system.request(ACTION, data)
+            if (name == "open_app") {
+                val target = args.getString("package")
+                val label = runCatching { packageManager.getApplicationLabel(packageManager.getApplicationInfo(target, 0)).toString() }.getOrDefault(target)
+                update(token) { it.copy(appPackage = target, appLabel = label, appLaunched = true) }
+            } else if (name == "open_url") update(token) { it.copy(appLaunched = true) }
             "Operation sent. Verify the next screenshot before proceeding."
         } catch (e: IllegalStateException) {
+            if (name == "open_app" || name == "open_url") throw e
             "Operation did not complete: " + (e.message ?: "system unavailable")
         }
     }
@@ -339,12 +417,15 @@ class AssistantService : Service() {
         } finally { screen.close() }
     }
 
-    private fun systemPrompt(config: AssistantConfig, mode: String, background: Boolean): String = """
+    private fun systemPrompt(config: AssistantConfig, background: Boolean): String = """
         You are ArkAI, the visual assistant built into ArkUI Android. Reply in the user's language (${Locale.getDefault().toLanguageTag()}).
         You are a conversational assistant. Continue the conversation using its earlier messages when relevant.
-        ${if (mode == "chat") "This is a text-only conversation. No screenshot or phone tools are available. Never claim to see or operate the phone."
-        else "Complete the user's task using the current screenshot and the available phone tools. For questions, answer directly."}
-        Phone operations are ${if (config.control && mode == "operate") "enabled" else "disabled"}. You have at most ${config.steps} turns.
+        There are no user-selectable modes. Answer ordinary conversation directly without phone tools.
+        When the request needs the screen, call capture. No screen has been read until a screenshot is provided.
+        To open an app, use list_apps then open_app directly. Opening an app or URL does not require reading the current screen.
+        For taps, swipes, text entry and navigation keys, capture before your first operation. Never guess screen contents.
+        ArkAI's own pages are protected from screen reading to keep credentials private. They are not user-blacklisted apps.
+        Phone operations are ${if (config.control) "enabled" else "disabled"}. You have at most ${config.steps} turns.
         ${if (background) "You operate an independent virtual display. Use open_app, not home or recents. Never operate the user's physical display." else ""}
         Call exactly one tool per turn. Use coordinates from the latest screenshot, normalized to 0..1000 over the full image.
         After each operation inspect the fresh screenshot. Never claim success until the resulting screen confirms it.
@@ -363,8 +444,11 @@ class AssistantService : Service() {
         main.post {
             if (token != generation || cancelled) { finished.complete(true); return@post }
             if (status == R.string.complete && supplements.isNotEmpty()) { finished.complete(false); return@post }
-            publish(snapshot.copy(status = status, result = result, running = false, paused = false, confirmation = null))
+            publish(snapshot.copy(status = status, result = result, running = false, paused = false, confirmation = null,
+                finishedAt = SystemClock.elapsedRealtime()))
             TaskState.append(result, false)
+            overlay.closeProgress()
+            if (overlay.shown) overlay.expanded = true
             if (!voiceForeground) stopForeground(STOP_FOREGROUND_REMOVE)
             getSystemService(NotificationManager::class.java).notify(NOTIFICATION, notification())
             finished.complete(true)
@@ -374,7 +458,7 @@ class AssistantService : Service() {
     }
 
     private fun cancelWork() {
-        cancelled = true; paused = false; ++generation
+        cancelled = true; paused = false; changingDisplay = false; operating = false; ++generation
         confirmation?.complete(false); confirmation = null
         client?.cancel(); bridge?.close(); job?.cancel(true)
         supplements.clear()
@@ -384,18 +468,79 @@ class AssistantService : Service() {
     private fun stopTask() {
         cancelWork()
         overlay.voice.cancel()
-        publish(snapshot.copy(status = R.string.stopped, running = false, paused = false, confirmation = null))
+        publish(snapshot.copy(status = R.string.stopped, running = false, paused = false, confirmation = null,
+            finishedAt = SystemClock.elapsedRealtime()))
         stopForeground(STOP_FOREGROUND_REMOVE)
         getSystemService(NotificationManager::class.java).cancel(NOTIFICATION)
         if (!overlay.shown) stopSelf()
     }
 
-    internal fun command(action: String, prompt: String? = null, mode: String = "screen", background: Boolean = false) {
+    internal fun command(action: String, prompt: String? = null, background: Boolean = false) {
         onStartCommand(Intent(this, AssistantService::class.java).setAction(action)
-            .putExtra("prompt", prompt).putExtra("mode", mode).putExtra("background", background), 0, 0)
+            .putExtra("prompt", prompt).putExtra("background", background), 0, 0)
     }
 
     internal fun overlayHidden() { if (!snapshot.running) stopSelf() }
+
+    internal fun displayState(state: Bundle) {
+        if (!snapshot.running || cancelled) return
+        ++observationVersion
+        changingDisplay = state.getBoolean("moving")
+        val background = state.getBoolean("background")
+        val failed = state.containsKey(ERROR)
+        if (failed) { paused = true; bridge?.setExecutionActive(false) }
+        resumeAfter = SystemClock.uptimeMillis() + 400
+        publish(snapshot.copy(background = background, paused = paused,
+            status = if (changingDisplay) R.string.moving_background else R.string.capturing,
+            detail = if (failed) getString(R.string.background_transfer_failed) else ""))
+        overlay.background = background
+        if (!changingDisplay && background) overlay.minimize()
+        if (failed) overlay.show()
+    }
+
+    internal fun previewFrame(): PreviewFrame {
+        val system = bridge ?: return PreviewFrame()
+        if (system.unavailable) return PreviewFrame(error = getString(R.string.host_unavailable))
+        return try {
+            val response = system.request(PREVIEW)
+            val screen = response.getParcelable(CONTENT, ScreenContent::class.java)
+                ?: return PreviewFrame(error = getString(R.string.screen_unavailable))
+            try {
+                // A private, local-only copy. Preview refreshes never enter AI history or disk.
+                PreviewFrame(screen.screenshot?.copy(Bitmap.Config.ARGB_8888, false),
+                    response.getString("package").orEmpty(), SystemClock.elapsedRealtime())
+            } finally { screen.close() }
+        } catch (e: Exception) {
+            PreviewFrame(error = getString(when ((e as? SystemOperationException)?.code) {
+                APP_BLOCKED -> R.string.blocked_screen
+                SCREEN_PROTECTED -> R.string.assistant_screen_protected
+                POLICY_UNAVAILABLE -> R.string.blocklist_unavailable
+                else -> R.string.preview_unavailable
+            }))
+        }
+    }
+
+    private fun takeOver() {
+        if (!snapshot.running || !snapshot.operating || overlay.takingOver) return
+        val system = bridge ?: return
+        val token = generation
+        paused = true; ++observationVersion
+        system.setExecutionActive(false)
+        overlay.takingOver = true
+        publish(snapshot.copy(paused = true, status = R.string.paused))
+        controls.submit {
+            val result = runCatching { system.takeOver() }
+            main.post {
+                overlay.takingOver = false
+                if (token != generation || cancelled || destroyed || !snapshot.running) return@post
+                if (result.isSuccess) {
+                    publish(snapshot.copy(background = false, detail = getString(R.string.user_in_control)))
+                    overlay.background = false
+                    overlay.closeProgress(); overlay.expanded = false; overlay.setFocus(false)
+                } else publish(snapshot.copy(detail = getString(R.string.takeover_failed)))
+            }
+        }
+    }
 
     internal fun requestVoicePermission(callback: (Boolean) -> Unit) {
         voicePermission = callback
@@ -424,13 +569,17 @@ class AssistantService : Service() {
         Intent(this, AssistantService::class.java).setAction(action), PendingIntent.FLAG_IMMUTABLE or PendingIntent.FLAG_UPDATE_CURRENT)
 
     private fun notification(): Notification {
-        val open = PendingIntent.getActivity(this, 0, Intent(this, AssistantActivity::class.java),
+        val open = PendingIntent.getActivity(this, 0, Intent(this, AssistantActivity::class.java).putExtra("progress", true),
             PendingIntent.FLAG_IMMUTABLE or PendingIntent.FLAG_UPDATE_CURRENT)
         val builder = Notification.Builder(this, CHANNEL).setSmallIcon(R.drawable.ic_assistant)
             .setContentTitle(getString(snapshot.status)).setContentText(snapshot.confirmation ?: snapshot.detail.ifBlank { snapshot.prompt })
             .setContentIntent(open).setOnlyAlertOnce(true).setOngoing(snapshot.running).setAutoCancel(!snapshot.running)
             .setVisibility(Notification.VISIBILITY_PRIVATE).setCategory(Notification.CATEGORY_PROGRESS)
-            .setColor(Color.rgb(75, 113, 77)).setShowWhen(false)
+            .setColor(Color.rgb(33, 107, 234)).setShowWhen(false)
+            .setPublicVersion(Notification.Builder(this, CHANNEL).setSmallIcon(R.drawable.ic_assistant)
+                .setContentTitle(getString(R.string.assistant_title) + " · " + getString(snapshot.status))
+                .setContentText(getString(R.string.step_count, snapshot.step, snapshot.limit))
+                .setContentIntent(open).setShowWhen(false).build())
         if (voiceForeground) builder.setContentTitle(getString(R.string.voice_input)).setContentText(getString(R.string.voice_listening)).setOngoing(true)
         if (snapshot.running) {
             builder.setRequestPromotedOngoing(true).setShortCriticalText(getString(R.string.notification_short, snapshot.step))
@@ -442,6 +591,11 @@ class AssistantService : Service() {
             }
             builder.addAction(Notification.Action.Builder(null, getString(R.string.stop), action(STOP)).build())
         } else builder.setStyle(Notification.BigTextStyle().bigText(snapshot.result))
+        val reply = PendingIntent.getService(this, REPLY.hashCode(), Intent(this, AssistantService::class.java).setAction(REPLY),
+            PendingIntent.FLAG_MUTABLE or PendingIntent.FLAG_UPDATE_CURRENT)
+        builder.addAction(Notification.Action.Builder(null, getString(R.string.reply), reply)
+            .addRemoteInput(RemoteInput.Builder(REPLY_TEXT).setLabel(getString(R.string.supplement)).build())
+            .setSemanticAction(Notification.Action.SEMANTIC_ACTION_REPLY).setAuthenticationRequired(true).build())
         return builder.build()
     }
 
@@ -449,6 +603,7 @@ class AssistantService : Service() {
         destroyed = true
         cancelled = true; confirmation?.complete(false); client?.cancel(); bridge?.close(); job?.cancel(true)
         executor.shutdownNow()
+        controls.shutdownNow()
         voicePermission = null; AssistantPermissionActivity.result = null
         overlay.destroy()
         if (TaskState.current.running) TaskState.update(TaskState.current.copy(status = R.string.stopped, running = false,
@@ -462,6 +617,10 @@ class AssistantService : Service() {
         const val PAUSE = "org.arkui.assistant.PAUSE"
         const val APPROVE = "org.arkui.assistant.APPROVE"
         const val SHOW = "org.arkui.assistant.SHOW"
+        const val INVOKE = "org.arkui.assistant.INVOKE"
+        const val PROGRESS = "org.arkui.assistant.PROGRESS"
+        private const val REPLY = "org.arkui.assistant.REPLY"
+        private const val REPLY_TEXT = "reply"
         const val HIDE = "org.arkui.assistant.HIDE"
         const val TAKEOVER = "org.arkui.assistant.TAKEOVER"
         const val NEW = "org.arkui.assistant.NEW"

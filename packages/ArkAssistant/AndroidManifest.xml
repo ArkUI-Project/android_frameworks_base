@@ -23,7 +23,7 @@
     </queries>
     <application android:label="@string/app_name" android:icon="@mipmap/ic_launcher"
         android:theme="@style/AssistantTheme" android:allowBackup="false"
-        android:supportsRtl="true" android:usesCleartextTraffic="false"
+        android:supportsRtl="true" android:usesCleartextTraffic="false" android:forceQueryable="true"
         android:enableOnBackInvokedCallback="true">
         <activity android:name=".AssistantActivity" android:exported="true"
             android:theme="@style/AssistantDrawerTheme" android:excludeFromRecents="true"
@@ -37,7 +37,15 @@
             </intent-filter>
         </activity>
         <activity android:name=".AssistantPermissionActivity" android:exported="false"
-            android:theme="@style/AssistantDrawerTheme" android:excludeFromRecents="true" />
+            android:theme="@style/AssistantDrawerTheme" android:excludeFromRecents="true"
+            android:taskAffinity="" />
+        <activity android:name=".ImeDictationActivity" android:exported="false"
+            android:theme="@style/AssistantDrawerTheme" android:excludeFromRecents="true"
+            android:taskAffinity="" />
+        <activity android:name=".AssistantShortcutActivity" android:exported="true"
+            android:permission="org.arkui.assistant.permission.CONTROL_ASSISTANT"
+            android:theme="@style/AssistantDrawerTheme" android:excludeFromRecents="true"
+            android:taskAffinity="" />
         <activity android:name=".AssistantSettingsActivity" android:exported="true">
             <intent-filter><action android:name="org.arkui.assistant.SETTINGS" />
                 <category android:name="android.intent.category.DEFAULT" /></intent-filter>
@@ -49,6 +57,9 @@
             <property android:name="android.app.PROPERTY_SPECIAL_USE_FGS_SUBTYPE"
                 android:value="User-initiated visual assistant performing a bounded interactive task with ongoing progress and cancellation" />
         </service>
+        <!-- Binder messages are accepted only from the currently selected IME's UID. -->
+        <service android:name=".ImeDictationService" android:exported="true"
+            android:foregroundServiceType="microphone" />
         <service android:name=".AssistantTileService" android:exported="true"
             android:icon="@drawable/ic_assistant" android:label="@string/app_name"
             android:permission="android.permission.BIND_QUICK_SETTINGS_TILE">

@@ -1740,6 +1740,11 @@ public class Transitions implements RemoteCallable<Transitions>,
     @ExternalThread
     private class ShellTransitionImpl implements ShellTransitions {
         @Override
+        public void runOnIdle(@NonNull Runnable action, @NonNull Executor executor) {
+            mMainExecutor.execute(() -> Transitions.this.runOnIdle(() -> executor.execute(action)));
+        }
+
+        @Override
         public void registerRemote(@NonNull TransitionFilter filter,
                 @NonNull RemoteTransition remoteTransition) {
             mMainExecutor.execute(

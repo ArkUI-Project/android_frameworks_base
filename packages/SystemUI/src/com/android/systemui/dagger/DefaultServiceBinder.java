@@ -19,6 +19,7 @@ package com.android.systemui.dagger;
 import android.app.Service;
 
 import com.android.systemui.SystemUIService;
+import com.android.systemui.arkui.AssistantHostService;
 import com.android.systemui.communal.widgets.GlanceableHubWidgetManagerService;
 import com.android.systemui.doze.DozeService;
 import com.android.systemui.dreams.DreamOverlayService;
@@ -39,6 +40,11 @@ import dagger.multibindings.IntoMap;
  */
 @Module
 public abstract class DefaultServiceBinder {
+    @Binds
+    @IntoMap
+    @ClassKey(AssistantHostService.class)
+    public abstract Service bindAssistantHostService(AssistantHostService service);
+
     /** */
     @Binds
     @IntoMap

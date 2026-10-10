@@ -6416,4 +6416,12 @@
     <java-symbol type="string" name="app_info" />
     <java-symbol type="string" name="aerr_mute" />
     <java-symbol type="string" name="aerr_restart" />
+    <java-symbol type="string" name="ime_voice_start" />
+    <java-symbol type="drawable" name="ic_check_24dp" />
+    <java-symbol type="string" name="ime_voice_hide" />
+    <java-symbol type="string" name="ime_voice_finish" />
+    <java-symbol type="string" name="ime_voice_listening" />
+    <java-symbol type="string" name="ime_voice_connecting" />
+    <java-symbol type="string" name="ime_voice_processing" />
+    <java-symbol type="string" name="ime_voice_unavailable" />
 </resources>

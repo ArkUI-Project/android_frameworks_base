@@ -27,6 +27,7 @@ import android.util.Log;
 import android.view.WindowManager;
 
 import com.android.internal.app.AssistUtils;
+import org.arkui.assistant.protocol.AssistantInvocation;
 import com.android.internal.app.IVisualQueryDetectionAttentionListener;
 import com.android.internal.app.IVisualQueryRecognitionStatusListener;
 import com.android.internal.app.IVoiceInteractionSessionListener;
@@ -307,6 +308,11 @@ public class AssistManager {
 
     public void startAssist(Bundle args) {
         if (mActivityManager.getLockTaskModeState() == ActivityManager.LOCK_TASK_MODE_LOCKED) {
+            return;
+        }
+        if (args != null && args.containsKey(AssistantInvocation.EXTRA_ENTRY)) {
+            AssistantInvocation.invoke(mContext, args.getString(AssistantInvocation.EXTRA_ENTRY),
+                    mSelectedUserInteractor.getSelectedUserId());
             return;
         }
         if (shouldOverrideAssist(args)) {

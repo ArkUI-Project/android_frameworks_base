@@ -235,6 +235,7 @@ import android.window.DesktopExperienceFlags;
 import com.android.internal.R;
 import com.android.internal.annotations.VisibleForTesting;
 import com.android.internal.app.AssistUtils;
+import org.arkui.assistant.protocol.AssistantInvocation;
 import com.android.internal.display.BrightnessUtils;
 import com.android.internal.inputmethod.SoftInputShowHideReason;
 import com.android.internal.logging.MetricsLogger;
@@ -1645,6 +1646,14 @@ public class PhoneWindowManager implements WindowManagerPolicy {
 
     private void powerLongPress(long eventTime) {
         final int behavior = mResolvedLongPressOnPowerBehavior;
+        if (isScreenOn() && !FactoryTest.isLongPressOnPowerOffEnabled()
+                && behavior != LONG_PRESS_POWER_TORCH
+                && AssistantInvocation.invoke(mContext, AssistantInvocation.POWER, mCurrentUserId)) {
+            mPowerKeyHandled = true;
+            performHapticFeedback(HapticFeedbackConstants.ASSISTANT_BUTTON,
+                    "Power - Long Press - ArkAI");
+            return;
+        }
         Slog.d(TAG, "powerLongPress: eventTime=" + eventTime
                 + " mResolvedLongPressOnPowerBehavior=" + mResolvedLongPressOnPowerBehavior);
 
@@ -1848,6 +1857,12 @@ public class PhoneWindowManager implements WindowManagerPolicy {
         }
         if (mTorchLongPressPowerEnabled && (!isScreenOn() || isDozeMode() || mTorchEnabled)) {
             return LONG_PRESS_POWER_TORCH;
+        }
+
+        if (AssistantInvocation.action(mContext, AssistantInvocation.POWER, mCurrentUserId)
+                != AssistantInvocation.NONE && AssistantInvocation.isAvailable(mContext, mCurrentUserId)) {
+            // Keep the normal power menu as the fallback on the lock screen or after removal.
+            return LONG_PRESS_POWER_GLOBAL_ACTIONS;
         }
 
         // If the config indicates the assistant behavior but the device isn't yet provisioned, show

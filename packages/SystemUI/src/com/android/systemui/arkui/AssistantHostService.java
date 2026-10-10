@@ -8,6 +8,8 @@ import android.app.ActivityOptions;
 import android.app.ActivityTaskManager;
 import android.app.KeyguardManager;
 import android.app.Service;
+import android.app.TaskStackListener;
+import android.app.WindowConfiguration;
 import android.content.ClipData;
 import android.content.ClipboardManager;
 import android.content.BroadcastReceiver;
@@ -41,10 +43,15 @@ import android.view.MotionEvent;
 import android.view.ScreenContent;
 import android.view.WindowManagerGlobal;
 
+import com.android.wm.shell.shared.ShellTransitions;
+
 import org.json.JSONArray;
+
+import javax.inject.Inject;
 
 /** A leased, signature-checked channel; model output never reaches a shell or arbitrary intent. */
 public final class AssistantHostService extends Service {
+    private final ShellTransitions transitions;
     private final Handler main = new Handler(Looper.getMainLooper());
     private final Messenger receiver = new Messenger(new Handler(Looper.getMainLooper(), this::receive));
     private Messenger owner;
@@ -64,6 +71,20 @@ public final class AssistantHostService extends Service {
     private Message inputRequest;
     private AssistantVirtualSession virtual;
     private int displayId = Display.DEFAULT_DISPLAY;
+    private ActivityManager.RunningTaskInfo foregroundTask;
+    private boolean autoBackground, executionActive, movingToBackground, assistantNavigation;
+    private String launchingPackage;
+    private long launchingUntil;
+    private final Runnable moveToBackground = this::finishBackgroundMove;
+    private final TaskStackListener tasks = new TaskStackListener() {
+        @Override public void onTaskStackChanged() { main.post(AssistantHostService.this::checkForeground); }
+        @Override public void onTaskMovedToFront(ActivityManager.RunningTaskInfo task) {
+            main.post(AssistantHostService.this::checkForeground);
+        }
+        @Override public void onTaskFocusChanged(int taskId, boolean focused) {
+            if (focused) main.post(AssistantHostService.this::checkForeground);
+        }
+    };
     private final Runnable inputTimeout = () -> {
         if (inputRequest != null) error(inputRequest, "Overlay input handoff timed out");
         inputRequest = null;
@@ -73,16 +94,28 @@ public final class AssistantHostService extends Service {
         @Override public void onReceive(Context context, Intent intent) { finishSession(); }
     };
 
+    @Inject
+    public AssistantHostService(ShellTransitions transitions) {
+        this.transitions = transitions;
+    }
+
     @Override public void onCreate() {
         super.onCreate();
         IntentFilter filter = new IntentFilter(Intent.ACTION_SCREEN_OFF);
         filter.addAction(Intent.ACTION_USER_SWITCHED);
         registerReceiver(invalidated, filter, Context.RECEIVER_NOT_EXPORTED);
+        try { ActivityTaskManager.getService().registerTaskStackListener(tasks); }
+        catch (RemoteException e) { throw e.rethrowFromSystemServer(); }
     }
 
     @Override public IBinder onBind(Intent intent) { return receiver.getBinder(); }
     @Override public boolean onUnbind(Intent intent) { finishSession(); return false; }
-    @Override public void onDestroy() { unregisterReceiver(invalidated); finishSession(); super.onDestroy(); }
+    @Override public void onDestroy() {
+        unregisterReceiver(invalidated);
+        try { ActivityTaskManager.getService().unregisterTaskStackListener(tasks); }
+        catch (RemoteException ignored) { }
+        finishSession(); super.onDestroy();
+    }
 
     private boolean authorized(int uid) {
         int user = ActivityManager.getCurrentUser();
@@ -123,10 +156,15 @@ public final class AssistantHostService extends Service {
         main.removeCallbacks(expire); main.postDelayed(expire, 180_000);
         try {
             if (request.what == BEGIN) {
+                autoBackground = data.getBoolean("auto_background");
+                executionActive = true;
                 if (data.getBoolean("background")) {
                     ActivityManager.RunningTaskInfo task = top();
-                    if (task == null || task.topActivity == null || blocked(task.topActivity.getPackageName())) {
-                        error(request, "This app is blocked"); finishSession(); return true;
+                    if (task == null || task.topActivity == null) {
+                        error(request, "No foreground app is available"); finishSession(); return true;
+                    }
+                    if (rejectRestrictedApp(request, task.topActivity.getPackageName())) {
+                        finishSession(); return true;
                     }
                     virtual = new AssistantVirtualSession();
                     virtual.start(this, main, task);
@@ -134,7 +172,12 @@ public final class AssistantHostService extends Service {
                 }
                 Bundle result = new Bundle(); result.putInt("display", displayId); reply(request, result);
             }
-            else if (request.what == CAPTURE) capture(Message.obtain(request));
+            else if (request.what == EXECUTION_STATE) {
+                executionActive = data.getBoolean("active");
+                if (executionActive) checkForeground();
+            }
+            else if (movingToBackground) error(request, "Display is moving; capture again");
+            else if (request.what == CAPTURE || request.what == PREVIEW) capture(Message.obtain(request));
             else if (request.what == ACTION) prepareInput(Message.obtain(request));
             else if (request.what == INPUT_STATE) {
                 if (inputRequest != null && inputRequest.arg1 == request.arg1) {
@@ -143,7 +186,11 @@ public final class AssistantHostService extends Service {
                     execute(pending);
                 }
             } else if (request.what == TAKE_OVER) {
+                if (capturing || touching || inputRequest != null) {
+                    error(request, "Another operation is pending"); return true;
+                }
                 if (virtual != null) { virtual.finish(true); virtual = null; displayId = Display.DEFAULT_DISPLAY; }
+                foregroundTask = top();
                 capturedAt = 0; reply(request, new Bundle());
             }
             else error(request, "Unknown operation");
@@ -164,16 +211,111 @@ public final class AssistantHostService extends Service {
         return tasks.isEmpty() ? null : tasks.get(0);
     }
 
+    private void checkForeground() {
+        if (!autoBackground || !executionActive || movingToBackground
+                || displayId != Display.DEFAULT_DISPLAY || !allowed()) return;
+        var task = top();
+        if (task == null || !task.isFocused || task.userId != ActivityManager.getCurrentUser()) return;
+        if (task.getActivityType() == WindowConfiguration.ACTIVITY_TYPE_STANDARD) {
+            if (task.topActivity != null && task.topActivity.getPackageName().equals(launchingPackage)) {
+                foregroundTask = task;
+                launchingPackage = null;
+            }
+            return;
+        }
+        // Observe the system's completed Home navigation, not a swipe inside the app.
+        // AI-requested Home/Recents actions must remain on the physical display.
+        if (task.getActivityType() != WindowConfiguration.ACTIVITY_TYPE_HOME || assistantNavigation
+                || foregroundTask == null) return;
+        if (SystemClock.uptimeMillis() < launchingUntil) {
+            main.postDelayed(this::checkForeground, launchingUntil - SystemClock.uptimeMillis());
+            return;
+        }
+        movingToBackground = true;
+        capturedAt = 0;
+        if (gestureRequest != null) error(gestureRequest, "Display is moving; capture again");
+        cancelGesture();
+        if (inputRequest != null) error(inputRequest, "Display is moving; capture again");
+        inputRequest = null; main.removeCallbacks(inputTimeout);
+        displayState(null);
+        // Recents' finish transaction restores its old surface parents. Migrate only after
+        // that transaction has finished, or it can pull the resized task back onto display 0.
+        String movingSession = session;
+        transitions.runOnIdle(() -> {
+            if (movingSession.equals(session) && movingToBackground) finishBackgroundMove();
+        }, main::post);
+    }
+
+    private void finishBackgroundMove() {
+        if (!movingToBackground || owner == null) return;
+        if (!allowed()) { finishSession(); return; }
+        if (!executionActive) { movingToBackground = false; displayState(null); return; }
+        if (capturing) { main.postDelayed(moveToBackground, 40); return; }
+        try {
+            ActivityManager.RunningTaskInfo target = null;
+            for (var task : ActivityTaskManager.getInstance().getTasks(100, false, false, Display.DEFAULT_DISPLAY)) {
+                if (task.taskId == foregroundTask.taskId) { target = task; break; }
+            }
+            if (target == null || target.topActivity == null
+                    || target.userId != ActivityManager.getCurrentUser() || blocked(target.topActivity.getPackageName())) {
+                throw new IllegalStateException("App unavailable or blocked");
+            }
+            // A quick cancelled Home gesture must not pull the app away from its user.
+            if (target.isFocused) {
+                movingToBackground = false; displayState(null); return;
+            }
+            virtual = new AssistantVirtualSession();
+            virtual.start(this, main, target);
+            displayId = virtual.displayId();
+            capturedTask = null; capturedAt = 0;
+            movingToBackground = false;
+            displayState(null);
+        } catch (RuntimeException e) {
+            if (virtual != null) virtual.finish(false);
+            virtual = null; movingToBackground = false; executionActive = false;
+            displayState("Background transfer unavailable");
+        }
+    }
+
+    private void displayState(String error) {
+        if (owner == null) return;
+        Message message = Message.obtain(null, DISPLAY_STATE);
+        Bundle data = new Bundle(); data.putString(SESSION, session);
+        data.putBoolean("background", displayId != Display.DEFAULT_DISPLAY);
+        data.putBoolean("moving", movingToBackground);
+        if (error != null) data.putString(ERROR, error);
+        message.setData(data);
+        try { owner.send(message); } catch (RemoteException ignored) { finishSession(); }
+    }
+
     private boolean blocked(String packageName) {
-        if (PACKAGE.equals(packageName)) return true;
+        return restriction(packageName) != null;
+    }
+
+    private String restriction(String packageName) {
+        if (PACKAGE.equals(packageName)) return SCREEN_PROTECTED;
         String setting = Settings.Secure.getStringForUser(getContentResolver(), BLOCKED_APPS,
                 ActivityManager.getCurrentUser());
-        if (setting == null || setting.isEmpty()) return false;
+        if (setting == null || setting.isEmpty()) return null;
         try {
             JSONArray apps = new JSONArray(setting);
-            for (int i = 0; i < apps.length(); i++) if (packageName.equals(apps.optString(i))) return true;
-            return false;
-        } catch (org.json.JSONException e) { return true; }
+            for (int i = 0; i < apps.length(); i++) {
+                if (packageName.equals(apps.optString(i))) return APP_BLOCKED;
+            }
+            return null;
+        } catch (org.json.JSONException e) { return POLICY_UNAVAILABLE; }
+    }
+
+    private boolean rejectRestrictedApp(Message request, String packageName) {
+        String code = restriction(packageName);
+        if (code == null) return false;
+        String message = SCREEN_PROTECTED.equals(code) ? "ArkAI pages are protected from screen reading"
+                : APP_BLOCKED.equals(code) ? "This app is in the user's blocklist"
+                : "The app blocklist could not be read";
+        Bundle result = new Bundle();
+        result.putString(ERROR, message); result.putString(ERROR_CODE, code);
+        reply(request, result);
+        return true;
     }
 
     private boolean sameTask(ActivityManager.RunningTaskInfo task) {
@@ -192,11 +334,13 @@ public final class AssistantHostService extends Service {
         if (capturing || touching) { error(request, "Another operation is pending"); return; }
         ActivityManager.RunningTaskInfo task = top();
         if (task == null || task.topActivityInfo == null || task.userId != ActivityManager.getCurrentUser()
-                || task.topActivity == null || blocked(task.topActivity.getPackageName())) {
-            error(request, "This app is blocked from AI screen reading and operations"); return;
+                || task.topActivity == null) {
+            error(request, "No readable foreground app is available"); return;
         }
+        if (rejectRestrictedApp(request, task.topActivity.getPackageName())) return;
         capturing = true;
         final String token = session;
+        final int captureDisplay = displayId;
         WindowManagerGlobal.getWindowManagerService().requestAssistantScreenContent(displayId,
                 getPackageName(), new IScreenContentCallback.Stub() {
                     @Override public void onScreenContent(ScreenContent content) {
@@ -206,13 +350,25 @@ public final class AssistantHostService extends Service {
                         main.post(() -> {
                             if (!token.equals(session)) { if (content != null) content.close(); return; }
                             capturing = false;
+                            // A capture callback can beat the asynchronous task-stack callback.
+                            // Announce the handoff before rejecting its now-stale physical frame.
+                            checkForeground();
                             try {
-                                if (!allowed() || !sameTask(task) || blocked(task.topActivity.getPackageName()) || content == null
+                                if (!allowed() || movingToBackground || displayId != captureDisplay
+                                        || !sameTask(task) || blocked(task.topActivity.getPackageName()) || content == null
                                         || content.status != ScreenContent.STATUS_OK || content.screenshot == null) {
                                     error(request, "Cannot capture a protected, changed or unavailable screen"); return;
                                 }
-                                capturedTask = task; capturedBounds = new Rect(content.displayBounds);
-                                capturedRotation = content.rotation; capturedAt = SystemClock.uptimeMillis();
+                                // Viewing progress must never authorize an AI action against a
+                                // screen the model has not observed. Both paths use the same WM gates.
+                                if (request.what == CAPTURE) {
+                                    capturedTask = task; capturedBounds = new Rect(content.displayBounds);
+                                    capturedRotation = content.rotation; capturedAt = SystemClock.uptimeMillis();
+                                    if (displayId == Display.DEFAULT_DISPLAY
+                                            && task.getActivityType() == WindowConfiguration.ACTIVITY_TYPE_STANDARD) {
+                                        foregroundTask = task; assistantNavigation = false;
+                                    }
+                                }
                                 // Only a screenshot crosses this channel; media descriptors are not needed by AI.
                                 for (var item : content.items) if (item != null) item.close();
                                 content.items.clear();
@@ -226,7 +382,7 @@ public final class AssistantHostService extends Service {
     }
 
     private boolean fresh() {
-        return allowed() && capturedTask != null && capturedBounds != null && !capturedBounds.isEmpty()
+        return allowed() && !movingToBackground && capturedTask != null && capturedBounds != null && !capturedBounds.isEmpty()
                 && !blocked(capturedTask.topActivity.getPackageName())
                 && visibleAppsAllowed()
                 && sameTask(capturedTask) && rotation() == capturedRotation
@@ -242,7 +398,13 @@ public final class AssistantHostService extends Service {
 
     private void prepareInput(Message request) {
         if (inputRequest != null || touching || capturing) { error(request, "Another operation is pending"); return; }
-        if (!fresh()) { error(request, "Screen changed or app blocked; capture again before operating"); return; }
+        String action = request.getData().getString("action", "");
+        // Explicit launches do not read or inject input into the source app. Still validate the
+        // destination inside execute(), including its blocklist and protected-app restriction.
+        if ("open_app".equals(action) || "open_url".equals(action)) { execute(request); return; }
+        if (capturedTask != null && capturedTask.topActivity != null
+                && rejectRestrictedApp(request, capturedTask.topActivity.getPackageName())) return;
+        if (!fresh()) { error(request, "Screen changed; capture again before operating"); return; }
         if (displayId != Display.DEFAULT_DISPLAY) { execute(request); return; }
         // Keep the drawer visible. Only its input region is briefly removed while the gesture
         // is injected, with an acknowledged frame boundary and a bounded watchdog on both ends.
@@ -263,7 +425,9 @@ public final class AssistantHostService extends Service {
         Bundle args = request.getData();
         String action = args.getString("action", "");
         if (touching) { error(request, "A gesture is still pending"); return; }
-        if (!fresh()) { error(request, "Screen changed; capture a fresh screenshot before operating"); return; }
+        if (!"open_app".equals(action) && !"open_url".equals(action) && !fresh()) {
+            error(request, "Screen changed; capture a fresh screenshot before operating"); return;
+        }
         switch (action) {
             case "tap": case "long_press": case "swipe": gesture(request, action); return;
             case "key": {
@@ -275,6 +439,7 @@ public final class AssistantHostService extends Service {
                         || code == KeyEvent.KEYCODE_APP_SWITCH)) {
                     error(request, "Use list_apps and open_app in background mode"); return;
                 }
+                if (code == KeyEvent.KEYCODE_HOME || code == KeyEvent.KEYCODE_APP_SWITCH) assistantNavigation = true;
                 if (!key(code, code == KeyEvent.KEYCODE_ENTER ? capturedTask.topActivityInfo.applicationInfo.uid : -1)) {
                     error(request, "Input rejected"); return;
                 }
@@ -301,11 +466,12 @@ public final class AssistantHostService extends Service {
             }
             case "open_app": {
                 String target = args.getString("package", "");
-                if (blocked(target)) { error(request, "This app is blocked"); return; }
+                if (rejectRestrictedApp(request, target)) return;
                 int user = ActivityManager.getCurrentUser();
                 Intent launch = createContextAsUser(UserHandle.of(user), 0)
                         .getPackageManager().getLaunchIntentForPackage(target);
                 if (launch == null) { error(request, "App is unavailable"); return; }
+                launchingPackage = target; launchingUntil = SystemClock.uptimeMillis() + 700;
                 startActivityAsUser(launch.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK),
                         ActivityOptions.makeBasic().setLaunchDisplayId(displayId).toBundle(), UserHandle.of(user));
                 break;
@@ -317,9 +483,10 @@ public final class AssistantHostService extends Service {
                 Intent launch = new Intent(Intent.ACTION_VIEW, uri).addCategory(Intent.CATEGORY_BROWSABLE)
                         .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK);
                 var resolved = getPackageManager().resolveActivity(launch, PackageManager.MATCH_DEFAULT_ONLY);
-                if (resolved == null || blocked(resolved.activityInfo.packageName)) {
-                    error(request, "Browser is unavailable or blocked"); return;
-                }
+                if (resolved == null) { error(request, "Browser is unavailable"); return; }
+                if (rejectRestrictedApp(request, resolved.activityInfo.packageName)) return;
+                launchingPackage = resolved.activityInfo.packageName;
+                launchingUntil = SystemClock.uptimeMillis() + 700;
                 startActivityAsUser(launch, ActivityOptions.makeBasic().setLaunchDisplayId(displayId).toBundle(),
                         UserHandle.of(ActivityManager.getCurrentUser()));
                 break;
@@ -391,6 +558,9 @@ public final class AssistantHostService extends Service {
 
     private void finishSession() {
         main.removeCallbacks(expire);
+        main.removeCallbacks(moveToBackground);
+        foregroundTask = null; movingToBackground = false; autoBackground = false;
+        executionActive = false; assistantNavigation = false; launchingPackage = null; launchingUntil = 0;
         main.removeCallbacks(inputTimeout); inputRequest = null;
         inputState(false, 0);
         if (gestureRequest != null) error(gestureRequest, "Task stopped");

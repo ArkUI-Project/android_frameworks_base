@@ -6968,4 +6968,11 @@ ul.</string>
     <!-- Launcher shortcut: Pop-Up View -->
     <string name="recent_task_option_pop_up">Pop-Up View</string>
 
+    <string name="ime_voice_start">Voice input</string>
+    <string name="ime_voice_hide">Hide keyboard</string>
+    <string name="ime_voice_finish">Finish dictation</string>
+    <string name="ime_voice_listening">Listening</string>
+    <string name="ime_voice_connecting">Starting microphone</string>
+    <string name="ime_voice_processing">Transcribing</string>
+    <string name="ime_voice_unavailable">Voice input is unavailable. Check the speech service in ArkAI settings.</string>
 </resources>

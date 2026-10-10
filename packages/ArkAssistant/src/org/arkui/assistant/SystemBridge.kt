@@ -20,6 +20,8 @@ import java.util.concurrent.TimeUnit
 import java.util.concurrent.atomic.AtomicInteger
 import org.arkui.assistant.protocol.AssistantProtocol.*
 
+internal class SystemOperationException(val code: String?, message: String) : IllegalStateException(message)
+
 internal class SystemBridge(private val context: Context, private val overlay: AssistantOverlay) : AutoCloseable {
     private val main = Handler(Looper.getMainLooper())
     private val connected = CompletableFuture<Messenger>()
@@ -29,10 +31,21 @@ internal class SystemBridge(private val context: Context, private val overlay: A
     @Volatile private var closed = false
     @Volatile var unavailable = false
         private set
+    @Volatile var background = false
+        private set
+    @Volatile private var sessionReady = false
+    @Volatile private var executionActive = true
     private val receiver: Messenger = Messenger(Handler(Looper.getMainLooper()) { message ->
         if (message.sendingUid != Process.SYSTEM_UID && message.sendingUid != hostUid) return@Handler true
         val data = message.data.apply { classLoader = ScreenContent::class.java.classLoader }
         if (message.what == END && !closed && data.getString(SESSION) == session) { fail(); return@Handler true }
+        if (message.what == DISPLAY_STATE) {
+            if (!closed && data.getString(SESSION) == session) {
+                background = data.getBoolean("background")
+                overlay.displayState(data)
+            }
+            return@Handler true
+        }
         if (message.what == INPUT_STATE) {
             if (!closed && data.getString(SESSION) == session) {
                 val pass = data.getBoolean("passthrough")
@@ -62,7 +75,8 @@ internal class SystemBridge(private val context: Context, private val overlay: A
     }
     private var bound = false
 
-    fun connect(background: Boolean) {
+    @JvmOverloads
+    fun connect(background: Boolean, autoBackground: Boolean = false) {
         main.post {
             if (!closed) {
                 bound = runCatching {
@@ -72,9 +86,25 @@ internal class SystemBridge(private val context: Context, private val overlay: A
                 if (!bound) fail()
             }
         }
-        request(BEGIN, Bundle().apply { putBoolean("background", background) })
+        request(BEGIN, Bundle().apply {
+            putBoolean("background", background); putBoolean("auto_background", autoBackground)
+        })
+        this.background = background
+        sessionReady = true
+        setExecutionActive(executionActive)
     }
 
+    fun setExecutionActive(active: Boolean) {
+        executionActive = active
+        if (closed || !sessionReady) return
+        runCatching { connected.getNow(null)?.send(Message.obtain(null, EXECUTION_STATE).apply {
+            data = Bundle().apply { putString(SESSION, session); putBoolean("active", active) }
+            replyTo = receiver
+        }) }
+    }
+
+    // Serialize preview and model requests so a progress refresh cannot race an input gesture.
+    @Synchronized
     fun request(what: Int, data: Bundle = Bundle()): Bundle {
         check(!closed && !unavailable) { context.getString(R.string.host_unavailable) }
         val host = connected.get(8, TimeUnit.SECONDS)
@@ -85,7 +115,7 @@ internal class SystemBridge(private val context: Context, private val overlay: A
             data.putString(SESSION, session)
             host.send(Message.obtain(null, what).apply { arg1 = id; this.data = data; replyTo = receiver })
             val result = future.get(10, TimeUnit.SECONDS)
-            result.getString(ERROR)?.let { throw IllegalStateException(it) }
+            result.getString(ERROR)?.let { throw SystemOperationException(result.getString(ERROR_CODE), it) }
             return result
         } catch (error: Exception) {
             if (!future.cancel(false) && future.isDone && !future.isCompletedExceptionally) {
@@ -107,11 +137,8 @@ internal class SystemBridge(private val context: Context, private val overlay: A
     }
 
     fun takeOver() {
-        if (!closed && connected.isDone && !connected.isCompletedExceptionally) runCatching {
-            connected.getNow(null)?.send(Message.obtain(null, TAKE_OVER).apply {
-                data = Bundle().apply { putString(SESSION, session) }; replyTo = receiver
-            })
-        }
+        request(TAKE_OVER)
+        background = false
     }
 
     override fun close() {

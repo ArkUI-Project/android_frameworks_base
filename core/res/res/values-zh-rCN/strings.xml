@@ -2600,4 +2600,11 @@
     <string name="tv_watchdog_notification_title" msgid="195239206215922517">"资源过度使用"</string>
     <string name="tv_watchdog_notification_content" msgid="6444873431710133936">"应用“<xliff:g id="APP_NAME">%1$s</xliff:g>”使用的资源过多。"</string>
     <string name="pinned_window_dismiss_text">"松手关闭"</string>
+    <string name="ime_voice_start">语音输入</string>
+    <string name="ime_voice_hide">收起键盘</string>
+    <string name="ime_voice_finish">完成听写</string>
+    <string name="ime_voice_listening">正在聆听</string>
+    <string name="ime_voice_connecting">正在开启麦克风</string>
+    <string name="ime_voice_processing">正在转写</string>
+    <string name="ime_voice_unavailable">语音输入暂不可用，请在 ArkAI 设置中检查语音识别服务。</string>
 </resources>

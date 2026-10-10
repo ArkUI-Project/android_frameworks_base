@@ -13,16 +13,30 @@ import android.os.Bundle
 import android.service.quicksettings.Tile
 import android.service.quicksettings.TileService
 import android.widget.ImageView
+import android.view.WindowManager
 import androidx.activity.ComponentActivity
 import androidx.compose.animation.AnimatedContent
+import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.SizeTransform
+import androidx.compose.animation.animateColorAsState
 import androidx.compose.animation.animateContentSize
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.fadeOut
+import androidx.compose.animation.slideInVertically
+import androidx.compose.animation.slideOutVertically
+import androidx.compose.animation.togetherWith
 import androidx.compose.animation.core.animateFloatAsState
+import androidx.compose.animation.core.animateDpAsState
+import androidx.compose.animation.core.MutableTransitionState
+import androidx.compose.animation.core.snap
 import androidx.compose.animation.core.LinearOutSlowInEasing
 import androidx.compose.animation.core.spring
 import androidx.compose.animation.core.tween
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.combinedClickable
+import androidx.compose.foundation.gestures.detectVerticalDragGestures
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.isSystemInDarkTheme
 import androidx.compose.foundation.layout.*
@@ -38,14 +52,27 @@ import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
+import androidx.compose.ui.draw.drawWithCache
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.StrokeCap
 import androidx.compose.ui.graphics.toArgb
+import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.graphics.vector.ImageVector
+import androidx.compose.ui.focus.FocusRequester
+import androidx.compose.ui.focus.focusRequester
+import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.ui.platform.LocalSoftwareKeyboardController
 import androidx.compose.ui.res.stringResource
+import androidx.compose.ui.semantics.Role
+import androidx.compose.ui.semantics.CustomAccessibilityAction
+import androidx.compose.ui.semantics.customActions
+import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.text.style.TextAlign
@@ -55,8 +82,20 @@ import kotlinx.coroutines.delay
 
 @Composable
 internal fun AssistantTheme(content: @Composable () -> Unit) {
-    val context = LocalContext.current
-    MaterialExpressiveTheme(colorScheme = if (isSystemInDarkTheme()) dynamicDarkColorScheme(context) else dynamicLightColorScheme(context),
+    val colors = if (isSystemInDarkTheme()) darkColorScheme(
+        primary = Color(0xffaec6ff), onPrimary = Color(0xff003063), primaryContainer = Color(0xff144785),
+        onPrimaryContainer = Color(0xffd9e5ff), secondary = Color(0xffbdc7dc), secondaryContainer = Color(0xff3d485c),
+        tertiary = Color(0xff8ed3eb), tertiaryContainer = Color(0xff004e60),
+        background = Color(0xff101318), surface = Color(0xff101318), onSurface = Color(0xffe1e2e8),
+        surfaceContainerLow = Color(0xff191c21), surfaceContainer = Color(0xff1d2025), surfaceContainerHigh = Color(0xff272a30),
+    ) else lightColorScheme(
+        primary = Color(0xff216bea), onPrimary = Color.White, primaryContainer = Color(0xffdae6ff),
+        onPrimaryContainer = Color(0xff143264), secondary = Color(0xff556177), secondaryContainer = Color(0xffdce5f8),
+        tertiary = Color(0xff00677f), tertiaryContainer = Color(0xffb7eaff),
+        background = Color(0xfff9faff), surface = Color(0xfff9faff), onSurface = Color(0xff1a1d24),
+        surfaceContainerLow = Color(0xfff5f8ff), surfaceContainer = Color(0xffeff3fa), surfaceContainerHigh = Color(0xffedf2fa),
+    )
+    MaterialExpressiveTheme(colorScheme = colors,
         motionScheme = MotionScheme.expressive(), content = content)
 }
 
@@ -65,7 +104,22 @@ class AssistantActivity : ComponentActivity() {
         super.onCreate(savedInstanceState)
         overrideActivityTransition(OVERRIDE_TRANSITION_OPEN, 0, 0)
         overrideActivityTransition(OVERRIDE_TRANSITION_CLOSE, 0, 0)
-        startService(Intent(this, AssistantService::class.java).setAction(AssistantService.SHOW))
+        startService(Intent(this, AssistantService::class.java).setAction(
+            if (intent.getBooleanExtra("progress", false)) AssistantService.PROGRESS else AssistantService.SHOW))
+        finish()
+    }
+}
+
+class AssistantShortcutActivity : ComponentActivity() {
+    override fun onCreate(savedInstanceState: Bundle?) {
+        super.onCreate(savedInstanceState)
+        overrideActivityTransition(OVERRIDE_TRANSITION_OPEN, 0, 0)
+        overrideActivityTransition(OVERRIDE_TRANSITION_CLOSE, 0, 0)
+        if (!getSystemService(android.app.KeyguardManager::class.java).isKeyguardLocked && ConfigStore(this).enabled) {
+            startService(Intent(this, AssistantService::class.java).setAction(AssistantService.INVOKE)
+                .putExtra(org.arkui.assistant.protocol.AssistantInvocation.EXTRA_ACTION,
+                    intent.getIntExtra(org.arkui.assistant.protocol.AssistantInvocation.EXTRA_ACTION, 0)))
+        }
         finish()
     }
 }
@@ -75,8 +129,11 @@ class AssistantPermissionActivity : ComponentActivity() {
     private var delivered = false
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+        overrideActivityTransition(OVERRIDE_TRANSITION_OPEN, 0, 0)
+        overrideActivityTransition(OVERRIDE_TRANSITION_CLOSE, 0, 0)
         permission = if (intent.getBooleanExtra("notifications", false)) Manifest.permission.POST_NOTIFICATIONS else Manifest.permission.RECORD_AUDIO
         if (checkSelfPermission(permission) != PackageManager.PERMISSION_GRANTED) requestPermissions(arrayOf(permission), 1)
+        else window.addFlags(WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE or WindowManager.LayoutParams.FLAG_NOT_TOUCHABLE)
     }
     override fun onPostResume() {
         super.onPostResume()
@@ -86,7 +143,7 @@ class AssistantPermissionActivity : ComponentActivity() {
         super.onRequestPermissionsResult(code, permissions, grants)
         window.decorView.post { deliver(grants.firstOrNull() == PackageManager.PERMISSION_GRANTED) }
     }
-    private fun deliver(granted: Boolean) { if (!delivered) { delivered = true; val callback = result; result = null; callback?.invoke(granted); finish() } }
+    private fun deliver(granted: Boolean) { if (!delivered) { delivered = true; val callback = result; result = null; callback?.invoke(granted); finishAndRemoveTask() } }
     companion object { internal var result: ((Boolean) -> Unit)? = null }
 }
 
@@ -94,7 +151,7 @@ class AssistantPermissionActivity : ComponentActivity() {
 internal fun ToolIcon(icon: ImageVector, label: Int, action: () -> Unit) {
     TooltipBox(positionProvider = TooltipDefaults.rememberTooltipPositionProvider(),
         tooltip = { PlainTooltip { Text(stringResource(label)) } }, state = rememberTooltipState()) {
-        IconButton(onClick = action) { Icon(icon, stringResource(label)) }
+        IconButton(onClick = action) { AnimatedGlyph(icon, stringResource(label)) }
     }
 }
 
@@ -105,19 +162,41 @@ internal fun AssistantDrawer(host: AssistantOverlay) {
     val configured = host.configured
     val voice = host.voice.state
     val voiceShown = voice.active || voice.error.isNotBlank()
-    val sheet = host.expanded && !voiceShown && configured
-    val backdropColor = if (voiceShown) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.surfaceContainerLow
+    val sheet = host.expanded && configured
+    val backdropColor = animateColorAsState(if (voiceShown) MaterialTheme.colorScheme.primary
+        else MaterialTheme.colorScheme.surfaceContainerLow, tween(180), label = "backdrop color").value
     val showComposer = !task.running || host.supplement
-    LaunchedEffect(showComposer, voice.active) { host.setFocus(showComposer && !voice.active) }
-    SideEffect { host.setBackdrop(backdropColor.toArgb(), voiceShown) }
+    val panelColor by animateColorAsState(if (sheet) MaterialTheme.colorScheme.surfaceContainerLow
+        else MaterialTheme.colorScheme.surfaceContainerLow.copy(alpha = 0f),
+        tween(AssistantMotion.enter), label = "sheet surface")
+    val panelInset by animateDpAsState(if (sheet) 16.dp else 12.dp,
+        tween(AssistantMotion.expand, easing = AssistantMotion.spatial), label = "sheet inset")
+    val panelTop by animateDpAsState(if (sheet) 0.dp else 12.dp,
+        tween(AssistantMotion.expand, easing = AssistantMotion.spatial), label = "sheet top")
+    val drag by animateFloatAsState(host.dragOffset, if (host.dragging) snap() else
+        spring(dampingRatio = 0.85f, stiffness = 650f), label = "drawer drag")
+    LaunchedEffect(showComposer, voice.active, host.progress, host.textInput) {
+        host.setFocus(voice.active || (showComposer && host.textInput && !host.progress))
+    }
+    val keyboardInset = WindowInsets.ime.getBottom(LocalDensity.current)
+    SideEffect { host.setBackdrop(backdropColor.toArgb(), voiceShown, keyboardInset) }
+    CompositionLocalProvider(LocalContentColor provides MaterialTheme.colorScheme.onSurface) {
     Column(Modifier.fillMaxWidth().imePadding(), horizontalAlignment = Alignment.CenterHorizontally) {
-        Column(Modifier.widthIn(max = 640.dp).fillMaxWidth()
-            .animateContentSize(tween(180, easing = LinearOutSlowInEasing))
-            .background(if (sheet) MaterialTheme.colorScheme.surfaceContainerLow else Color.Transparent,
-                RoundedCornerShape(topStart = 28.dp, topEnd = 28.dp))
-            .padding(horizontal = if (sheet || voiceShown) 16.dp else 12.dp)
-            .padding(top = 16.dp, bottom = 16.dp).navigationBarsPadding(),
-            verticalArrangement = Arrangement.spacedBy(8.dp)) {
+        AnimatedContent(voiceShown, modifier = Modifier.widthIn(max = 640.dp).fillMaxWidth()
+            .graphicsLayer { translationY = drag },
+            contentAlignment = Alignment.BottomCenter,
+            transitionSpec = {
+                ((fadeIn(tween(160)) + slideInVertically(tween(220, easing = LinearOutSlowInEasing)) { it / 6 })
+                    togetherWith (fadeOut(tween(90)) + slideOutVertically(tween(140)) { it / 12 }))
+                    .using(SizeTransform(clip = false) { _, _ -> tween(220, easing = LinearOutSlowInEasing) })
+            }, label = "voice panel") { listening ->
+        if (listening && configured) VoicePanel(host) else {
+        val bottomInset = WindowInsets.navigationBars.asPaddingValues().calculateBottomPadding()
+        Column(Modifier.fillMaxWidth()
+            .background(panelColor, RoundedCornerShape(topStart = 32.dp, topEnd = 32.dp))
+            .padding(horizontal = panelInset)
+            .padding(top = panelTop, bottom = maxOf(28.dp, bottomInset + 12.dp)),
+            verticalArrangement = Arrangement.Top) {
             if (!configured) Surface(shape = RoundedCornerShape(28.dp), color = MaterialTheme.colorScheme.surfaceContainer) {
                 Column(Modifier.fillMaxWidth().padding(20.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
                     Row(verticalAlignment = Alignment.CenterVertically) {
@@ -130,78 +209,148 @@ internal fun AssistantDrawer(host: AssistantOverlay) {
                         Icon(Icons.Rounded.Tune, null); Spacer(Modifier.width(8.dp)); Text(stringResource(R.string.configure))
                     }
                 }
-            } else if (voiceShown) {
-                VoicePanel(host)
             } else {
-                if (host.expanded) ConversationPanel(host)
-                if (task.running && !host.expanded) {
-                    Row(Modifier.fillMaxWidth().padding(horizontal = 12.dp), verticalAlignment = Alignment.CenterVertically) {
-                        if (!task.paused && task.confirmation == null) LoadingIndicator(Modifier.size(24.dp))
-                        else Icon(Icons.Rounded.PauseCircle, null, Modifier.size(24.dp))
-                        Text(task.confirmation ?: task.detail.ifBlank { context.getString(task.status) },
-                            Modifier.weight(1f).padding(start = 8.dp), maxLines = if (task.confirmation != null) 3 else 2,
+                DrawerHandle(host, sheet)
+                PanelReveal(sheet) { Column(Modifier.padding(bottom = 8.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                    DrawerHeader(host)
+                    AnimatedContent(host.progress, transitionSpec = {
+                        AssistantMotion.content().using(SizeTransform(clip = false) { _, _ ->
+                            tween(AssistantMotion.expand, easing = AssistantMotion.spatial) })
+                    }, label = "drawer page") { progress ->
+                        if (progress) ProgressPanel(host) else ConversationPanel(host)
+                    }
+                } }
+                PanelReveal(task.running && !sheet && (task.appLaunched || task.confirmation != null)) {
+                    Column(Modifier.fillMaxWidth().padding(horizontal = 12.dp).padding(bottom = 8.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                        AnimatedContent(task.detail.ifBlank { context.getString(task.status) },
+                            transitionSpec = { AssistantMotion.content() }, label = "execution status") { detail -> Text(detail,
+                            Modifier.fillMaxWidth(), maxLines = if (task.confirmation != null) 3 else 2,
                             overflow = TextOverflow.Ellipsis, style = MaterialTheme.typography.bodyMedium)
-                        if (task.confirmation != null) FilledTonalIconButton(onClick = { host.command(AssistantService.APPROVE) }) {
-                            Icon(Icons.Rounded.Check, stringResource(R.string.continue_task))
                         }
+                        TaskConfirmation(host)
                     }
                 }
-                if (!task.running && !host.expanded && TaskState.messages.lastOrNull()?.user == false) {
-                    Surface(shape = RoundedCornerShape(24.dp), color = MaterialTheme.colorScheme.surfaceContainerLow) {
-                        Text(TaskState.messages.last().text, Modifier.fillMaxWidth().clickable { host.expanded = true }.padding(16.dp),
+                PanelReveal(!task.running && !sheet && TaskState.messages.lastOrNull()?.user == false) {
+                        Text(TaskState.messages.lastOrNull()?.text.orEmpty(), Modifier.fillMaxWidth().clickable { host.expanded = true }.padding(12.dp),
                             maxLines = 3, overflow = TextOverflow.Ellipsis, style = MaterialTheme.typography.bodyLarge)
-                    }
                 }
-                if (task.running) RunningBar(host)
-                if (showComposer) {
-                    if (TaskState.messages.isEmpty() && !host.expanded) Row(Modifier.horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                        listOf(R.string.summarize to R.string.summarize_prompt, R.string.translate to R.string.translate_prompt,
-                            R.string.operate to R.string.operate_prompt).forEach { (title, prompt) ->
-                            SuggestionChip(onClick = { host.mode = if (title == R.string.operate) "operate" else "screen"; host.draft = context.getString(prompt) },
-                                label = { Text(stringResource(title)) }, shape = RoundedCornerShape(20.dp), border = null,
-                                colors = SuggestionChipDefaults.suggestionChipColors(containerColor = MaterialTheme.colorScheme.surfaceContainerHigh.copy(alpha = 0.94f)))
-                        }
-                        SuggestionChip(onClick = { host.mode = "chat"; host.expanded = true }, label = { Text(stringResource(R.string.chat_mode)) },
-                            shape = RoundedCornerShape(20.dp), border = null,
-                            colors = SuggestionChipDefaults.suggestionChipColors(containerColor = MaterialTheme.colorScheme.surfaceContainerHigh.copy(alpha = 0.94f)))
-                        ToolIcon(Icons.Rounded.Close, R.string.close) { host.hide() }
+                val footer = when { host.progress -> "none"; !showComposer -> "running"; task.running -> "supplement"; else -> "composer" }
+                AnimatedContent(footer, contentAlignment = Alignment.BottomCenter, transitionSpec = {
+                    AssistantMotion.content().using(SizeTransform(clip = false) { _, _ ->
+                        tween(AssistantMotion.expand, easing = AssistantMotion.spatial) })
+                }, label = "composer execution transition") { state ->
+                    Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                        if (state == "running" || state == "supplement") RunningBar(host)
+                        if (state == "composer" || state == "supplement") Composer(host)
                     }
-                    if (TaskState.messages.isNotEmpty() || host.expanded || host.mode == "operate") InputOptions(host)
-                    Composer(host)
                 }
             }
         }
+        }
+        }
+    }
+    }
+}
+
+@Composable
+private fun DrawerHandle(host: AssistantOverlay, sheet: Boolean) {
+    val height by animateDpAsState(if (sheet) 20.dp else 4.dp,
+        tween(AssistantMotion.expand, easing = AssistantMotion.spatial), label = "drawer handle")
+    val alpha by animateFloatAsState(if (sheet) 1f else 0f, tween(AssistantMotion.change), label = "handle opacity")
+    Box(Modifier.fillMaxWidth().height(height).assistantDrag(host), contentAlignment = Alignment.Center) {
+        Box(Modifier.size(32.dp, 4.dp).graphicsLayer { this.alpha = alpha }
+            .background(MaterialTheme.colorScheme.outlineVariant, RoundedCornerShape(2.dp)))
+    }
+}
+
+private fun Modifier.assistantDrag(host: AssistantOverlay) = pointerInput(host) {
+    var distance = 0f
+    fun settle() { host.dragging = false; host.dragOffset = 0f }
+    detectVerticalDragGestures(onDragStart = { distance = 0f; host.dragging = true },
+        onDragCancel = { settle() }, onDragEnd = {
+            if (distance > 32.dp.toPx()) { if (host.expanded) host.collapse() else host.minimize() }
+            if (distance < -32.dp.toPx()) {
+                if (TaskState.current.running) host.openProgress() else host.expanded = true
+            }
+            settle()
+        }) { change, amount ->
+            change.consume(); distance += amount
+            host.dragOffset = (distance * 0.35f).coerceIn(-64.dp.toPx(), 96.dp.toPx())
+        }
+}
+
+@Composable
+private fun DrawerHeader(host: AssistantOverlay) {
+    Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+        if (host.progress) ToolIcon(Icons.Rounded.ArrowBack, R.string.expand_messages) { host.closeProgress() }
+        else Icon(Icons.Rounded.AutoAwesome, null, Modifier.padding(start = 4.dp).size(22.dp), tint = MaterialTheme.colorScheme.primary)
+        AnimatedContent(stringResource(if (host.progress) R.string.task_progress else R.string.assistant_title),
+            Modifier.weight(1f).padding(start = 8.dp), transitionSpec = { AssistantMotion.content() }, label = "drawer title") {
+            Text(it, style = MaterialTheme.typography.titleMedium)
+        }
+        if (!TaskState.current.running) ToolIcon(Icons.Rounded.AddComment, R.string.new_task) { host.command(AssistantService.NEW) }
+        ToolIcon(Icons.Rounded.PictureInPictureAlt, R.string.minimize) { host.minimize() }
+        ToolIcon(Icons.Rounded.KeyboardArrowDown, R.string.collapse_messages) { host.collapse() }
     }
 }
 
 @Composable
 private fun RunningBar(host: AssistantOverlay) {
     val task = TaskState.current
-    Surface(shape = RoundedCornerShape(32.dp), color = if (host.expanded) Color.Transparent else MaterialTheme.colorScheme.surfaceContainerLow.copy(alpha = 0.96f),
-        shadowElevation = if (host.expanded) 0.dp else 6.dp) {
-        Row(Modifier.fillMaxWidth().padding(6.dp), verticalAlignment = Alignment.CenterVertically) {
-            if (task.appPackage.isNotBlank()) AppIcon(task.appPackage, Modifier.size(28.dp))
-            else Icon(Icons.Rounded.AutoAwesome, null, Modifier.padding(start = 6.dp).size(26.dp), tint = MaterialTheme.colorScheme.primary)
-            Column(Modifier.weight(1f).padding(horizontal = 8.dp)) {
-                Text(task.appLabel.ifBlank { stringResource(R.string.assistant_title) }, style = MaterialTheme.typography.labelLarge, maxLines = 1, overflow = TextOverflow.Ellipsis)
-                Text(stringResource(if (task.background) R.string.background_mode else task.status),
-                    style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant, maxLines = 1, overflow = TextOverflow.Ellipsis)
+    val capsule = task.appLaunched || task.background || !task.operating
+    AnimatedContent(capsule, transitionSpec = { AssistantMotion.content() }, label = "execution toolbar") { capsule ->
+    Surface(shape = RoundedCornerShape(28.dp), color = if (capsule && !host.expanded)
+        MaterialTheme.colorScheme.surfaceContainerLow.copy(alpha = 0.96f) else Color.Transparent) {
+        Row(Modifier.fillMaxWidth().padding(horizontal = if (capsule) 8.dp else 12.dp, vertical = 4.dp),
+            verticalAlignment = Alignment.CenterVertically) {
+            if (capsule) Row(Modifier.weight(1f).clip(RoundedCornerShape(20.dp))
+                .clickable { host.openProgress() }.padding(horizontal = 4.dp, vertical = 12.dp),
+                verticalAlignment = Alignment.CenterVertically) {
+                AnimatedContent(task.appPackage to task.appLabel, transitionSpec = { AssistantMotion.content() }, label = "executing app") { app ->
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        if (app.first.isNotBlank()) AppIcon(app.first, Modifier.size(24.dp))
+                        else Icon(Icons.Rounded.AutoAwesome, null, Modifier.size(24.dp), tint = MaterialTheme.colorScheme.primary)
+                        Text(app.second.ifBlank { stringResource(R.string.assistant_title) }, Modifier.padding(start = 8.dp),
+                            style = MaterialTheme.typography.labelMedium, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                    }
+                }
             }
-            BarAction(Icons.Rounded.ChatBubbleOutline, R.string.supplement) { host.edit() }
-            BarAction(Icons.Rounded.TouchApp, R.string.take_over) { host.command(AssistantService.TAKEOVER) }
-            BarAction(Icons.Rounded.Stop, R.string.stop) { host.command(AssistantService.STOP) }
-            ToolIcon(Icons.Rounded.ExpandLess, R.string.expand_messages) { host.expanded = !host.expanded }
-            ToolIcon(Icons.Rounded.PictureInPictureAlt, R.string.minimize) { host.hide() }
+            ExecutionAction(Icons.Rounded.ChatBubbleOutline, R.string.supplement, capsule) { host.edit() }
+            if (!capsule) Spacer(Modifier.width(12.dp))
+            ExecutionAction(if (task.paused) Icons.Rounded.PlayArrow else if (task.operating) Icons.Rounded.TouchApp else Icons.Rounded.Pause,
+                if (task.paused) R.string.resume else if (task.operating) R.string.take_over else R.string.pause,
+                capsule, enabled = !host.takingOver) {
+                host.supplement = false
+                host.command(if (task.paused || !task.operating) AssistantService.PAUSE else AssistantService.TAKEOVER)
+            }
+            if (!capsule) Spacer(Modifier.weight(1f))
+            ExecutionAction(Icons.Rounded.Stop, R.string.stop, capsule, MaterialTheme.colorScheme.error) {
+                host.command(AssistantService.STOP)
+            }
+            if (capsule) IconButton(onClick = { host.openProgress() }, Modifier.size(40.dp)) {
+                Icon(Icons.Rounded.OpenInFull, stringResource(R.string.task_progress), Modifier.size(18.dp))
+            }
         }
+    }
     }
 }
 
 @Composable
-private fun BarAction(icon: ImageVector, label: Int, action: () -> Unit) {
-    Column(Modifier.width(44.dp).height(48.dp).clickable(onClick = action), horizontalAlignment = Alignment.CenterHorizontally,
+private fun ExecutionAction(icon: ImageVector, label: Int, stacked: Boolean,
+    tint: Color = MaterialTheme.colorScheme.onSurface, enabled: Boolean = true, action: () -> Unit) {
+    val modifier = Modifier.height(48.dp).widthIn(min = 48.dp).clip(RoundedCornerShape(16.dp))
+        .clickable(enabled = enabled, role = Role.Button, onClick = action)
+    if (stacked) Column(modifier.padding(horizontal = 6.dp), horizontalAlignment = Alignment.CenterHorizontally,
         verticalArrangement = Arrangement.Center) {
-        Icon(icon, stringResource(label), Modifier.size(20.dp))
-        Text(stringResource(label), style = MaterialTheme.typography.labelSmall, maxLines = 1, overflow = TextOverflow.Ellipsis)
+        AnimatedGlyph(icon, null, Modifier.size(20.dp), tint = tint)
+        Spacer(Modifier.height(3.dp))
+        AnimatedContent(stringResource(label), transitionSpec = { AssistantMotion.content() }, label = "action label") {
+            Text(it, style = MaterialTheme.typography.labelSmall, color = tint)
+        }
+    } else Row(modifier.padding(horizontal = 4.dp), verticalAlignment = Alignment.CenterVertically) {
+        AnimatedGlyph(icon, null, Modifier.size(18.dp), tint = tint)
+        Spacer(Modifier.width(4.dp))
+        Text(stringResource(label), style = MaterialTheme.typography.labelMedium, color = tint)
     }
 }
 
@@ -214,43 +363,26 @@ internal fun AppIcon(packageName: String, modifier: Modifier = Modifier) {
 }
 
 @Composable
-private fun InputOptions(host: AssistantOverlay) {
-    var menu by remember { mutableStateOf(false) }
-    val context = LocalContext.current
-    Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
-        Box {
-            TextButton(onClick = { menu = true }, enabled = !TaskState.current.running, contentPadding = PaddingValues(horizontal = 10.dp, vertical = 0.dp)) {
-                Icon(if (host.mode == "chat") Icons.Rounded.ChatBubbleOutline else Icons.Rounded.CenterFocusStrong, null, Modifier.size(18.dp))
-                Spacer(Modifier.width(6.dp)); Text(stringResource(when (host.mode) { "chat" -> R.string.chat_mode; "operate" -> R.string.operate; else -> R.string.screen_mode }))
-                Icon(Icons.Rounded.ExpandMore, null, Modifier.size(18.dp))
-            }
-            DropdownMenu(menu, onDismissRequest = { menu = false }) {
-                listOf("chat" to R.string.chat_mode, "screen" to R.string.screen_mode, "operate" to R.string.operate).forEach { (mode, label) ->
-                    DropdownMenuItem(text = { Text(stringResource(label)) }, onClick = { host.mode = mode; menu = false; if (mode == "chat") host.expanded = true },
-                        trailingIcon = { if (mode == host.mode) Icon(Icons.Rounded.Check, null) })
-                }
-            }
-        }
-        if (host.mode == "operate") FilterChip(host.background, onClick = { host.background = !host.background },
-            enabled = !TaskState.current.running, label = { Text(stringResource(R.string.background_mode)) }, leadingIcon = { Icon(Icons.Rounded.Layers, null, Modifier.size(16.dp)) })
-        Spacer(Modifier.weight(1f))
-        if (TaskState.messages.isNotEmpty() && !host.expanded) ToolIcon(Icons.Rounded.OpenInFull,
-            R.string.expand_messages) { host.expanded = !host.expanded }
-        ToolIcon(Icons.Rounded.Close, R.string.close) { host.hide() }
-    }
-}
-
-@Composable
 private fun Composer(host: AssistantOverlay) {
     var more by remember { mutableStateOf(false) }
     val context = LocalContext.current
-    Surface(shape = RoundedCornerShape(32.dp), color = MaterialTheme.colorScheme.surfaceContainerLow.copy(alpha = 0.97f), shadowElevation = 8.dp) {
+    val focus = remember { FocusRequester() }
+    val keyboard = LocalSoftwareKeyboardController.current
+    LaunchedEffect(host.textInput) {
+        if (host.textInput) { delay(80); focus.requestFocus(); keyboard?.show() }
+    }
+    Surface(modifier = Modifier.assistantDrag(host), shape = RoundedCornerShape(28.dp),
+        color = MaterialTheme.colorScheme.surfaceContainerHigh.copy(alpha = 0.97f)) {
         Row(Modifier.fillMaxWidth().padding(4.dp), verticalAlignment = Alignment.CenterVertically) {
-            ToolIcon(Icons.Rounded.CenterFocusStrong, R.string.tool_capture) { host.mode = "screen"; host.draft = context.getString(R.string.summarize_prompt) }
-            Row(Modifier.weight(1f).background(MaterialTheme.colorScheme.surfaceContainerHigh, RoundedCornerShape(28.dp))
-                .padding(start = 12.dp), verticalAlignment = Alignment.CenterVertically) {
-                Icon(Icons.Rounded.AutoAwesome, null, Modifier.size(18.dp), tint = MaterialTheme.colorScheme.primary)
-                BasicTextField(host.draft, { host.draft = it.take(6000) }, Modifier.weight(1f).padding(horizontal = 8.dp, vertical = 12.dp).heightIn(max = 96.dp),
+            ToolIcon(Icons.Rounded.CenterFocusStrong, R.string.tool_capture) {
+                host.draft = context.getString(R.string.summarize_prompt); host.openKeyboard()
+            }
+            AnimatedContent(host.textInput, Modifier.weight(1f), transitionSpec = {
+                fadeIn(tween(AssistantMotion.enter)) togetherWith fadeOut(tween(AssistantMotion.change))
+            }, label = "input method") { textInput ->
+            if (textInput) {
+                BasicTextField(host.draft, { host.draft = it.take(6000) }, Modifier.fillMaxWidth().focusRequester(focus)
+                    .padding(horizontal = 8.dp, vertical = 12.dp).heightIn(max = 96.dp),
                     textStyle = MaterialTheme.typography.bodyLarge.copy(color = MaterialTheme.colorScheme.onSurface), maxLines = 3,
                     keyboardOptions = KeyboardOptions(imeAction = ImeAction.Send), keyboardActions = KeyboardActions(onSend = { host.submit() }),
                     decorationBox = { input -> Box {
@@ -258,14 +390,27 @@ private fun Composer(host: AssistantOverlay) {
                             color = MaterialTheme.colorScheme.onSurfaceVariant, style = MaterialTheme.typography.bodyLarge)
                         input()
                     } })
-                Box {
+            } else Box(Modifier.fillMaxWidth().height(48.dp).combinedClickable(role = Role.Button,
+                onClick = { host.startVoice() }, onLongClick = { host.startHeldVoice() }), contentAlignment = Alignment.Center) {
+                Text(stringResource(R.string.speak), style = MaterialTheme.typography.bodyLarge, color = MaterialTheme.colorScheme.primary)
+            }
+            }
+            AnimatedContent(host.textInput, Modifier.size(48.dp), transitionSpec = {
+                fadeIn(tween(AssistantMotion.enter)) togetherWith fadeOut(tween(AssistantMotion.change))
+            }, label = "input action") { textInput ->
+            if (!textInput) ToolIcon(Icons.Rounded.Keyboard, R.string.keyboard_input) { host.openKeyboard() }
+            else FilledIconButton(onClick = { if (host.draft.isBlank()) host.startVoice() else host.submit() }, Modifier.size(48.dp)) {
+                AnimatedGlyph(if (host.draft.isBlank()) Icons.Rounded.Mic else Icons.Rounded.ArrowUpward,
+                    stringResource(if (host.draft.isBlank()) R.string.voice_input else R.string.send))
+            }
+            }
+            Box {
                     ToolIcon(Icons.Rounded.Add, R.string.more) { more = true }
                     DropdownMenu(more, onDismissRequest = { more = false }) {
                         DropdownMenuItem(text = { Text(stringResource(R.string.new_task)) }, leadingIcon = { Icon(Icons.Rounded.AddComment, null) },
                             onClick = { more = false; host.command(AssistantService.NEW) })
-                        DropdownMenuItem(text = { Text(stringResource(R.string.chat_mode)) }, leadingIcon = { Icon(Icons.Rounded.ChatBubbleOutline, null) },
-                            enabled = !TaskState.current.running,
-                            onClick = { more = false; host.mode = "chat"; host.expanded = true })
+                        DropdownMenuItem(text = { Text(stringResource(R.string.expand_messages)) }, leadingIcon = { Icon(Icons.Rounded.ChatBubbleOutline, null) },
+                            onClick = { more = false; host.closeProgress(); host.expanded = true })
                         if (TaskState.current.appPackage.isNotBlank()) DropdownMenuItem(text = { Text(stringResource(R.string.block_current_app)) },
                             leadingIcon = { Icon(Icons.Rounded.Block, null) }, onClick = {
                                 more = false
@@ -274,13 +419,9 @@ private fun Composer(host: AssistantOverlay) {
                             })
                         DropdownMenuItem(text = { Text(stringResource(R.string.settings)) }, leadingIcon = { Icon(Icons.Rounded.Settings, null) },
                             onClick = { more = false; host.settings() })
+                        DropdownMenuItem(text = { Text(stringResource(R.string.close)) }, leadingIcon = { Icon(Icons.Rounded.Close, null) },
+                            onClick = { more = false; host.hide() })
                     }
-                }
-            }
-            Spacer(Modifier.width(4.dp))
-            FilledIconButton(onClick = { if (host.draft.isBlank()) host.startVoice() else host.submit() }, Modifier.size(48.dp)) {
-                Icon(if (host.draft.isBlank()) Icons.Rounded.Mic else Icons.Rounded.ArrowUpward,
-                    stringResource(if (host.draft.isBlank()) R.string.voice_input else R.string.send))
             }
         }
     }
@@ -291,22 +432,18 @@ private fun ConversationPanel(host: AssistantOverlay) {
     val context = LocalContext.current
     val messages = TaskState.messages
     val task = TaskState.current
+    val initialCount = remember { messages.size }
     val scroll = rememberScrollState()
     LaunchedEffect(messages.size, task.step) { delay(50); scroll.animateScrollTo(scroll.maxValue) }
     Column(Modifier.fillMaxWidth()) {
-            Row(Modifier.fillMaxWidth().padding(start = 4.dp), verticalAlignment = Alignment.CenterVertically) {
-                Icon(Icons.Rounded.AutoAwesome, null, tint = MaterialTheme.colorScheme.primary)
-                Text(stringResource(R.string.assistant_title), Modifier.weight(1f).padding(start = 8.dp), style = MaterialTheme.typography.titleMedium)
-                if (task.running) ToolIcon(if (task.paused) Icons.Rounded.PlayArrow else Icons.Rounded.Pause,
-                    if (task.paused) R.string.resume else R.string.pause) { host.supplement = false; host.command(AssistantService.PAUSE) }
-                ToolIcon(Icons.Rounded.AddComment, R.string.new_task) { host.command(AssistantService.NEW) }
-                ToolIcon(Icons.Rounded.ExpandMore, R.string.collapse_messages) { host.expanded = false }
-            }
-            Column(Modifier.fillMaxWidth().heightIn(min = 96.dp, max = (LocalConfiguration.current.screenHeightDp * 0.48f).dp)
+            Column(Modifier.fillMaxWidth().heightIn(min = 96.dp, max = (LocalConfiguration.current.screenHeightDp * 0.50f).dp)
                 .verticalScroll(scroll).padding(horizontal = 4.dp, vertical = 16.dp), verticalArrangement = Arrangement.spacedBy(16.dp)) {
-                messages.forEach { message ->
+                messages.forEachIndexed { index, message -> key(index, message) {
+                    val appeared = remember { MutableTransitionState(index < initialCount).apply { targetState = true } }
+                    AnimatedVisibility(appeared, enter = fadeIn(tween(AssistantMotion.enter)) +
+                        slideInVertically(tween(AssistantMotion.expand, easing = AssistantMotion.spatial)) { it.coerceAtMost(40) }) {
                     Column(Modifier.fillMaxWidth(), horizontalAlignment = if (message.user) Alignment.End else Alignment.Start) {
-                        if (message.user) Surface(shape = RoundedCornerShape(20.dp, 20.dp, 6.dp, 20.dp), color = MaterialTheme.colorScheme.primaryContainer) {
+                        if (message.user) Surface(shape = RoundedCornerShape(20.dp, 20.dp, 6.dp, 20.dp), color = MaterialTheme.colorScheme.primary) {
                             Text(message.text, Modifier.widthIn(max = 300.dp).padding(12.dp), style = MaterialTheme.typography.bodyLarge)
                         } else {
                             Text(message.text, style = MaterialTheme.typography.bodyLarge)
@@ -321,36 +458,71 @@ private fun ConversationPanel(host: AssistantOverlay) {
                             }
                         }
                     }
-                }
-                if (task.running) Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                    }
+                } }
+                PanelReveal(task.running) { Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
                     Row(verticalAlignment = Alignment.CenterVertically) {
                         LoadingIndicator(Modifier.size(28.dp))
-                        Text(stringResource(task.status), Modifier.padding(start = 8.dp), style = MaterialTheme.typography.titleMedium)
+                        AnimatedContent(stringResource(task.status), Modifier.padding(start = 8.dp),
+                            transitionSpec = { AssistantMotion.content() }, label = "conversation status") {
+                            Text(it, style = MaterialTheme.typography.titleMedium)
+                        }
                     }
                     if (task.detail.isNotBlank()) Text(task.detail, color = MaterialTheme.colorScheme.onSurfaceVariant, style = MaterialTheme.typography.bodyMedium)
                     Text(stringResource(R.string.step_count, task.step, task.limit), color = MaterialTheme.colorScheme.onSurfaceVariant, style = MaterialTheme.typography.labelSmall)
-                }
+                } }
+                TaskConfirmation(host)
             }
     }
 }
 
 @Composable
 private fun VoicePanel(host: AssistantOverlay) {
-    val state = host.voice.state
-    val primary = MaterialTheme.colorScheme.onPrimary
+    var lastState by remember { mutableStateOf(host.voice.state) }
+    val current = host.voice.state
+    if (current.active || current.error.isNotBlank()) SideEffect { lastState = current }
+    val state = if (current.active || current.error.isNotBlank()) current else lastState
+    val primary = Color.White
+    val context = LocalContext.current
     val level by animateFloatAsState(state.level, spring(0.8f, 400f), label = "microphone level")
+    val height by animateDpAsState(if (state.error.isNotBlank()) 248.dp else 216.dp,
+        tween(AssistantMotion.expand, easing = AssistantMotion.spatial), label = "speech state height")
     var samples by remember { mutableStateOf(List(36) { 0f }) }
     LaunchedEffect(state.active) {
         while (state.active) { samples = (samples.drop(1) + host.voice.state.level); delay(70) }
     }
-    Column(Modifier.fillMaxWidth().heightIn(min = 184.dp).padding(horizontal = 8.dp, vertical = 16.dp),
+    Box(Modifier.fillMaxWidth().height(height)
+        .drawWithCache {
+            val radius = maxOf(size.width * 0.8f, size.height * 1.5f)
+            val glow = Brush.radialGradient(
+                0f to Color(0xff19c5ff), 0.35f to Color(0xff19bfff),
+                0.62f to Color(0xff207bff), 0.80f to Color(0xf0207bff),
+                0.94f to Color(0x50207bff), 1f to Color(0x00207bff),
+                center = Offset(size.width / 2, radius), radius = radius)
+            onDrawBehind { drawRect(glow) }
+        }
+        .semantics {
+            customActions = listOf(
+                CustomAccessibilityAction(context.getString(R.string.cancel)) { host.voice.cancel(); true },
+                CustomAccessibilityAction(context.getString(R.string.voice_done)) { host.voice.finish(); true },
+                CustomAccessibilityAction(context.getString(R.string.keyboard_input)) {
+                    host.voice.cancel(); host.openKeyboard(); true
+                })
+        }) {
+    Column(Modifier.align(Alignment.BottomCenter).fillMaxWidth().navigationBarsPadding()
+        .padding(horizontal = 28.dp).padding(bottom = if (state.error.isNotBlank()) 16.dp else 28.dp),
         horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.spacedBy(16.dp)) {
-        Spacer(Modifier.height(48.dp))
-        AnimatedContent(state.text.ifBlank { state.error.ifBlank { stringResource(if (state.transcribing) R.string.voice_transcribing else R.string.voice_listening) } },
+        AnimatedContent(state.text.ifBlank { state.error.ifBlank { stringResource(when {
+            state.transcribing -> R.string.voice_transcribing
+            host.voiceHeld -> R.string.voice_release
+            else -> R.string.voice_listening
+        }) } },
+            transitionSpec = { fadeIn(tween(120)) togetherWith fadeOut(tween(90)) },
             label = "speech transcription") { Text(it, color = primary, textAlign = TextAlign.Center,
-                style = MaterialTheme.typography.bodyLarge, maxLines = 3, overflow = TextOverflow.Ellipsis) }
-        if (state.transcribing) LoadingIndicator(Modifier.size(32.dp))
-        else Canvas(Modifier.fillMaxWidth(0.78f).height(32.dp)) {
+                style = MaterialTheme.typography.bodyMedium, maxLines = 3, overflow = TextOverflow.Ellipsis) }
+        if (state.transcribing) CircularProgressIndicator(Modifier.size(24.dp), color = primary, strokeWidth = 2.dp)
+        else if (state.error.isBlank()) Canvas(Modifier.fillMaxWidth(0.68f).height(20.dp)
+            .clickable(role = Role.Button, onClickLabel = stringResource(R.string.voice_done)) { host.voice.finish() }) {
             val gap = size.width / samples.size
             samples.forEachIndexed { index, value ->
                 val height = (4.dp.toPx() + value * size.height * 0.8f + level * 2.dp.toPx()).coerceAtMost(size.height)
@@ -358,15 +530,15 @@ private fun VoicePanel(host: AssistantOverlay) {
                     Offset(index * gap + gap / 2, (size.height + height) / 2), 2.dp.toPx(), StrokeCap.Round)
             }
         }
-        CompositionLocalProvider(LocalContentColor provides primary) {
+        if (state.error.isNotBlank()) CompositionLocalProvider(LocalContentColor provides primary) {
         Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {
-            ToolIcon(Icons.Rounded.Keyboard, R.string.keyboard_input) { if (state.text.isNotBlank()) host.draft = state.text; host.voice.cancel(); host.setFocus(true) }
+            ToolIcon(Icons.Rounded.Keyboard, R.string.keyboard_input) { if (state.text.isNotBlank()) host.draft = state.text; host.voice.cancel(); host.openKeyboard() }
             ToolIcon(Icons.Rounded.Close, R.string.cancel) { host.voice.cancel() }
-            if (state.error.isNotBlank()) FilledTonalButton(onClick = { host.voice.cancel(); host.settings() }) {
-                Text(stringResource(R.string.settings))
-            } else ToolIcon(Icons.Rounded.Check, R.string.voice_done) { host.voice.finish() }
+            TextButton(onClick = { host.voice.cancel(); host.settings() },
+                colors = ButtonDefaults.textButtonColors(contentColor = Color.White)) { Text(stringResource(R.string.settings)) }
         }
         }
+    }
     }
 }
 

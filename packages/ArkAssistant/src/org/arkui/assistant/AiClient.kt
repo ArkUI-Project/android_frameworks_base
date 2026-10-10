@@ -80,7 +80,7 @@ internal class AiClient(private val config: AssistantConfig) {
                     JSONObject().put("text", field("string", "Text to insert, at most 4000 characters")), listOf("text")))
                 .put(tool("key", "Press a navigation key: back, home, recents or enter.",
                     JSONObject().put("key", field("string", "back, home, recents or enter").put("enum", JSONArray(listOf("back", "home", "recents", "enter")))), listOf("key")))
-                .put(tool("open_app", "Open an app using a package name returned by list_apps.",
+                .put(tool("open_app", "Open an app using a package name returned by list_apps. No capture of the current app is needed before launching.",
                     JSONObject().put("package", field("string", "Installed app package name")), listOf("package")))
                 .put(tool("open_url", "Open an HTTPS webpage or search URL in the browser.",
                     JSONObject().put("url", field("string", "HTTPS URL")), listOf("url")))

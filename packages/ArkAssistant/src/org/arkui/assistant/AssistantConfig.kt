@@ -21,7 +21,6 @@ data class AssistantConfig(
     val key: String = "",
     val control: Boolean = true,
     val steps: Int = 12,
-    val background: Boolean = false,
     val speechEndpoint: String = "",
     val speechModel: String = "whisper-1",
     val speechKey: String = "",
@@ -49,7 +48,6 @@ data class AssistantConfig(
 
 class ConfigStore(private val context: Context) {
     private val prefs = context.getSharedPreferences("assistant", Context.MODE_PRIVATE)
-    val defaultBackground: Boolean get() = prefs.getBoolean("background", false)
     val enabled: Boolean
         get() = Settings.Secure.getInt(context.contentResolver, AssistantProtocol.ENABLED, 0) == 1
 
@@ -63,7 +61,6 @@ class ConfigStore(private val context: Context) {
         key = runCatching { decrypt(prefs.getString("key", "")!!) }.getOrDefault(""),
         control = prefs.getBoolean("control", true),
         steps = prefs.getInt("steps", 12).coerceIn(4, 30),
-        background = defaultBackground,
         speechEndpoint = prefs.getString("speech_endpoint", "")!!,
         speechModel = prefs.getString("speech_model", "whisper-1")!!,
         speechKey = runCatching { decrypt(prefs.getString("speech_key", "")!!) }.getOrDefault(""),
@@ -74,7 +71,7 @@ class ConfigStore(private val context: Context) {
         check(prefs.edit().putString("endpoint", config.endpoint.trim().trimEnd('/'))
             .putString("model", config.model.trim()).putString("key", encrypt(config.key.trim()))
             .putBoolean("control", config.control).putInt("steps", config.steps)
-            .putBoolean("background", config.background)
+            .remove("background")
             .putString("speech_endpoint", config.speechEndpoint.trim().trimEnd('/'))
             .putString("speech_model", config.speechModel.trim())
             .putString("speech_key", encrypt(config.speechKey.trim())).commit())

@@ -14,7 +14,14 @@ public final class AssistantProtocol {
     public static final int END = 4;
     public static final int INPUT_STATE = 5;
     public static final int TAKE_OVER = 6;
+    public static final int PREVIEW = 7;
+    public static final int DISPLAY_STATE = 8;
+    public static final int EXECUTION_STATE = 9;
     public static final String SESSION = "session";
     public static final String CONTENT = "content";
     public static final String ERROR = "error";
+    public static final String ERROR_CODE = "error_code";
+    public static final String APP_BLOCKED = "app_blocked";
+    public static final String SCREEN_PROTECTED = "screen_protected";
+    public static final String POLICY_UNAVAILABLE = "policy_unavailable";
 }

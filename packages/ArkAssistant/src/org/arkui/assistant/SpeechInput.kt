@@ -31,9 +31,11 @@ internal data class VoiceSnapshot(val active: Boolean = false, val transcribing:
 
 /** Audio stays in memory and is discarded on cancellation. Only the configured service sees it. */
 internal class SpeechInput(private val context: Context, private val onText: (String) -> Unit,
-    private val onInactive: () -> Unit) {
-    var state by mutableStateOf(VoiceSnapshot())
-        private set
+    private val onInactive: () -> Unit, private val onState: (VoiceSnapshot) -> Unit = {}) {
+    private var snapshot by mutableStateOf(VoiceSnapshot())
+    var state: VoiceSnapshot
+        get() = snapshot
+        private set(value) { snapshot = value; onState(value) }
     private val main = Handler(Looper.getMainLooper())
     private val worker = Executors.newSingleThreadExecutor()
     private var recognizer: SpeechRecognizer? = null
@@ -41,9 +43,11 @@ internal class SpeechInput(private val context: Context, private val onText: (St
     @Volatile private var connection: HttpURLConnection? = null
     @Volatile private var generation = 0
     @Volatile private var ending = false
+    @Volatile private var hold = false
 
-    fun start() {
+    fun start(hold: Boolean = false) {
         cancel()
+        this.hold = hold
         val token = generation
         val config = ConfigStore(context).read()
         if (config.speechEndpoint.isNotBlank()) {
@@ -72,6 +76,7 @@ internal class SpeechInput(private val context: Context, private val onText: (St
             runCatching { recognizer!!.startListening(Intent(RecognizerIntent.ACTION_RECOGNIZE_SPEECH)
                 .putExtra(RecognizerIntent.EXTRA_LANGUAGE_MODEL, RecognizerIntent.LANGUAGE_MODEL_FREE_FORM)
                 .putExtra(RecognizerIntent.EXTRA_LANGUAGE, Locale.getDefault().toLanguageTag())
+                .putExtra(RecognizerIntent.EXTRA_SPEECH_INPUT_COMPLETE_SILENCE_LENGTH_MILLIS, if (hold) 30000L else 1400L)
                 .putExtra(RecognizerIntent.EXTRA_PARTIAL_RESULTS, true)
                 .putExtra(RecognizerIntent.EXTRA_MAX_RESULTS, 1)) }
                 .onFailure { fail(token, context.getString(R.string.voice_failed)) }
@@ -112,7 +117,7 @@ internal class SpeechInput(private val context: Context, private val onText: (St
                 val rms = sqrt(sum / (count / 2)).toFloat()
                 if (rms > 0.014f) { heard = true; lastSpeech = SystemClock.uptimeMillis() }
                 main.post { if (token == generation) state = state.copy(level = (rms * 12f).coerceIn(0f, 1f)) }
-                if (heard && SystemClock.uptimeMillis() - lastSpeech > 1400) break
+                if (!hold && heard && SystemClock.uptimeMillis() - lastSpeech > 1400) break
                 if (!heard && SystemClock.uptimeMillis() - began > 6000) break
             }
             audio.stop(); audio.release(); audio = null; recorder = null
@@ -168,10 +173,9 @@ internal class SpeechInput(private val context: Context, private val onText: (St
 
     private fun fail(token: Int, message: String) {
         if (token != generation) return
-        val wasActive = state.active
         state = VoiceSnapshot(error = message)
         recognizer?.destroy(); recognizer = null
-        if (wasActive) onInactive()
+        onInactive()
     }
 
     fun cancel() {

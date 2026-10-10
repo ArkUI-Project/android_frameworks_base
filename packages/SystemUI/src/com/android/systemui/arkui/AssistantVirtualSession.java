@@ -73,7 +73,10 @@ final class AssistantVirtualSession {
             try {
                 // Return every task, including apps opened by the assistant. Completion must not
                 // interrupt whatever the user is doing on the physical display.
-                for (var task : ActivityTaskManager.getService().getAllRootTaskInfosOnDisplay(displayId())) {
+                var tasks = ActivityTaskManager.getService().getAllRootTaskInfosOnDisplay(displayId());
+                // The list is top-first. When taking over, restore the current app last/on top.
+                if (takeOver) java.util.Collections.reverse(tasks);
+                for (var task : tasks) {
                     ActivityTaskManager.getService().moveRootTaskToDisplayOnTopOrBottom(
                             task.taskId, Display.DEFAULT_DISPLAY, takeOver);
                 }

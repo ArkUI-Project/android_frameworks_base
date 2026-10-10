@@ -1,6 +1,14 @@
 <?xml version="1.0" encoding="utf-8"?>
 <!-- Copyright (C) 2026 The ArkUI Project; SPDX-License-Identifier: Apache-2.0 -->
 <resources>
+    <string name="invoke_methods">Activation</string>
+    <string name="invoke_power">Hold power button</string>
+    <string name="invoke_double_tap">Double-tap navigation handle</string>
+    <string name="invoke_long_press">Hold navigation handle</string>
+    <string name="invoke_voice">Voice input</string>
+    <string name="invoke_text">Text input</string>
+    <string name="invoke_screen">Read current screen</string>
+    <string name="invoke_disabled">Off</string>
     <string name="app_name">ArkAI</string>
     <string name="assistant_title">ArkAI</string>
     <string name="settings">AI settings</string>
@@ -82,6 +90,8 @@
     <string name="chat_mode">Chat</string>
     <string name="screen_mode">Screen Q&amp;A</string>
     <string name="background_mode">Background mode</string>
+    <string name="moving_background">Moving to the background</string>
+    <string name="background_transfer_failed">Could not move this app to the background. The task is paused.</string>
     <string name="background_summary">Run the app on an independent virtual screen</string>
     <string name="assistant_behavior">Assistant</string>
     <string name="advanced">Advanced</string>
@@ -107,6 +117,27 @@
     <string name="voice_configure">Install a system speech recognizer or configure a transcription service in Voice input settings.</string>
     <string name="voice_failed">Speech recognition failed. Check the microphone and speech service.</string>
     <string name="voice_no_speech">No speech detected</string>
-    <string name="blocked_screen">This app is blocked. You can still use text-only Chat.</string>
+    <string name="blocked_screen">This app is in your blocklist. You can still chat or open another allowed app.</string>
+    <string name="assistant_screen_protected">ArkAI settings are protected to keep credentials private. You can still chat or ask to open another app.</string>
+    <string name="blocklist_unavailable">The app blocklist could not be read. Check the blocklist in ArkAI settings.</string>
     <string name="background_unavailable">Cannot start background mode. Open a fullscreen app and try again.</string>
+    <string name="task_progress">Task progress</string>
+    <string name="live_screen">Live screen</string>
+    <string name="execution_log">Activity</string>
+    <string name="preview_connecting">Connecting to task screen…</string>
+    <string name="preview_unavailable">Screen temporarily unavailable. Reconnecting…</string>
+    <string name="preview_updated">Updated %1$d s ago</string>
+    <string name="user_in_control">You have control. Resume when ready.</string>
+    <string name="takeover_failed">Could not switch screens. The task is paused; try again.</string>
+    <string name="opening_app">Opening %1$s</string>
+    <string name="reply">Reply</string>
+    <string name="speak">Hold to speak</string>
+    <string name="voice_release">Release to send</string>
+    <string name="enlarge_preview">Enlarge task screen</string>
+    <string name="shrink_preview">Shrink task screen</string>
+    <string name="ime_voice_listening">Listening for keyboard dictation</string>
+    <string name="ime_voice_permission">Allow microphone access in ArkAI voice input settings first.</string>
+    <string name="ime_voice_disabled">Turn on ArkAI and unlock your device to use voice input.</string>
+    <string name="ime_voice_cancelled">Dictation cancelled</string>
+    <string name="microphone_permission">Microphone access</string>
 </resources>

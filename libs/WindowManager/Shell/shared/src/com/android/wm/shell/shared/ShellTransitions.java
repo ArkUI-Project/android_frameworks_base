@@ -29,6 +29,11 @@ import java.util.concurrent.Executor;
  */
 @ExternalThread
 public interface ShellTransitions {
+    /** Runs on the supplied executor after all pending and active transitions finish. */
+    default void runOnIdle(@NonNull Runnable action, @NonNull Executor executor) {
+        executor.execute(action);
+    }
+
     /**
      * Registers a remote transition for all operations excluding takeovers (see
      * {@link ShellTransitions#registerRemoteForTakeover(TransitionFilter, RemoteTransition)}).

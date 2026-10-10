@@ -1371,6 +1371,9 @@ public class InputMethodService extends AbstractInputMethodService {
             if (!isEnabled()) {
                 return;
             }
+            if (oldSelStart != newSelStart || oldSelEnd != newSelEnd) {
+                mNavigationBarController.onInputHidden();
+            }
             InputMethodService.this.onUpdateSelection(oldSelStart, oldSelEnd,
                     newSelStart, newSelEnd, candidatesStart, candidatesEnd);
         }
@@ -3282,6 +3285,7 @@ public class InputMethodService extends AbstractInputMethodService {
         // send the token here, so that another request in the provider can be cancelled.
         notifyPreImeWindowVisibilityChanged(false /* visible */, statsToken);
         mWindowVisible = false;
+        mNavigationBarController.onInputHidden();
         finishViews(false /* finishingInput */);
         if (mDecorViewVisible) {
             // It is responsible for client and server side visibility of IME window.
@@ -3352,6 +3356,7 @@ public class InputMethodService extends AbstractInputMethodService {
     }
     
     void doFinishInput() {
+        mNavigationBarController.onInputHidden();
         if (DEBUG) Log.v(TAG, "CALL: doFinishInput");
         ImeTracing.getInstance().triggerServiceDump("InputMethodService#doFinishInput", mDumper,
                 null /* icProto */);
@@ -3383,6 +3388,7 @@ public class InputMethodService extends AbstractInputMethodService {
         mInputStarted = true;
         mStartedInputConnection = ic;
         mInputEditorInfo = editorInfo;
+        mNavigationBarController.onInputChanged();
         initialize();
         mInlineSuggestionSessionController.notifyOnStartInput(
                 editorInfo == null ? null : editorInfo.packageName,
