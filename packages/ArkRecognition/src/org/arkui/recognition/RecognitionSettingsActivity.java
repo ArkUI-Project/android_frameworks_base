@@ -1,7 +1,6 @@
 /* Copyright (C) 2026 The ArkUI Project; SPDX-License-Identifier: Apache-2.0 */
 package org.arkui.recognition;
 
-import android.content.Intent;
 import android.os.Bundle;
 import android.os.UserManager;
 import android.view.View;
@@ -32,8 +31,6 @@ public final class RecognitionSettingsActivity extends CollapsingToolbarBaseActi
             RecognitionPreferences prefs = new RecognitionPreferences(context);
             var root = getPreferenceManager().createPreferenceScreen(context); setPreferenceScreen(root);
             TopIntroPreference intro = new TopIntroPreference(context); intro.setTitle(R.string.recognition_intro); root.addPreference(intro);
-            Preference open = new Preference(context); configure(open, "open_picture", R.string.open_picture);
-            open.setOnPreferenceClickListener(p -> { startActivity(new Intent(requireContext(), RecognitionActivity.class)); return true; }); root.addPreference(open);
             ListPreference language = new ListPreference(context); configure(language, "ocr_language", R.string.ocr_language);
             language.setEntries(new CharSequence[] {getString(R.string.ocr_simplified), getString(R.string.ocr_traditional), getString(R.string.ocr_english)});
             language.setEntryValues(new CharSequence[] {"0", "1", "2"}); language.setValue(Integer.toString(prefs.get("ocr_language", 0, 0, 2)));

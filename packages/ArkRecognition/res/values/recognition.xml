@@ -3,7 +3,7 @@
 <resources>
     <string name="recognize">Recognize screen</string>
     <string name="recognition_summary">Select text in place and extract pictures, entirely offline</string>
-    <string name="recognition_intro">Open screen recognition from the sidebar or wheel. Select words directly on the screen, or save pictures and videos. You can also open a picture here or share one from another app.</string>
+    <string name="recognition_intro">Open screen recognition from the sidebar or wheel. Select words directly on the screen, or save pictures and videos. You can also share a picture from another app.</string>
     <string name="recognition_running">Recognizing on device…</string>
     <string name="recognition_ready">Tap Words to select text</string>
     <string name="recognition_empty">No text found. You can still extract an image.</string>
@@ -28,6 +28,5 @@
     <string name="ocr_english">English</string>
     <string name="recognition_wave">Recognition animation</string>
     <string name="recognition_dim">Recognition background dimming</string>
-    <string name="open_picture">Open a picture</string>
     <string name="recognition_close">Close recognition</string>
 </resources>

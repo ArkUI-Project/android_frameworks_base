@@ -3,7 +3,7 @@
 <resources>
     <string name="recognize">识屏</string>
     <string name="recognition_summary">原位选字、提取图片，全程离线识别</string>
-    <string name="recognition_intro">从侧边栏或轮盘开启识屏，在画面原位选择文字，保存图片与视频。也可以在这里打开图片，或接收其他应用分享的图片。</string>
+    <string name="recognition_intro">从侧边栏或轮盘开启识屏，在画面原位选择文字，保存图片与视频。也可以接收其他应用分享的图片。</string>
     <string name="recognition_running">正在本地识别…</string>
     <string name="recognition_ready">轻点「分词文本」选择词块</string>
     <string name="recognition_empty">未识别到文字，仍可提取图片</string>
@@ -28,6 +28,5 @@
     <string name="ocr_english">英语</string>
     <string name="recognition_wave">识屏动画</string>
     <string name="recognition_dim">识屏背景暗度</string>
-    <string name="open_picture">打开图片</string>
     <string name="recognition_close">关闭识屏</string>
 </resources>
