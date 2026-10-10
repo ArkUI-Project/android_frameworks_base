@@ -10,7 +10,6 @@
         android:theme="@style/GameTheme" android:allowBackup="false" android:supportsRtl="true">
         <service android:name=".GameService" android:exported="true" android:permission="org.arkui.game.permission.CONTROL_GAME" />
         <activity android:name=".GameActivity" android:exported="true">
-            <intent-filter><action android:name="android.intent.action.MAIN" /><category android:name="android.intent.category.LAUNCHER" /></intent-filter>
             <intent-filter><action android:name="org.arkui.game.SETTINGS" /><category android:name="android.intent.category.DEFAULT" /></intent-filter>
         </activity>
     </application>

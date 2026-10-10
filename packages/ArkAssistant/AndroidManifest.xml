@@ -28,8 +28,6 @@
         <activity android:name=".AssistantActivity" android:exported="true"
             android:theme="@style/AssistantDrawerTheme" android:excludeFromRecents="true"
             android:launchMode="singleTask" android:taskAffinity="org.arkui.assistant.drawer">
-            <intent-filter><action android:name="android.intent.action.MAIN" />
-                <category android:name="android.intent.category.LAUNCHER" /></intent-filter>
             <intent-filter>
                 <action android:name="android.intent.action.ASSIST" />
                 <action android:name="android.intent.action.VOICE_ASSIST" />
