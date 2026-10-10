@@ -336,6 +336,12 @@ import javax.inject.Named;
 public abstract class SystemUIModule {
     @Binds
     @IntoMap
+    @ClassKey(com.android.systemui.arkui.SmartPixelsController.class)
+    abstract CoreStartable bindArkSmartPixels(
+            com.android.systemui.arkui.SmartPixelsController controller);
+
+    @Binds
+    @IntoMap
     @ClassKey(com.android.systemui.arkui.SidebarManager.class)
     abstract CoreStartable bindArkSidebar(com.android.systemui.arkui.SidebarManager manager);
 

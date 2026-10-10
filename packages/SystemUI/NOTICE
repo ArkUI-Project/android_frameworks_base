@@ -1,3 +1,10 @@
+ArkUI Smart Pixels
+Display-overlay rendering adapted from the AxionOS SmartPixelOverlay and SmartPixelView
+in crDroid Android 16.0, revision 68d3d80589e4cc8dd34c470db3aa9c027f610674.
+https://github.com/crdroidandroid/android_frameworks_base/tree/16.0/packages/SystemUI/src/com/android/systemui/smartpixel
+Copyright (C) 2025-2026 AxionOS
+Copyright (C) 2026 The ArkUI Project (native integration and modifications)
+Licensed under the Apache License, Version 2.0, reproduced below.
 
 ArkUI native proactive intelligence, SMS code suggestions and status bar lyrics
 Matching rules and feature behavior adapted from AviumUseful (revision
