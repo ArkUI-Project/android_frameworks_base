@@ -71,7 +71,12 @@ import org.json.JSONArray
 import org.json.JSONObject
 import org.arkui.assistant.protocol.AssistantInvocation
 
-class AssistantSettingsActivity : ComponentActivity() {
+class VoiceInputSettingsActivity : AssistantSettingsActivity() {
+    override val speechOnly = true
+}
+
+open class AssistantSettingsActivity : ComponentActivity() {
+    protected open val speechOnly = false
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         WindowCompat.setDecorFitsSystemWindows(window, false)
@@ -92,7 +97,7 @@ class AssistantSettingsActivity : ComponentActivity() {
                         bodySmall = type.bodySmall.copy(letterSpacing = 0.sp),
                         labelLarge = type.labelLarge.copy(letterSpacing = 0.sp)),
                     motionScheme = MotionScheme.expressive()) {
-                    ConfigScreen(this, intent.action == "org.arkui.assistant.REMOVE")
+                    ConfigScreen(this, intent.action == "org.arkui.assistant.REMOVE", speechOnly)
                 }
             }
         }
@@ -120,11 +125,12 @@ class AssistantSettingsActivity : ComponentActivity() {
 }
 
 @Composable
-private fun ConfigScreen(activity: AssistantSettingsActivity, requestRemove: Boolean) {
+private fun ConfigScreen(activity: AssistantSettingsActivity, requestRemove: Boolean, speechOnly: Boolean) {
     val store = remember { ConfigStore(activity) }
     var config by remember { mutableStateOf(store.read()) }
     var enabled by remember { mutableStateOf(store.enabled) }
-    var page by remember { mutableStateOf("main") }
+    val rootPage = if (speechOnly) "speech" else "main"
+    var page by remember { mutableStateOf(rootPage) }
     var editing by remember { mutableStateOf("") }
     var value by remember { mutableStateOf("") }
     var message by remember { mutableStateOf("") }
@@ -152,7 +158,7 @@ private fun ConfigScreen(activity: AssistantSettingsActivity, requestRemove: Boo
         else activity.window.clearFlags(WindowManager.LayoutParams.FLAG_SECURE)
         onDispose { activity.window.clearFlags(WindowManager.LayoutParams.FLAG_SECURE) }
     }
-    BackHandler(page != "main") { page = "main" }
+    BackHandler(page != rootPage) { page = rootPage }
 
     fun save(next: AssistantConfig) {
         runCatching {
@@ -177,7 +183,7 @@ private fun ConfigScreen(activity: AssistantSettingsActivity, requestRemove: Boo
         topBar = {
             Row(Modifier.fillMaxWidth().statusBarsPadding().heightIn(min = 72.dp)
                 .padding(horizontal = SettingsSpace.small1), verticalAlignment = Alignment.CenterVertically) {
-                FilledTonalIconButton(onClick = { if (page == "main") activity.finish() else page = "main" },
+                FilledTonalIconButton(onClick = { if (page == rootPage) activity.finish() else page = rootPage },
                     colors = IconButtonDefaults.filledTonalIconButtonColors(containerColor = MaterialTheme.colorScheme.surfaceContainerHighest,
                         contentColor = MaterialTheme.colorScheme.onSurfaceVariant)) {
                     Icon(Icons.AutoMirrored.Rounded.ArrowBack, stringResource(R.string.close))
@@ -224,7 +230,6 @@ private fun ConfigScreen(activity: AssistantSettingsActivity, requestRemove: Boo
                             override val onCheckedChange: (Boolean) -> Unit = { save(config.copy(control = it)) }
                         })
                         SettingsCell(R.string.blocked_apps, activity.getString(R.string.blocked_count, blocked.size)) { page = "apps" }
-                        SettingsCell(R.string.voice_input, activity.getString(if (config.speechEndpoint.isNotBlank()) R.string.voice_custom else R.string.voice_system)) { page = "speech" }
                     }
                     Category(stringResource(R.string.invoke_methods)) {
                         shortcutTitles.forEach { (entry, title) ->

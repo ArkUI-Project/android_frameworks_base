@@ -138,7 +138,7 @@
     <string name="enlarge_preview">Enlarge task screen</string>
     <string name="shrink_preview">Shrink task screen</string>
     <string name="ime_voice_listening">Listening for keyboard dictation</string>
-    <string name="ime_voice_permission">Allow microphone access in ArkAI voice input settings first.</string>
+    <string name="ime_voice_permission">Allow microphone access in Settings · More settings · Voice input first.</string>
     <string name="ime_voice_disabled">Turn on ArkAI and unlock your device to use voice input.</string>
     <string name="ime_voice_cancelled">Dictation cancelled</string>
     <string name="microphone_permission">Microphone access</string>

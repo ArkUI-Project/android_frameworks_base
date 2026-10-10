@@ -46,6 +46,11 @@
             android:permission="org.arkui.assistant.permission.CONTROL_ASSISTANT"
             android:theme="@style/AssistantDrawerTheme" android:excludeFromRecents="true"
             android:taskAffinity="" />
+        <activity android:name=".VoiceInputSettingsActivity" android:exported="true"
+            android:label="@string/voice_input">
+            <intent-filter><action android:name="org.arkui.assistant.VOICE_INPUT_SETTINGS" />
+                <category android:name="android.intent.category.DEFAULT" /></intent-filter>
+        </activity>
         <activity android:name=".AssistantSettingsActivity" android:exported="true">
             <intent-filter><action android:name="org.arkui.assistant.SETTINGS" />
                 <category android:name="android.intent.category.DEFAULT" /></intent-filter>
