@@ -47,6 +47,7 @@
     <uses-permission android:name="org.arkui.sidebar.permission.CONTROL_SIDEBAR" />
     <uses-permission android:name="org.arkui.wheel.permission.CONTROL_WHEEL" />
     <uses-permission android:name="org.arkui.recognition.permission.CONTROL_RECOGNITION" />
+    <uses-permission android:name="org.arkui.assistant.permission.CONTROL_ASSISTANT" />
     <uses-permission android:name="android.permission.CAPTURE_VISIBLE_CONTENT" />
     <uses-permission android:name="org.arkui.game.permission.CONTROL_GAME" />
     <uses-permission android:name="android.permission.STATUS_BAR" />
@@ -442,6 +443,9 @@
              up everything else.
              TODO: Should have an android:permission attribute
              -->
+        <service android:name=".arkui.AssistantHostService" android:exported="true"
+            android:permission="org.arkui.assistant.permission.CONTROL_ASSISTANT" />
+
         <service android:name="SystemUIService"
             android:exported="true"
         />

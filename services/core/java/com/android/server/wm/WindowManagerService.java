@@ -10647,6 +10647,21 @@ public class WindowManagerService extends IWindowManager.Stub
     @Override
     public void requestVisibleScreenContent(int displayId, String callingPackage,
             android.view.IScreenContentCallback callback) {
+        requestVisibleScreenContent(displayId, callingPackage, callback, false);
+    }
+
+    @Override
+    public void requestAssistantScreenContent(int displayId, String callingPackage,
+            android.view.IScreenContentCallback callback) {
+        mAppOps.checkPackage(Binder.getCallingUid(), callingPackage);
+        if (!mContext.getString(com.android.internal.R.string.config_systemUi).equals(callingPackage)) {
+            throw new SecurityException("Assistant capture is reserved for SystemUI");
+        }
+        requestVisibleScreenContent(displayId, callingPackage, callback, true);
+    }
+
+    private void requestVisibleScreenContent(int displayId, String callingPackage,
+            android.view.IScreenContentCallback callback, boolean assistantCapture) {
         if (!checkCallingPermission("android.permission.CAPTURE_VISIBLE_CONTENT",
                 "requestVisibleScreenContent()")) {
             throw new SecurityException("Requires CAPTURE_VISIBLE_CONTENT permission");
@@ -10671,7 +10686,7 @@ public class WindowManagerService extends IWindowManager.Stub
                 "requestVisibleScreenContent()")) {
             throw new SecurityException("Requires INTERACT_ACROSS_USERS_FULL permission");
         }
-        controller.request(displayId, callingPackage, uid, targetUser, callback);
+        controller.request(displayId, callingPackage, uid, targetUser, callback, assistantCapture);
     }
 
     @Override

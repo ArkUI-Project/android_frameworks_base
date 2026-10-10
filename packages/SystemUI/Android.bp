@@ -517,6 +517,7 @@ android_library {
     static_libs: [
         "ArkWheelProtocol",
         "ArkRecognitionProtocol",
+        "ArkAssistantProtocol",
         "ArkGameProtocol",
         "//frameworks/libs/systemui:compilelib",
         "com.android.systemui.pods-api-aosp-handheld",
@@ -846,6 +847,7 @@ android_library {
         "ArkGameProtocol",
         "ArkWheelProtocol",
         "ArkRecognitionProtocol",
+        "ArkAssistantProtocol",
         "androidx.core_core-animation-testing",
         "androidx.lifecycle_lifecycle-runtime-testing",
         "mockito-target-extended-minus-junit4",

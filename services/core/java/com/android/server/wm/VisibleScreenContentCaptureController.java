@@ -28,11 +28,13 @@ import android.os.RemoteException;
 import android.os.SystemClock;
 import android.os.UserHandle;
 import android.os.UserManager;
+import android.provider.Settings;
 import android.system.ErrnoException;
 import android.system.Os;
 import android.system.OsConstants;
 import android.system.StructStat;
 import android.util.ArrayMap;
+import android.util.ArraySet;
 import android.util.Slog;
 import android.view.IScreenContentCallback;
 import android.view.ScreenContent;
@@ -45,6 +47,8 @@ import android.window.ScreenCaptureInternal;
 import java.util.ArrayList;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
+import org.json.JSONArray;
+import org.json.JSONException;
 
 /** Single-shot current-display capture. App IPC and readback never run under the WM lock. */
 final class VisibleScreenContentCaptureController {
@@ -77,22 +81,25 @@ final class VisibleScreenContentCaptureController {
     }
 
     void request(int displayId, String callingPackage, int uid, int targetUser,
-            IScreenContentCallback callback) {
-        mHandler.post(() -> begin(displayId, callingPackage, uid, targetUser, callback));
+            IScreenContentCallback callback, boolean assistantCapture) {
+        mHandler.post(() -> begin(displayId, callingPackage, uid, targetUser, callback,
+                assistantCapture));
     }
 
     private void begin(int displayId, String packageName, int uid, int targetUser,
-            IScreenContentCallback callback) {
+            IScreenContentCallback callback, boolean assistantCapture) {
         if (mRequests.containsKey(uid) || mRequests.size() >= MAX_REQUESTS) {
             deliver(callback, new ScreenContent());
             return;
         }
-        Request request = new Request(displayId, packageName, uid, targetUser, callback);
+        Request request = new Request(displayId, packageName, uid, targetUser, callback,
+                assistantCapture);
         if (!isUserUnlocked(request.userId)) {
             request.result.status = ScreenContent.STATUS_SECURE;
         } else {
+            ArraySet<String> blocked = blockedApps(request);
             synchronized (mWm.mGlobalLock) {
-                int gate = securityGate(displayId, request.userId);
+                int gate = securityGate(displayId, request.userId, blocked);
                 if (gate != ScreenContent.STATUS_OK) {
                     request.result.status = gate;
                 } else {
@@ -145,7 +152,20 @@ final class VisibleScreenContentCaptureController {
         mReadback.execute(() -> capture(request));
     }
 
-    private int securityGate(int displayId, int userId) {
+    private ArraySet<String> blockedApps(Request request) {
+        ArraySet<String> blocked = new ArraySet<>();
+        if (!request.assistantCapture) return blocked;
+        String value = Settings.Secure.getStringForUser(mWm.mContext.getContentResolver(),
+                "arkui_assistant_blocked_apps", request.userId);
+        if (value == null || value.isEmpty()) return blocked;
+        try {
+            JSONArray apps = new JSONArray(value);
+            for (int i = 0; i < apps.length(); i++) blocked.add(apps.getString(i));
+        } catch (JSONException e) { blocked.add("*"); }
+        return blocked;
+    }
+
+    private int securityGate(int displayId, int userId, ArraySet<String> blocked) {
         DisplayContent display = mWm.mRoot.getDisplayContent(displayId);
         if (display == null || display.isPrivate() || !display.isTrusted()
                 || userId != mWm.mCurrentUserId || !mWm.mPolicy.isScreenOn(displayId)) {
@@ -159,6 +179,7 @@ final class VisibleScreenContentCaptureController {
         display.forAllWindows(window -> {
             if (window.isVisibleNow() && window.isDrawn()
                     && (window.isSecureLocked()
+                    || blocked.contains("*") || blocked.contains(window.getOwningPackage())
                     || (window.mAttrs.flags & WindowManager.LayoutParams.FLAG_SECURE) != 0
                     || !DevicePolicyCache.getInstance().isScreenCaptureAllowed(window.mShowUserId))) {
                 restricted[0] = true;
@@ -183,6 +204,13 @@ final class VisibleScreenContentCaptureController {
         request.captureRoot = new SurfaceControl(display.getSurfaceControl(), TAG);
         display.forAllWindows(window -> {
             if (!window.isVisibleNow() || !window.isDrawn()) return;
+            if (excludedOverlay(request, window)) {
+                SurfaceControl surface = window.getSurfaceControl();
+                if (surface != null && surface.isValid()) {
+                    request.excluded.add(new SurfaceControl(surface, TAG));
+                }
+                return;
+            }
             WindowSnapshot snapshot = new WindowSnapshot(window);
             request.windows.add(snapshot);
             snapshot.visibleRegion.op(request.result.displayBounds, Region.Op.INTERSECT);
@@ -192,7 +220,7 @@ final class VisibleScreenContentCaptureController {
             boolean stable = !display.inTransition() && !window.inTransition()
                     && !window.isAnimatingLw() && window.mGlobalScale == 1f
                     && !window.inFreeformWindowingMode() && !window.inPinnedWindowingMode();
-            snapshot.collect = currentUser && stable && !snapshot.visibleRegion.isEmpty()
+            snapshot.collect = !request.assistantCapture && currentUser && stable && !snapshot.visibleRegion.isEmpty()
                     && count[0] < MAX_WINDOWS;
             if (snapshot.collect) count[0]++;
             else if (!snapshot.visibleRegion.isEmpty()) request.result.partial = true;
@@ -211,6 +239,7 @@ final class VisibleScreenContentCaptureController {
         request.captureArgs = new ScreenCaptureInternal.LayerCaptureArgs.Builder(request.captureRoot)
                 .setSourceCrop(request.result.displayBounds)
                 .setFrameScale(scale)
+                .setExcludeLayers(request.excluded.toArray(new SurfaceControl[0]))
                 .setSecureContentPolicy(ScreenCaptureParams.SECURE_CONTENT_POLICY_THROW_EXCEPTION)
                 .setProtectedContentPolicy(
                         ScreenCaptureParams.PROTECTED_CONTENT_POLICY_THROW_EXCEPTION)
@@ -368,8 +397,9 @@ final class VisibleScreenContentCaptureController {
         try { request.callback.asBinder().unlinkToDeath(request.death, 0); }
         catch (java.util.NoSuchElementException ignored) { }
         boolean unlocked = isUserUnlocked(request.userId);
+        ArraySet<String> blocked = blockedApps(request);
         synchronized (mWm.mGlobalLock) {
-            int gate = securityGate(request.result.displayId, request.userId);
+            int gate = securityGate(request.result.displayId, request.userId, blocked);
             if (!unlocked) request.result.status = ScreenContent.STATUS_SECURE;
             else if (gate != ScreenContent.STATUS_OK) request.result.status = gate;
             else if (!sameGeometryLocked(request)) request.result.status = ScreenContent.STATUS_CHANGED;
@@ -396,7 +426,9 @@ final class VisibleScreenContentCaptureController {
         if (!bounds.equals(request.result.displayBounds)) return false;
         ArrayList<WindowState> current = new ArrayList<>();
         display.forAllWindows(window -> {
-            if (window.isVisibleNow() && window.isDrawn()) current.add(window);
+            if (window.isVisibleNow() && window.isDrawn() && !excludedOverlay(request, window)) {
+                current.add(window);
+            }
         }, true);
         if (current.size() != request.windows.size()) return false;
         for (int i = 0; i < current.size(); i++) {
@@ -407,6 +439,13 @@ final class VisibleScreenContentCaptureController {
                     || window.isAnimatingLw() || window.inTransition()))) return false;
         }
         return true;
+    }
+
+    private boolean excludedOverlay(Request request, WindowState window) {
+        return request.assistantCapture
+                && window.getTopParentWindow().mAttrs.type == WindowManager.LayoutParams.TYPE_APPLICATION_OVERLAY
+                && "org.arkui.assistant".equals(window.getOwningPackage())
+                && UserHandle.getUserId(window.getOwningUid()) == request.userId;
     }
 
     private static void deliver(IScreenContentCallback callback, ScreenContent content) {
@@ -443,9 +482,11 @@ final class VisibleScreenContentCaptureController {
     private final class Request {
         final int uid;
         final int userId;
+        final boolean assistantCapture;
         final IScreenContentCallback callback;
         final ScreenContent result = new ScreenContent();
         final ArrayList<WindowSnapshot> windows = new ArrayList<>();
+        final ArrayList<SurfaceControl> excluded = new ArrayList<>();
         final Runnable timeout = () -> finish(this, true);
         final IBinder.DeathRecipient death = () -> mHandler.post(() -> finish(this, false));
         SurfaceControl captureRoot;
@@ -459,14 +500,17 @@ final class VisibleScreenContentCaptureController {
         int videos;
 
         Request(int displayId, String packageName, int uid, int targetUser,
-                IScreenContentCallback callback) {
+                IScreenContentCallback callback, boolean assistantCapture) {
             this.uid = uid;
             userId = targetUser;
+            this.assistantCapture = assistantCapture;
             this.callback = callback;
             result.displayId = displayId;
         }
 
         void releaseCaptureSurfaces() {
+            for (SurfaceControl surface : excluded) surface.release();
+            excluded.clear();
             if (captureRoot != null) {
                 captureRoot.release();
                 captureRoot = null;

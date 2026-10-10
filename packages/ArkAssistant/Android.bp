@@ -1,0 +1,28 @@
+// Copyright (C) 2026 The ArkUI Project; SPDX-License-Identifier: Apache-2.0
+package { default_applicable_licenses: ["Android-Apache-2.0"], }
+
+java_library {
+    name: "ArkAssistantProtocol",
+    srcs: ["protocol/**/*.java"],
+}
+
+android_app {
+    name: "ArkAssistant",
+    defaults: ["platform_app_defaults"],
+    srcs: ["src/**/*.kt"],
+    platform_apis: true,
+    certificate: "platform",
+    system_ext_specific: true,
+    static_libs: [
+        "ArkAssistantProtocol",
+        "androidx.activity_activity-compose",
+        "androidx.compose.runtime_runtime",
+        "androidx.compose.foundation_foundation",
+        "androidx.compose.material3_material3",
+        "androidx.compose.material_material-icons-extended",
+        "androidx.lifecycle_lifecycle-runtime-ktx",
+        "androidx.savedstate_savedstate-ktx",
+    ],
+    kotlincflags: ["-Xjvm-default=all"],
+    optimize: { enabled: false },
+}

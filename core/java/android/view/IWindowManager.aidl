@@ -1206,4 +1206,8 @@ interface IWindowManager
     /** Capture current visible content for a signature-authorized system application. */
     oneway void requestVisibleScreenContent(int displayId, String callingPackage,
             in IScreenContentCallback callback);
+
+    /** SystemUI-only capture excluding ArkAI overlay windows, not ordinary screenshots. */
+    oneway void requestAssistantScreenContent(int displayId, String callingPackage,
+            in IScreenContentCallback callback);
 }

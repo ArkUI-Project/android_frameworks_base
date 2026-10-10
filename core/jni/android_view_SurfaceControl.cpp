@@ -911,7 +911,16 @@ static void nativeSetBlurRegions(JNIEnv* env, jclass clazz, jlong transactionObj
         float cornerRadiusBL = region[8];
         float cornerRadiusBR = region[9];
 
-        blurRegionVector.push_back(BlurRegion{.blurRadius = static_cast<uint32_t>(blurRadius),
+        uint32_t radius = static_cast<uint32_t>(blurRadius);
+        if (env->GetArrayLength(regionArray) > 10) {
+            float progressive;
+            env->GetFloatArrayRegion(regionArray, 10, 1, &progressive);
+            if (progressive == 1.0f) {
+                radius = std::min(radius, 256u) | BlurRegion::kProgressive;
+            }
+        }
+        env->DeleteLocalRef(regionArray);
+        blurRegionVector.push_back(BlurRegion{.blurRadius = radius,
                                               .cornerRadiusTL = cornerRadiusTL,
                                               .cornerRadiusTR = cornerRadiusTR,
                                               .cornerRadiusBL = cornerRadiusBL,

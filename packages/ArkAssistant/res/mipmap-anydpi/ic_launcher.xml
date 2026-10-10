@@ -1,0 +1,7 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Copyright (C) 2026 The ArkUI Project; SPDX-License-Identifier: Apache-2.0 -->
+<adaptive-icon xmlns:android="http://schemas.android.com/apk/res/android">
+    <background android:drawable="@color/assistant_icon_background" />
+    <foreground><inset android:drawable="@drawable/ic_assistant" android:inset="24%" /></foreground>
+    <monochrome><inset android:drawable="@drawable/ic_assistant" android:inset="24%" /></monochrome>
+</adaptive-icon>

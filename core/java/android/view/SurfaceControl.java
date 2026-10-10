@@ -3964,6 +3964,24 @@ public final class SurfaceControl implements Parcelable {
         }
 
         /**
+         * Replaces blur regions with a continuous top-to-bottom Gaussian backdrop ramp.
+         * Coordinates are surface-local; radius is in pixels, bounded to 256. The top is
+         * unblurred and the bottom reaches the requested radius. Clipping and blur support
+         * follow the same rules as {@link #setBlurRegions}.
+         * @hide
+         */
+        public Transaction setProgressiveBlurRegion(SurfaceControl sc, float left, float top,
+                float right, float bottom, int radius) {
+            if (radius < 0 || radius > 256 || !Float.isFinite(left) || !Float.isFinite(top)
+                    || !Float.isFinite(right) || !Float.isFinite(bottom)
+                    || right <= left || bottom <= top) {
+                throw new IllegalArgumentException("Invalid progressive blur region");
+            }
+            return setBlurRegions(sc, new float[][] {
+                    {radius, 1f, left, top, right, bottom, 0f, 0f, 0f, 0f, 1f}});
+        }
+
+        /**
          * @hide
          */
         public Transaction setStretchEffect(SurfaceControl sc, float width, float height,
