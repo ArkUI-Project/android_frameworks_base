@@ -1,4 +1,5 @@
 /*
+ * Modified by the ArkUI Project in 2026 to default to separate shade panels.
  * Copyright (C) 2022 The Android Open Source Project
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
@@ -522,7 +523,7 @@ public class QuickSettingsControllerImpl implements QuickSettingsController, Dum
 
     private void updateDualShadeSetting() {
         boolean enabled = Settings.Secure.getIntForUser(
-                mPanelView.getContext().getContentResolver(), Settings.Secure.DUAL_SHADE, 0,
+                mPanelView.getContext().getContentResolver(), Settings.Secure.DUAL_SHADE, 1,
                 mSelectedUserInteractor.getSelectedUserId()) != 0;
         setDualShadeEnabled(enabled);
     }

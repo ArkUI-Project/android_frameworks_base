@@ -1,4 +1,5 @@
 /*
+ * Modified by the ArkUI Project in 2026 to default to separate shade panels.
  * Copyright (C) 2024 The Android Open Source Project
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
@@ -120,7 +121,8 @@ constructor(
     private val shadeModeInitialValue: ShadeMode
         get() =
             determineShadeMode(
-                isDualShadeSettingEnabled = DUAL_SHADE_ENABLED_DEFAULT,
+                isDualShadeSettingEnabled =
+                    SceneContainerFlag.isEnabled && DUAL_SHADE_ENABLED_DEFAULT,
                 isFullWidthShade = isFullWidthShade.value,
             )
 
@@ -160,7 +162,7 @@ constructor(
         private const val TAG = "ShadeModeInteractorImpl"
 
         /* Whether the Dual Shade setting is enabled by default. */
-        private const val DUAL_SHADE_ENABLED_DEFAULT = false
+        private const val DUAL_SHADE_ENABLED_DEFAULT = true
     }
 }
 

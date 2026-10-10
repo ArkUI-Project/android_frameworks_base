@@ -1,4 +1,5 @@
 /*
+ * Modified by the ArkUI Project in 2026 to default to separate shade panels.
  * Copyright (C) 2023 The Android Open Source Project
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
@@ -48,7 +49,7 @@ class SplitShadeStateControllerImpl @Inject constructor(
         // On phones the chosen panel style also applies in landscape. Keep the existing
         // side-by-side layout on tablets and the inner display of a foldable.
         if (resources.configuration.smallestScreenWidthDp < 600 &&
-            secureSettings.getIntForUser(Settings.Secure.DUAL_SHADE, 0,
+            secureSettings.getIntForUser(Settings.Secure.DUAL_SHADE, 1,
                 UserHandle.USER_CURRENT) != 0) {
             return false
         }
