@@ -22,6 +22,5 @@ public final class AssistantProtocol {
     public static final String ERROR = "error";
     public static final String ERROR_CODE = "error_code";
     public static final String APP_BLOCKED = "app_blocked";
-    public static final String SCREEN_PROTECTED = "screen_protected";
     public static final String POLICY_UNAVAILABLE = "policy_unavailable";
 }

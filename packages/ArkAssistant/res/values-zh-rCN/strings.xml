@@ -120,7 +120,6 @@
     <string name="voice_failed">语音识别失败，请检查麦克风和语音服务。</string>
     <string name="voice_no_speech">没有听到说话声</string>
     <string name="blocked_screen">此应用在你设置的黑名单中。仍可继续对话或打开其他允许的应用。</string>
-    <string name="assistant_screen_protected">为保护密钥，不能读取 ArkAI 设置页面。仍可继续对话，或让我打开其他应用。</string>
     <string name="blocklist_unavailable">无法读取应用黑名单，请在 ArkAI 设置中检查名单。</string>
     <string name="background_unavailable">无法启动后台模式，请打开一个全屏应用后重试。</string>
     <string name="task_progress">任务进度</string>

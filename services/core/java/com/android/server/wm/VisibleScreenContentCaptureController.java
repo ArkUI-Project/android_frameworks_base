@@ -99,7 +99,7 @@ final class VisibleScreenContentCaptureController {
         } else {
             ArraySet<String> blocked = blockedApps(request);
             synchronized (mWm.mGlobalLock) {
-                int gate = securityGate(displayId, request.userId, blocked);
+                int gate = securityGate(displayId, request.userId, blocked, request.assistantCapture);
                 if (gate != ScreenContent.STATUS_OK) {
                     request.result.status = gate;
                 } else {
@@ -165,7 +165,8 @@ final class VisibleScreenContentCaptureController {
         return blocked;
     }
 
-    private int securityGate(int displayId, int userId, ArraySet<String> blocked) {
+    private int securityGate(int displayId, int userId, ArraySet<String> blocked,
+            boolean assistantCapture) {
         DisplayContent display = mWm.mRoot.getDisplayContent(displayId);
         if (display == null || display.isPrivate() || !display.isTrusted()
                 || userId != mWm.mCurrentUserId || !mWm.mPolicy.isScreenOn(displayId)) {
@@ -178,9 +179,9 @@ final class VisibleScreenContentCaptureController {
         final boolean[] restricted = {false};
         display.forAllWindows(window -> {
             if (window.isVisibleNow() && window.isDrawn()
-                    && (window.isSecureLocked()
-                    || blocked.contains("*") || blocked.contains(window.getOwningPackage())
-                    || (window.mAttrs.flags & WindowManager.LayoutParams.FLAG_SECURE) != 0
+                    && (blocked.contains("*") || blocked.contains(window.getOwningPackage())
+                    || (!assistantCapture && (window.isSecureLocked()
+                    || (window.mAttrs.flags & WindowManager.LayoutParams.FLAG_SECURE) != 0))
                     || !DevicePolicyCache.getInstance().isScreenCaptureAllowed(window.mShowUserId))) {
                 restricted[0] = true;
             }
@@ -240,9 +241,12 @@ final class VisibleScreenContentCaptureController {
                 .setSourceCrop(request.result.displayBounds)
                 .setFrameScale(scale)
                 .setExcludeLayers(request.excluded.toArray(new SurfaceControl[0]))
-                .setSecureContentPolicy(ScreenCaptureParams.SECURE_CONTENT_POLICY_THROW_EXCEPTION)
-                .setProtectedContentPolicy(
-                        ScreenCaptureParams.PROTECTED_CONTENT_POLICY_THROW_EXCEPTION)
+                .setSecureContentPolicy(request.assistantCapture
+                        ? ScreenCaptureParams.SECURE_CONTENT_POLICY_CAPTURE
+                        : ScreenCaptureParams.SECURE_CONTENT_POLICY_THROW_EXCEPTION)
+                .setProtectedContentPolicy(request.assistantCapture
+                        ? ScreenCaptureParams.PROTECTED_CONTENT_POLICY_REDACT
+                        : ScreenCaptureParams.PROTECTED_CONTENT_POLICY_THROW_EXCEPTION)
                 .build();
     }
 
@@ -254,7 +258,7 @@ final class VisibleScreenContentCaptureController {
         final long identity = Binder.clearCallingIdentity();
         try {
             buffer = ScreenCaptureInternal.captureLayers(request.captureArgs);
-            if (buffer != null && !buffer.containsSecureLayers()) {
+            if (buffer != null && (request.assistantCapture || !buffer.containsSecureLayers())) {
                 hardware = buffer.asBitmap();
                 if (hardware != null) {
                     software = hardware.copy(Bitmap.Config.ARGB_8888, false);
@@ -399,7 +403,8 @@ final class VisibleScreenContentCaptureController {
         boolean unlocked = isUserUnlocked(request.userId);
         ArraySet<String> blocked = blockedApps(request);
         synchronized (mWm.mGlobalLock) {
-            int gate = securityGate(request.result.displayId, request.userId, blocked);
+            int gate = securityGate(request.result.displayId, request.userId, blocked,
+                    request.assistantCapture);
             if (!unlocked) request.result.status = ScreenContent.STATUS_SECURE;
             else if (gate != ScreenContent.STATUS_OK) request.result.status = gate;
             else if (!sameGeometryLocked(request)) request.result.status = ScreenContent.STATUS_CHANGED;

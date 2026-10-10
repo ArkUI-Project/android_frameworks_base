@@ -295,7 +295,6 @@ class AssistantService : Service() {
                 val detail = when {
                     e.message?.startsWith("AI service returned HTTP") == true -> e.message!!
                     e is SystemOperationException && e.code == APP_BLOCKED -> getString(R.string.blocked_screen)
-                    e is SystemOperationException && e.code == SCREEN_PROTECTED -> getString(R.string.assistant_screen_protected)
                     e is SystemOperationException && e.code == POLICY_UNAVAILABLE -> getString(R.string.blocklist_unavailable)
                     e.message?.contains("Background mode unavailable") == true -> getString(R.string.background_unavailable)
                     e.message?.contains("protected") == true || e.message?.contains("capture") == true -> getString(R.string.screen_unavailable)
@@ -426,7 +425,6 @@ class AssistantService : Service() {
         When the request needs the screen, call capture. No screen has been read until a screenshot is provided.
         To open an app, use list_apps then open_app directly. Opening an app or URL does not require reading the current screen.
         For taps, swipes, text entry and navigation keys, capture before your first operation. Never guess screen contents.
-        ArkAI's own pages are protected from screen reading to keep credentials private. They are not user-blacklisted apps.
         Phone operations are ${if (config.control) "enabled" else "disabled"}. ${if (config.steps == 0) "There is no step limit." else "You have at most ${config.steps} turns."}
         ${if (background) "You operate an independent virtual display. Use open_app, not home or recents. Never operate the user's physical display." else ""}
         Call exactly one tool per turn. Use coordinates from the latest screenshot, normalized to 0..1000 over the full image.
@@ -515,7 +513,6 @@ class AssistantService : Service() {
         } catch (e: Exception) {
             PreviewFrame(error = getString(when ((e as? SystemOperationException)?.code) {
                 APP_BLOCKED -> R.string.blocked_screen
-                SCREEN_PROTECTED -> R.string.assistant_screen_protected
                 POLICY_UNAVAILABLE -> R.string.blocklist_unavailable
                 else -> R.string.preview_unavailable
             }))

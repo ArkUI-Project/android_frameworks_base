@@ -293,7 +293,6 @@ public final class AssistantHostService extends Service {
     }
 
     private String restriction(String packageName) {
-        if (PACKAGE.equals(packageName)) return SCREEN_PROTECTED;
         String setting = Settings.Secure.getStringForUser(getContentResolver(), BLOCKED_APPS,
                 ActivityManager.getCurrentUser());
         if (setting == null || setting.isEmpty()) return null;
@@ -309,8 +308,7 @@ public final class AssistantHostService extends Service {
     private boolean rejectRestrictedApp(Message request, String packageName) {
         String code = restriction(packageName);
         if (code == null) return false;
-        String message = SCREEN_PROTECTED.equals(code) ? "ArkAI pages are protected from screen reading"
-                : APP_BLOCKED.equals(code) ? "This app is in the user's blocklist"
+        String message = APP_BLOCKED.equals(code) ? "This app is in the user's blocklist"
                 : "The app blocklist could not be read";
         Bundle result = new Bundle();
         result.putString(ERROR, message); result.putString(ERROR_CODE, code);

@@ -120,7 +120,6 @@
     <string name="voice_failed">Speech recognition failed. Check the microphone and speech service.</string>
     <string name="voice_no_speech">No speech detected</string>
     <string name="blocked_screen">This app is in your blocklist. You can still chat or open another allowed app.</string>
-    <string name="assistant_screen_protected">ArkAI settings are protected to keep credentials private. You can still chat or ask to open another app.</string>
     <string name="blocklist_unavailable">The app blocklist could not be read. Check the blocklist in ArkAI settings.</string>
     <string name="background_unavailable">Cannot start background mode. Open a fullscreen app and try again.</string>
     <string name="task_progress">Task progress</string>
