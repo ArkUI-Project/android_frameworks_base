@@ -47,7 +47,7 @@ public final class SmallWindowSettings {
 
     public static boolean isSwipeUpEnabled(Context context) {
         return isEnabled(context) && getBoolean(context,
-                Settings.System.ARKUI_SMALL_WINDOW_SWIPE_UP, false, UserHandle.USER_CURRENT);
+                Settings.System.ARKUI_SMALL_WINDOW_SWIPE_UP, true, UserHandle.USER_CURRENT);
     }
 
     public static boolean isNotificationDragEnabled(Context context) {
