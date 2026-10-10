@@ -242,7 +242,6 @@ private fun ConfigScreen(activity: AssistantSettingsActivity, requestRemove: Boo
                             activity.getSystemService(StatusBarManager::class.java).requestAddTileService(ComponentName(activity, AssistantTileService::class.java),
                                 activity.getString(R.string.app_name), android.graphics.drawable.Icon.createWithResource(activity, R.drawable.ic_assistant), activity.mainExecutor) { }
                         }
-                        SettingsCell(R.string.remove, "") { remove = true }
                     }
                     Footer(stringResource(R.string.screen_disclosure))
                 } else {
