@@ -1,0 +1,7 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Copyright (C) 2026 The ArkUI Project; SPDX-License-Identifier: Apache-2.0 -->
+<resources>
+    <string name="arkui_mistouch_title">误触保护</string>
+    <string name="arkui_mistouch_message">请将手机移出口袋，并移开遮挡屏幕顶部的物体。</string>
+    <string name="arkui_mistouch_exit">按音量加键退出</string>
+</resources>

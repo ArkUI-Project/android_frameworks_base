@@ -1,0 +1,7 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Copyright (C) 2026 The ArkUI Project; SPDX-License-Identifier: Apache-2.0 -->
+<resources>
+    <string name="arkui_mistouch_title">Accidental touch protection</string>
+    <string name="arkui_mistouch_message">Move your phone out of your pocket and remove anything covering the top of the screen.</string>
+    <string name="arkui_mistouch_exit">Press volume up to exit</string>
+</resources>

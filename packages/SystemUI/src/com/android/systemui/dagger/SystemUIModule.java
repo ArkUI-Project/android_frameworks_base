@@ -336,6 +336,12 @@ import javax.inject.Named;
 public abstract class SystemUIModule {
     @Binds
     @IntoMap
+    @ClassKey(com.android.systemui.arkui.MistouchProtectionController.class)
+    abstract CoreStartable bindArkMistouchProtection(
+            com.android.systemui.arkui.MistouchProtectionController controller);
+
+    @Binds
+    @IntoMap
     @ClassKey(com.android.systemui.arkui.SmartPixelsController.class)
     abstract CoreStartable bindArkSmartPixels(
             com.android.systemui.arkui.SmartPixelsController controller);

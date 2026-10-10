@@ -1,3 +1,12 @@
+ArkUI accidental touch protection
+Pocket detection adapted from AviumUI's MistouchPreventionWindowController,
+revision bafe10953e253ed787d9b176e93b479e17c7984e.
+https://github.com/AviumUI/android_frameworks_base/commit/bafe10953e253ed787d9b176e93b479e17c7984e
+Copyright (C) 2025-2026 The AviumUI Project
+Copyright (C) 2025 The AxionAOSP Project
+Copyright (C) 2026 The ArkUI Project (native window and per-user lifecycle integration)
+Licensed under the Apache License, Version 2.0, reproduced below.
+
 ArkUI original application icons in the status bar
 Behavior adapted from AviumUI/android_frameworks_base, avium-16.2,
 packages/SystemUI/src/com/android/systemui/statusbar/StatusBarIconView.java.
