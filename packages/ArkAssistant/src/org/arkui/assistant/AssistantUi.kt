@@ -202,7 +202,7 @@ internal fun AssistantDrawer(host: AssistantOverlay) {
             .padding(top = panelTop, bottom = maxOf(28.dp, bottomInset + 12.dp)),
             verticalArrangement = Arrangement.Top) {
             if (!configured) {
-                AssistantSetupPanel(onConfigure = { host.settings() }, onDismiss = { host.hide() })
+                AssistantSetupPanel(onConfigure = { host.settings() })
             } else {
                 DrawerHandle(host, sheet)
                 PanelReveal(sheet) { Column(Modifier.padding(bottom = 8.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {

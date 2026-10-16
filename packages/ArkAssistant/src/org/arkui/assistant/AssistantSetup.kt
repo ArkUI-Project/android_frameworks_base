@@ -20,12 +20,9 @@ import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.rounded.ArrowForward
 import androidx.compose.material.icons.rounded.AutoAwesome
-import androidx.compose.material.icons.rounded.Close
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
-import androidx.compose.material3.FilledTonalIconButton
 import androidx.compose.material3.Icon
-import androidx.compose.material3.IconButtonDefaults
 import androidx.compose.material3.MaterialExpressiveTheme
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.MotionScheme
@@ -45,7 +42,7 @@ import androidx.compose.ui.unit.dp
 
 /** The unconfigured state has its own theme and layout; the working assistant is unchanged. */
 @Composable
-internal fun AssistantSetupPanel(onConfigure: () -> Unit, onDismiss: () -> Unit) {
+internal fun AssistantSetupPanel(onConfigure: () -> Unit) {
     val context = LocalContext.current
     val colors = if (isSystemInDarkTheme()) {
         dynamicDarkColorScheme(context)
@@ -60,25 +57,6 @@ internal fun AssistantSetupPanel(onConfigure: () -> Unit, onDismiss: () -> Unit)
                     .verticalScroll(rememberScrollState()).padding(24.dp),
                 verticalArrangement = Arrangement.spacedBy(24.dp),
             ) {
-                Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
-                    Text(
-                        stringResource(R.string.assistant_title),
-                        modifier = Modifier.weight(1f),
-                        style = MaterialTheme.typography.titleLarge,
-                        color = MaterialTheme.colorScheme.onSurface,
-                    )
-                    FilledTonalIconButton(
-                        onClick = onDismiss,
-                        modifier = Modifier.size(48.dp),
-                        shape = IconButtonDefaults.smallRoundShape,
-                        colors = IconButtonDefaults.filledTonalIconButtonColors(
-                            containerColor = MaterialTheme.colorScheme.surfaceContainerHighest,
-                            contentColor = MaterialTheme.colorScheme.onSurfaceVariant,
-                        ),
-                    ) {
-                        Icon(Icons.Rounded.Close, stringResource(R.string.close))
-                    }
-                }
                 Row(verticalAlignment = Alignment.CenterVertically) {
                     Surface(
                         modifier = Modifier.size(72.dp),
