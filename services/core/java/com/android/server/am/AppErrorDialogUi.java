@@ -65,8 +65,6 @@ final class AppErrorDialogUi {
     private final int mSecondaryContainer;
     private final int mOnSecondaryContainer;
     private final int mDetailsSurface;
-    private final int mErrorContainer;
-    private final int mOnErrorContainer;
     private boolean mActionsEnabled;
     private final Runnable mEnableActions = () -> setActionsEnabled(true);
 
@@ -91,10 +89,6 @@ final class AppErrorDialogUi {
                 : android.R.color.system_on_secondary_container_light);
         mDetailsSurface = color(dark ? android.R.color.system_surface_container_highest_dark
                 : android.R.color.system_surface_container_highest_light);
-        mErrorContainer = color(dark ? android.R.color.system_error_container_dark
-                : android.R.color.system_error_container_light);
-        mOnErrorContainer = color(dark ? android.R.color.system_on_error_container_dark
-                : android.R.color.system_on_error_container_light);
 
         mContent = new LinearLayout(mContext);
         mContent.setOrientation(LinearLayout.VERTICAL);
@@ -187,11 +181,10 @@ final class AppErrorDialogUi {
         button.setPadding(dp(16), dp(12), dp(16), dp(12));
         button.setTextColor(mOnSurface);
         if (icon != 0) {
-            final boolean close = id == com.android.internal.R.id.aerr_close;
-            final int fill = close ? mErrorContainer
-                    : kind == PRIMARY ? mPrimaryContainer : mSecondaryContainer;
-            final int ink = close ? mOnErrorContainer
-                    : kind == PRIMARY ? mOnPrimaryContainer : mOnSecondaryContainer;
+            final boolean primary = kind == PRIMARY
+                    && id != com.android.internal.R.id.aerr_close;
+            final int fill = primary ? mPrimaryContainer : mSecondaryContainer;
+            final int ink = primary ? mOnPrimaryContainer : mOnSecondaryContainer;
             final LayerDrawable badge = new LayerDrawable(new Drawable[] {
                     shape(fill, 20), icon(icon, ink)});
             badge.setLayerInset(1, dp(8), dp(8), dp(8), dp(8));
