@@ -1,5 +1,6 @@
 /*
  * Copyright (C) 2015 The Android Open Source Project
+ * Copyright (C) 2026 The ArkUI Project
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -61,6 +62,8 @@ import com.android.internal.logging.UiEventLoggerImpl;
 import com.android.internal.logging.nano.MetricsProto.MetricsEvent;
 import com.android.server.statusbar.StatusBarManagerInternal;
 import com.android.server.wm.WindowManagerInternal;
+
+import org.arkui.assistant.protocol.AssistantInvocation;
 
 /**
  * The service that listens for gestures detected in sensor firmware and starts the intent
@@ -667,6 +670,7 @@ public class GestureLauncherService extends SystemService {
         }
         boolean launchCamera = false;
         boolean launchWallet = false;
+        boolean launchAssistant = false;
         boolean launchEmergencyGesture = false;
         boolean intercept = false;
         long powerTapInterval;
@@ -688,7 +692,9 @@ public class GestureLauncherService extends SystemService {
                 mPowerButtonConsecutiveTaps++;
                 mPowerButtonSlowConsecutiveTaps++;
             }
-            // Check if we need to launch camera or emergency gesture flows
+            // Detect double-press actions while keeping the emergency tap sequence intact.
+            launchAssistant = interactive && powerTapInterval < POWER_DOUBLE_TAP_MAX_TIME_MS
+                    && mPowerButtonConsecutiveTaps == DOUBLE_POWER_TAP_COUNT_THRESHOLD;
             if (mEmergencyGestureEnabled) {
                 // Commit to intercepting the powerkey event after the second "quick" tap to avoid
                 // lockscreen changes between launching camera and the emergency gesture flow.
@@ -741,7 +747,17 @@ public class GestureLauncherService extends SystemService {
                     + Long.valueOf(mPowerButtonSlowConsecutiveTaps)
                     + " consecutive slow power button taps detected");
         }
-        if (launchCamera) {
+        // Share the existing tap counter so the five-press emergency gesture keeps counting.
+        // A disabled, unavailable or locked assistant leaves the system shortcut unchanged.
+        launchAssistant = launchAssistant && AssistantInvocation.invoke(mContext,
+                AssistantInvocation.POWER_DOUBLE_TAP, ActivityManager.getCurrentUser());
+        if (launchAssistant) {
+            Slog.i(TAG, "Power button double tap gesture detected, launching ArkAI. Interval="
+                    + powerTapInterval + "ms");
+            launchCamera = false;
+            launchWallet = false;
+            intercept = true;
+        } else if (launchCamera) {
             Slog.i(TAG, "Power button double tap gesture detected, launching camera. Interval="
                     + powerTapInterval + "ms");
             launchCamera = handleCameraGesture(false /* useWakelock */,
@@ -774,8 +790,8 @@ public class GestureLauncherService extends SystemService {
                 mPowerButtonSlowConsecutiveTaps);
         mMetricsLogger.histogram("power_double_tap_interval", (int) powerTapInterval);
 
-        outLaunched.value = launchCamera || launchEmergencyGesture || launchWallet;
-        // Intercept power key event if the press is part of a gesture (camera, eGesture) and the
+        outLaunched.value = launchCamera || launchEmergencyGesture || launchWallet || launchAssistant;
+        // Intercept power key event if the press is part of a launch or emergency gesture and the
         // user has completed setup.
         return intercept && isUserSetupComplete();
     }

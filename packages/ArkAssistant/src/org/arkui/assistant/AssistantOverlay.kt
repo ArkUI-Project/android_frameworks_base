@@ -64,6 +64,7 @@ internal class AssistantOverlay(private val service: AssistantService) : Lifecyc
     private var root: FrameLayout? = null
     private var composition: ComposeView? = null
     private var backdrop: ProgressiveBlur? = null
+    private var invocationGlow: AssistantInvocationGlow? = null
     private var focus = false
     private var passthrough = false
     private val store = ConfigStore(service)
@@ -111,7 +112,7 @@ internal class AssistantOverlay(private val service: AssistantService) : Lifecyc
 
     init { saved.performRestore(null); registry.handleLifecycleEvent(Lifecycle.Event.ON_CREATE) }
 
-    fun show() {
+    fun show(effect: AssistantInvocationEffect? = null) {
         main.removeCallbacks(remove)
         minimizing = false; dragging = false; dragOffset = 0f
         if (root == null) {
@@ -123,7 +124,7 @@ internal class AssistantOverlay(private val service: AssistantService) : Lifecyc
                     insets.touchableRegion.set(0, 0, width, height - navigation)
                 }
                 override fun dispatchTouchEvent(event: MotionEvent): Boolean {
-                    if (event.actionMasked == MotionEvent.ACTION_DOWN && event.y < getChildAt(1).top) {
+                    if (event.actionMasked == MotionEvent.ACTION_DOWN && event.y < (composition?.top ?: height)) {
                         outsideDown?.recycle()
                         outsideDown = MotionEvent.obtain(event)
                     }
@@ -148,15 +149,19 @@ internal class AssistantOverlay(private val service: AssistantService) : Lifecyc
                     return super.dispatchTouchEvent(event)
                 }
                 override fun onMeasure(widthSpec: Int, heightSpec: Int) {
-                    val content = getChildAt(1)
-                    content.measure(widthSpec, MeasureSpec.makeMeasureSpec(MeasureSpec.getSize(heightSpec), MeasureSpec.AT_MOST))
+                    val content = composition
+                    content?.measure(widthSpec, MeasureSpec.makeMeasureSpec(MeasureSpec.getSize(heightSpec), MeasureSpec.AT_MOST))
                     // Keep the surface stable while Compose animates the bottom-aligned panel.
                     setMeasuredDimension(MeasureSpec.getSize(widthSpec), MeasureSpec.getSize(heightSpec))
-                    val blur = getChildAt(0) as ProgressiveBlur
-                    blur.measure(MeasureSpec.makeMeasureSpec(measuredWidth, MeasureSpec.EXACTLY),
-                        MeasureSpec.makeMeasureSpec(if (content.measuredHeight == 0) 0 else
-                            minOf(measuredHeight, maxOf(content.measuredHeight,
-                                (resources.displayMetrics.density * 280).toInt() + blur.bottomInset)), MeasureSpec.EXACTLY))
+                    val contentHeight = content?.measuredHeight ?: 0
+                    backdrop?.let { blur ->
+                        blur.measure(MeasureSpec.makeMeasureSpec(measuredWidth, MeasureSpec.EXACTLY),
+                            MeasureSpec.makeMeasureSpec(if (contentHeight == 0) 0 else
+                                minOf(measuredHeight, maxOf(contentHeight,
+                                    (resources.displayMetrics.density * 280).toInt() + blur.bottomInset)), MeasureSpec.EXACTLY))
+                    }
+                    invocationGlow?.measure(MeasureSpec.makeMeasureSpec(measuredWidth, MeasureSpec.EXACTLY),
+                        MeasureSpec.makeMeasureSpec(measuredHeight, MeasureSpec.EXACTLY))
                 }
                 override fun onAttachedToWindow() {
                     super.onAttachedToWindow()
@@ -177,6 +182,9 @@ internal class AssistantOverlay(private val service: AssistantService) : Lifecyc
             val blur = ProgressiveBlur(context)
             backdrop = blur
             frame.addView(blur, FrameLayout.LayoutParams(-1, -2, Gravity.BOTTOM))
+            val glow = AssistantInvocationGlow(context)
+            invocationGlow = glow
+            frame.addView(glow, FrameLayout.LayoutParams(-1, -1))
             val compose = ComposeView(context).apply {
                 setContent {
                     AssistantTheme {
@@ -205,25 +213,31 @@ internal class AssistantOverlay(private val service: AssistantService) : Lifecyc
             registry.handleLifecycleEvent(Lifecycle.Event.ON_RESUME)
         }
         visible = true
+        effect?.let { invocationGlow?.play(it) }
     }
 
     private val remove = Runnable {
         composition?.disposeComposition(); composition = null
         root?.let { manager.removeViewImmediate(it) }; root = null
         backdrop = null
+        invocationGlow = null
         registry.handleLifecycleEvent(Lifecycle.Event.ON_PAUSE)
         registry.handleLifecycleEvent(Lifecycle.Event.ON_STOP)
         service.overlayHidden()
     }
 
     fun hide() {
+        invocationGlow?.stop()
         voice.cancel(); visible = false; setFocus(false)
         if (root != null) main.postDelayed(remove, (AssistantMotion.exit + 30).toLong()) else service.overlayHidden()
     }
 
     fun minimize() { minimizing = true; hide() }
 
-    fun setBackdrop(color: Int, voice: Boolean, bottomInset: Int) { backdrop?.configure(color, voice, bottomInset) }
+    fun setBackdrop(color: Int, voice: Boolean, bottomInset: Int, voiceReveal: Float) {
+        backdrop?.configure(color, voice, bottomInset)
+        invocationGlow?.setPresentation(bottomInset, voiceReveal)
+    }
 
     fun setFocus(value: Boolean) {
         focus = value
@@ -306,10 +320,12 @@ internal class AssistantOverlay(private val service: AssistantService) : Lifecyc
 
     fun destroy() {
         main.removeCallbacksAndMessages(null)
+        invocationGlow?.stop()
         voice.destroy(); visible = false
         composition?.disposeComposition(); composition = null
         root?.let { manager.removeViewImmediate(it) }; root = null
         backdrop = null
+        invocationGlow = null
         registry.handleLifecycleEvent(Lifecycle.Event.ON_DESTROY)
     }
 }

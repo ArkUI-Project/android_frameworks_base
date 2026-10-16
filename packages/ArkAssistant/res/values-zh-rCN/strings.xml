@@ -3,6 +3,8 @@
 <resources>
     <string name="invoke_methods">唤出方式</string>
     <string name="invoke_power">长按电源键</string>
+    <string name="invoke_power_double_tap">双击电源键</string>
+    <string name="invoke_power_double_tap_hint">已解锁时优先执行此动作，替代系统双击快捷操作。关闭后使用原有系统行为。</string>
     <string name="invoke_double_tap">双击导航条</string>
     <string name="invoke_long_press">长按导航条</string>
     <string name="invoke_voice">语音输入</string>

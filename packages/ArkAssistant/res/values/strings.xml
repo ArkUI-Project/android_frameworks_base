@@ -3,6 +3,8 @@
 <resources>
     <string name="invoke_methods">Activation</string>
     <string name="invoke_power">Hold power button</string>
+    <string name="invoke_power_double_tap">Double-press power button</string>
+    <string name="invoke_power_double_tap_hint">When unlocked, use this action instead of the system double-press shortcut. Turn it off to use the system shortcut.</string>
     <string name="invoke_double_tap">Double-tap navigation handle</string>
     <string name="invoke_long_press">Hold navigation handle</string>
     <string name="invoke_voice">Voice input</string>

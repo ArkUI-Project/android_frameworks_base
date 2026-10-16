@@ -1,5 +1,6 @@
 /*
  * Copyright (C) 2006 The Android Open Source Project
+ * Copyright (C) 2026 The ArkUI Project
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -1304,6 +1305,11 @@ public class PhoneWindowManager implements WindowManagerPolicy {
                         + mShortPressOnPowerBehavior);
 
         if (count == 2) {
+            if (interactive && !mSingleKeyGestureDetector.beganFromNonInteractive()
+                    && AssistantInvocation.invoke(mContext,
+                            AssistantInvocation.POWER_DOUBLE_TAP, mCurrentUserId)) {
+                return;
+            }
             powerMultiPressAction(eventTime, interactive, mDoublePressOnPowerBehavior);
         } else if (count == 3) {
             powerMultiPressAction(eventTime, interactive, mTriplePressOnPowerBehavior);
@@ -1638,10 +1644,16 @@ public class PhoneWindowManager implements WindowManagerPolicy {
         if (mTriplePressOnPowerBehavior != MULTI_PRESS_POWER_NOTHING) {
             return 3;
         }
-        if (mDoublePressOnPowerBehavior != MULTI_PRESS_POWER_NOTHING) {
+        if (mDoublePressOnPowerBehavior != MULTI_PRESS_POWER_NOTHING
+                || hasArkAiPowerDoubleTap()) {
             return 2;
         }
         return 1;
+    }
+
+    private boolean hasArkAiPowerDoubleTap() {
+        return AssistantInvocation.canInvoke(mContext,
+                AssistantInvocation.POWER_DOUBLE_TAP, mCurrentUserId);
     }
 
     private void powerLongPress(long eventTime) {
@@ -2917,7 +2929,7 @@ public class PhoneWindowManager implements WindowManagerPolicy {
         }
 
         private void onPress(long downTime, int displayId) {
-            if (mShouldEarlyShortPressOnPower) {
+            if (mShouldEarlyShortPressOnPower && !hasArkAiPowerDoubleTap()) {
                 return;
             }
             powerPress(downTime, 1 /*count*/, displayId);
@@ -2942,7 +2954,9 @@ public class PhoneWindowManager implements WindowManagerPolicy {
             // This is done to allow Assistant launch animation in SysUI. Will extend
             // this to all single key gestures after moving Single key gestures to
             // KeyGestureController.
-            if (enableLppAssistInvocationEffect()) {
+            if (enableLppAssistInvocationEffect()
+                    && !AssistantInvocation.canInvoke(mContext,
+                            AssistantInvocation.POWER, mCurrentUserId)) {
                 if (getResolvedLongPressOnPowerBehavior() == LONG_PRESS_POWER_ASSISTANT) {
                     handleSingleKeyGestureInKeyGestureController(
                             KeyGestureEvent.KEY_GESTURE_TYPE_LAUNCH_ASSISTANT, event);
@@ -2972,7 +2986,7 @@ public class PhoneWindowManager implements WindowManagerPolicy {
 
         @Override
         void onKeyUp(int count, KeyEvent event) {
-            if (mShouldEarlyShortPressOnPower && count == 1) {
+            if (mShouldEarlyShortPressOnPower && !hasArkAiPowerDoubleTap() && count == 1) {
                 powerPress(event.getDownTime(), 1 /*pressCount*/, event.getDisplayId());
             }
         }

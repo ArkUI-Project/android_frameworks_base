@@ -108,14 +108,23 @@ class AssistantService : Service() {
         when (intent?.action) {
             INVOKE -> {
                 if (!ConfigStore(this).enabled) return START_NOT_STICKY
-                overlay.show(); overlay.voice.cancel(); overlay.closeProgress()
-                when (intent.getIntExtra(AssistantInvocation.EXTRA_ACTION, 0)) {
+                val action = intent.getIntExtra(AssistantInvocation.EXTRA_ACTION, 0)
+                val entry = intent.getStringExtra(AssistantInvocation.EXTRA_ENTRY)
+                val effect = when {
+                    entry == AssistantInvocation.POWER || entry == AssistantInvocation.POWER_DOUBLE_TAP ->
+                        AssistantInvocationEffect.POWER
+                    action == AssistantInvocation.SCREEN -> AssistantInvocationEffect.SCREEN
+                    else -> AssistantInvocationEffect.AURORA
+                }
+                overlay.show(effect)
+                overlay.voice.cancel(); overlay.closeProgress()
+                when (action) {
                     AssistantInvocation.VOICE -> { overlay.textInput = false; overlay.startVoice() }
                     AssistantInvocation.TEXT -> if (snapshot.running) overlay.edit() else overlay.openKeyboard()
                     AssistantInvocation.SCREEN -> overlay.submit(getString(R.string.summarize_prompt))
                 }
             }
-            SHOW -> overlay.show()
+            SHOW -> overlay.show(AssistantInvocationEffect.AURORA)
             PROGRESS -> { overlay.show(); overlay.openProgress() }
             HIDE -> overlay.hide()
             STOP -> stopTask()

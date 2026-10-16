@@ -118,7 +118,9 @@ class AssistantShortcutActivity : ComponentActivity() {
         if (!getSystemService(android.app.KeyguardManager::class.java).isKeyguardLocked && ConfigStore(this).enabled) {
             startService(Intent(this, AssistantService::class.java).setAction(AssistantService.INVOKE)
                 .putExtra(org.arkui.assistant.protocol.AssistantInvocation.EXTRA_ACTION,
-                    intent.getIntExtra(org.arkui.assistant.protocol.AssistantInvocation.EXTRA_ACTION, 0)))
+                    intent.getIntExtra(org.arkui.assistant.protocol.AssistantInvocation.EXTRA_ACTION, 0))
+                .putExtra(org.arkui.assistant.protocol.AssistantInvocation.EXTRA_ENTRY,
+                    intent.getStringExtra(org.arkui.assistant.protocol.AssistantInvocation.EXTRA_ENTRY)))
         }
         finish()
     }
@@ -162,6 +164,8 @@ internal fun AssistantDrawer(host: AssistantOverlay) {
     val configured = host.configured
     val voice = host.voice.state
     val voiceShown = voice.active || voice.error.isNotBlank()
+    val voiceReveal by animateFloatAsState(if (voiceShown) 1f else 0f,
+        tween(AssistantMotion.enter), label = "invocation to voice glow")
     val sheet = host.expanded && configured
     val backdropColor = animateColorAsState(if (voiceShown) MaterialTheme.colorScheme.primary
         else MaterialTheme.colorScheme.surfaceContainerLow, tween(180), label = "backdrop color").value
@@ -179,7 +183,7 @@ internal fun AssistantDrawer(host: AssistantOverlay) {
         host.setFocus(voice.active || (showComposer && host.textInput && !host.progress))
     }
     val keyboardInset = WindowInsets.ime.getBottom(LocalDensity.current)
-    SideEffect { host.setBackdrop(backdropColor.toArgb(), voiceShown, keyboardInset) }
+    SideEffect { host.setBackdrop(backdropColor.toArgb(), voiceShown, keyboardInset, voiceReveal) }
     CompositionLocalProvider(LocalContentColor provides MaterialTheme.colorScheme.onSurface) {
     Column(Modifier.fillMaxWidth().imePadding(), horizontalAlignment = Alignment.CenterHorizontally) {
         AnimatedContent(voiceShown, modifier = Modifier.widthIn(max = 640.dp).fillMaxWidth()
@@ -485,10 +489,11 @@ private fun VoicePanel(host: AssistantOverlay) {
     Box(Modifier.fillMaxWidth().height(height)
         .drawWithCache {
             val radius = maxOf(size.width * 0.8f, size.height * 1.5f)
+            val blue = Color(AssistantGlowPalette.Blue)
             val glow = Brush.radialGradient(
-                0f to Color(0xff19c5ff), 0.35f to Color(0xff19bfff),
-                0.62f to Color(0xff207bff), 0.80f to Color(0xf0207bff),
-                0.94f to Color(0x50207bff), 1f to Color(0x00207bff),
+                0f to Color(AssistantGlowPalette.BrightCyan), 0.35f to Color(AssistantGlowPalette.Cyan),
+                0.62f to blue, 0.80f to blue.copy(alpha = 240f / 255f),
+                0.94f to blue.copy(alpha = 80f / 255f), 1f to blue.copy(alpha = 0f),
                 center = Offset(size.width / 2, radius), radius = radius)
             onDrawBehind { drawRect(glow) }
         }

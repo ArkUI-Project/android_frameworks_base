@@ -13,6 +13,7 @@ import android.util.Log;
 /** Shared, per-user entry points for the privileged assistant shortcuts. */
 public final class AssistantInvocation {
     public static final String POWER = "arkui_assistant_power_long_press";
+    public static final String POWER_DOUBLE_TAP = "arkui_assistant_power_double_tap";
     public static final String DOUBLE_TAP = "arkui_assistant_nav_double_tap";
     public static final String LONG_PRESS = "arkui_assistant_nav_long_press";
     public static final String EXTRA_ACTION = "assistant_action";
@@ -27,6 +28,7 @@ public final class AssistantInvocation {
     public static int action(Context context, String entry, int userId) {
         final int fallback;
         if (POWER.equals(entry)) fallback = VOICE;
+        else if (POWER_DOUBLE_TAP.equals(entry)) fallback = NONE;
         else if (DOUBLE_TAP.equals(entry)) fallback = TEXT;
         else if (LONG_PRESS.equals(entry)) fallback = SCREEN;
         else return NONE;
@@ -48,18 +50,24 @@ public final class AssistantInvocation {
         }
     }
 
+    public static boolean canInvoke(Context context, String entry, int userId) {
+        return action(context, entry, userId) != NONE && isAvailable(context, userId)
+                && !context.getSystemService(KeyguardManager.class).isKeyguardLocked()
+                && Settings.Secure.getIntForUser(context.getContentResolver(),
+                        Settings.Secure.USER_SETUP_COMPLETE, 0, userId) == 1
+                && !context.getSystemService(ActivityManager.class).isInLockTaskMode();
+    }
+
     public static boolean invoke(Context context, String entry, int userId) {
+        if (!canInvoke(context, entry, userId)) return false;
         int action = action(context, entry, userId);
-        if (action == NONE || !isAvailable(context, userId)
-                || context.getSystemService(KeyguardManager.class).isKeyguardLocked()
-                || Settings.Secure.getIntForUser(context.getContentResolver(),
-                        Settings.Secure.USER_SETUP_COMPLETE, 0, userId) != 1
-                || context.getSystemService(ActivityManager.class).isInLockTaskMode()) return false;
+        if (action == NONE) return false;
         try {
             context.startActivityAsUser(new Intent()
                     .setClassName(AssistantProtocol.PACKAGE,
                             AssistantProtocol.PACKAGE + ".AssistantShortcutActivity")
                     .putExtra(EXTRA_ACTION, action)
+                    .putExtra(EXTRA_ENTRY, entry)
                     .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK | Intent.FLAG_ACTIVITY_NO_ANIMATION),
                     UserHandle.of(userId));
             return true;

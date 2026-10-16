@@ -139,6 +139,7 @@ private fun ConfigScreen(activity: AssistantSettingsActivity, requestRemove: Boo
     var blocked by remember { mutableStateOf(store.blockedApps()) }
     val shortcutTitles = remember { linkedMapOf(
         AssistantInvocation.POWER to R.string.invoke_power,
+        AssistantInvocation.POWER_DOUBLE_TAP to R.string.invoke_power_double_tap,
         AssistantInvocation.DOUBLE_TAP to R.string.invoke_double_tap,
         AssistantInvocation.LONG_PRESS to R.string.invoke_long_press) }
     val shortcutActions = remember { linkedMapOf(
@@ -284,6 +285,11 @@ private fun ConfigScreen(activity: AssistantSettingsActivity, requestRemove: Boo
         AlertDialog(onDismissRequest = { shortcutEditing = null },
             title = { Text(stringResource(shortcutTitles.getValue(entry))) },
             text = { Column {
+                if (entry == AssistantInvocation.POWER_DOUBLE_TAP) {
+                    Text(stringResource(R.string.invoke_power_double_tap_hint),
+                        style = MaterialTheme.typography.bodyMedium,
+                        modifier = Modifier.padding(bottom = 12.dp))
+                }
                 shortcutActions.forEach { (action, title) ->
                     androidx.compose.material3.ListItem(
                         modifier = Modifier.fillMaxWidth().selectable(
