@@ -32,6 +32,8 @@
     <string name="operate_prompt">Help me </string>
     <string name="configure_first">Configure AI in Settings · Features</string>
     <string name="configure">Configure AI</string>
+    <string name="setup_title">Connect your AI</string>
+    <string name="setup_hint">Choose a provider and model, then add your API Key to get started.</string>
     <string name="enabled">Enable ArkAI</string>
     <string name="provider">AI service</string>
     <string name="select_provider">Provider</string>

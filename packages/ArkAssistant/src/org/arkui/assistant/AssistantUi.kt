@@ -197,18 +197,8 @@ internal fun AssistantDrawer(host: AssistantOverlay) {
             .padding(horizontal = panelInset)
             .padding(top = panelTop, bottom = maxOf(28.dp, bottomInset + 12.dp)),
             verticalArrangement = Arrangement.Top) {
-            if (!configured) Surface(shape = RoundedCornerShape(28.dp), color = MaterialTheme.colorScheme.surfaceContainer) {
-                Column(Modifier.fillMaxWidth().padding(20.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
-                    Row(verticalAlignment = Alignment.CenterVertically) {
-                        Icon(Icons.Rounded.AutoAwesome, null, tint = MaterialTheme.colorScheme.primary)
-                        Text(stringResource(R.string.assistant_title), Modifier.weight(1f).padding(start = 12.dp), style = MaterialTheme.typography.titleLarge)
-                        ToolIcon(Icons.Rounded.Close, R.string.close) { host.hide() }
-                    }
-                    Text(stringResource(R.string.configure_first), style = MaterialTheme.typography.bodyMedium)
-                    Button(onClick = { host.settings() }, Modifier.fillMaxWidth().height(52.dp)) {
-                        Icon(Icons.Rounded.Tune, null); Spacer(Modifier.width(8.dp)); Text(stringResource(R.string.configure))
-                    }
-                }
+            if (!configured) {
+                AssistantSetupPanel(onConfigure = { host.settings() }, onDismiss = { host.hide() })
             } else {
                 DrawerHandle(host, sheet)
                 PanelReveal(sheet) { Column(Modifier.padding(bottom = 8.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {

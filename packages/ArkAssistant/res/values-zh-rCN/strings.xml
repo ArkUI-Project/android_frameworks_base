@@ -32,6 +32,8 @@
     <string name="operate_prompt">帮我</string>
     <string name="configure_first">先在设置 · 特色功能中配置 AI</string>
     <string name="configure">配置 AI</string>
+    <string name="setup_title">连接你的 AI</string>
+    <string name="setup_hint">选择服务与模型，填写 API Key，即可开始使用。</string>
     <string name="enabled">启用 ArkAI</string>
     <string name="provider">AI 服务</string>
     <string name="select_provider">供应商</string>
