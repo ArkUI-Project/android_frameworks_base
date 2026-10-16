@@ -64,6 +64,12 @@ public class LockSettingsServiceTestable extends LockSettingsService {
         Runnable mInvalidateLockoutEndTimeCacheMock;
 
         public boolean mIsHeadlessSystemUserMode = false;
+        public boolean mIsDataEncrypted = true;
+
+        @Override
+        public boolean isDataEncrypted() {
+            return mIsDataEncrypted;
+        }
 
         public MockInjector(
                 Context context,

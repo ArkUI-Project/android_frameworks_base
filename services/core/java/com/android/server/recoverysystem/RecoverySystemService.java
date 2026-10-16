@@ -551,7 +551,8 @@ public class RecoverySystemService extends IRecoverySystem.Stub implements Reboo
         }
     }
 
-    private static void deleteSecrets() {
+    /** ArkUI: also used for immediate cryptographic erasure after duress authentication. */
+    public static void deleteSecrets() {
         Slogf.w(TAG, "deleteSecrets");
         try {
             AndroidKeyStoreMaintenance.deleteAllKeys();

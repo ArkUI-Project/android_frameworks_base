@@ -344,6 +344,25 @@ public class LockPatternUtils {
         return mLockSettingsService;
     }
 
+    /** ArkUI: returns whether device-wide duress credentials have been configured. */
+    public boolean hasDuressCredentials() {
+        try {
+            return getLockSettings().hasDuressCredentials();
+        } catch (RemoteException e) {
+            throw e.rethrowFromSystemServer();
+        }
+    }
+
+    /** ArkUI: two empty credentials disable duress; the current owner lock authorizes changes. */
+    public void setDuressCredentials(@NonNull LockscreenCredential ownerCredential,
+            @NonNull LockscreenCredential pin, @NonNull LockscreenCredential password) {
+        try {
+            getLockSettings().setDuressCredentials(ownerCredential, pin, password);
+        } catch (RemoteException e) {
+            throw e.rethrowFromSystemServer();
+        }
+    }
+
     public int getRequestedMinimumPasswordLength(int userId) {
         return getDevicePolicyManager().getPasswordMinimumLength(null, userId);
     }

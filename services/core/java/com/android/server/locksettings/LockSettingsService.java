@@ -176,6 +176,7 @@ import java.security.cert.CertificateException;
 import java.text.SimpleDateFormat;
 import java.time.Duration;
 import java.util.ArrayList;
+import java.util.Arrays;
 import java.util.Date;
 import java.util.Enumeration;
 import java.util.List;
@@ -287,6 +288,7 @@ public class LockSettingsService extends ILockSettings.Stub {
     private final StorageManagerInternal mStorageManagerInternal;
     private final IActivityManager mActivityManager;
     private final SyntheticPasswordManager mSpManager;
+    private final DuressPasswordHelper mDuressPasswordHelper;
 
     private final KeyStore mKeyStore;
     private final KeyStoreAuthorization mKeyStoreAuthorization;
@@ -501,6 +503,10 @@ public class LockSettingsService extends ILockSettings.Stub {
 
         public Context getContext() {
             return mContext;
+        }
+
+        public boolean isDataEncrypted() {
+            return StorageManager.isFileEncrypted();
         }
 
         public ServiceThread getServiceThread() {
@@ -745,6 +751,8 @@ public class LockSettingsService extends ILockSettings.Stub {
         mGatekeeperPasswords = new LongSparseArray<>();
 
         mSpManager = injector.getSyntheticPasswordManager(mStorage);
+        mDuressPasswordHelper = new DuressPasswordHelper(mContext, mStorage, mSpManager,
+                mInjector::isDataEncrypted);
         mUnifiedProfilePasswordCache = injector.getUnifiedProfilePasswordCache(mKeyStore);
         mBiometricDeferredQueue = new BiometricDeferredQueue(mSpManager);
 
@@ -1452,6 +1460,11 @@ public class LockSettingsService extends ILockSettings.Stub {
     @Override
     public boolean getBoolean(String key, boolean defaultValue, int userId) {
         checkDatabaseReadPermission(key, userId);
+        // ArkUI: manual confirmation permits duress PINs with a different length. Preserve the
+        // user's saved auto-confirm preference so disabling duress restores the normal behavior.
+        if (LockPatternUtils.AUTO_PIN_CONFIRM.equals(key) && mDuressPasswordHelper.isEnabled()) {
+            return false;
+        }
         return mStorage.getBoolean(key, defaultValue, userId);
     }
 
@@ -1873,6 +1886,71 @@ public class LockSettingsService extends ILockSettings.Stub {
             }
         }
         return profiles;
+    }
+
+    // ArkUI: duress configuration is restricted to the owner and its current screen lock.
+    @Override
+    public boolean hasDuressCredentials() {
+        checkPasswordReadPermission();
+        if (UserHandle.getCallingUserId() != UserHandle.USER_SYSTEM) {
+            throw new SecurityException("Only the device owner can manage duress credentials");
+        }
+        return mDuressPasswordHelper.isEnabled();
+    }
+
+    @Override
+    public void setDuressCredentials(LockscreenCredential ownerCredential,
+            LockscreenCredential pin, LockscreenCredential password) {
+        try {
+            checkWritePermission();
+            if (UserHandle.getCallingUserId() != UserHandle.USER_SYSTEM) {
+                throw new SecurityException("Only the device owner can manage duress credentials");
+            }
+            if (ownerCredential == null || pin == null || password == null) {
+                throw new IllegalArgumentException("Credentials must not be null");
+            }
+            final long identity = Binder.clearCallingIdentity();
+            try {
+                enforceFrpNotActive();
+                // Serialize with normal lock changes so an old owner credential cannot authorize
+                // a configuration change after the owner changes its screen lock.
+                synchronized (mSeparateChallengeLock) {
+                    final long protectorId;
+                    synchronized (mSpManager) {
+                        protectorId = getCurrentLskfBasedProtectorId(UserHandle.USER_SYSTEM);
+                    }
+                    final int type = getCredentialTypeInternal(UserHandle.USER_SYSTEM);
+                    if (type != CREDENTIAL_TYPE_PIN && type != CREDENTIAL_TYPE_PASSWORD) {
+                        throw new SecurityException("An owner screen lock PIN or password is required");
+                    }
+                    if (!doVerifyCredential(ownerCredential, UserHandle.USER_SYSTEM, null, 0)
+                            .isMatched()) {
+                        throw new SecurityException("Owner credential verification failed");
+                    }
+                    if (!(pin.isNone() && password.isNone())
+                            && (Arrays.equals(ownerCredential.getCredential(), pin.getCredential())
+                            || Arrays.equals(ownerCredential.getCredential(),
+                                    password.getCredential()))) {
+                        throw new IllegalArgumentException(
+                                "Duress credentials must differ from the owner credential");
+                    }
+                    synchronized (mSpManager) {
+                        // Token-based resets can also replace the LSKF, without acquiring
+                        // mSeparateChallengeLock. Do not authorize a write with a stale LSKF.
+                        if (protectorId != getCurrentLskfBasedProtectorId(UserHandle.USER_SYSTEM)) {
+                            throw new SecurityException("Owner credential changed during setup");
+                        }
+                        mDuressPasswordHelper.set(pin, password);
+                    }
+                }
+            } finally {
+                Binder.restoreCallingIdentity(identity);
+            }
+        } finally {
+            if (ownerCredential != null) LockscreenCredential.zeroizeIfFromParcel(ownerCredential);
+            if (pin != null) LockscreenCredential.zeroizeIfFromParcel(pin);
+            if (password != null) LockscreenCredential.zeroizeIfFromParcel(password);
+        }
     }
 
     // This method should be called by LockPatternUtil only, all internal methods in this class
@@ -2424,6 +2502,15 @@ public class LockSettingsService extends ILockSettings.Stub {
      * @return See {@link VerifyCredentialResponse}
      */
     private VerifyCredentialResponse doVerifyCredential(LockscreenCredential credential,
+            int userId, ICheckCredentialProgressCallback progressCallback,
+            @LockPatternUtils.VerifyFlag int flags) {
+        VerifyCredentialResponse response = doVerifyCredentialInternal(
+                credential, userId, progressCallback, flags);
+        mDuressPasswordHelper.onVerifyCredentialResult(response, credential);
+        return response;
+    }
+
+    private VerifyCredentialResponse doVerifyCredentialInternal(LockscreenCredential credential,
             int userId, ICheckCredentialProgressCallback progressCallback,
             @LockPatternUtils.VerifyFlag int flags) {
         if (credential == null || credential.isNone()) {
@@ -3237,6 +3324,9 @@ public class LockSettingsService extends ILockSettings.Stub {
         }
         setCurrentLskfBasedProtectorId(newProtectorId, userId);
         LockPatternUtils.invalidateCredentialTypeCache();
+        if (userId == UserHandle.USER_SYSTEM && !credential.isPin() && !credential.isPassword()) {
+            mDuressPasswordHelper.clear();
+        }
         synchronizeTiedChallengeForProfiles(userId, profilePasswords);
 
         setUserPasswordMetrics(credential, userId);

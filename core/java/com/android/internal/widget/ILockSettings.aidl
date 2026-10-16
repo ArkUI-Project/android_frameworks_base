@@ -114,4 +114,8 @@ interface ILockSettings {
     void unlockUserKeyIfUnsecured(int userId);
     boolean writeRepairModeCredential(int userId);
     byte getLockPatternSize(int userId);
+    // ArkUI: changing device-wide duress credentials requires the current owner credential.
+    boolean hasDuressCredentials();
+    void setDuressCredentials(in LockscreenCredential ownerCredential,
+            in LockscreenCredential pin, in LockscreenCredential password);
 }

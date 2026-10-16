@@ -1,3 +1,10 @@
+ArkUI duress PIN/password
+Adapted from the GrapheneOS duress credential and wipe implementation (Apache-2.0).
+https://github.com/GrapheneOS/platform_frameworks_base
+Upstream contributors: GrapheneOS contributors.
+Copyright (C) 2026 The ArkUI Project (Android 16 integration and modifications)
+The Apache License, Version 2.0 is reproduced below.
+
 ArkUI native small-window support
 Derived from the Apache-2.0 Pop-Up View implementation in
 https://github.com/AviumUI/android_frameworks_base (avium-16.2).
