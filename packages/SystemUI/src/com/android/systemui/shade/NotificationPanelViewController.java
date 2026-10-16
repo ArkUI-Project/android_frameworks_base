@@ -1,5 +1,6 @@
 /*
  * Copyright (C) 2019 The Android Open Source Project
+ * Modified by the ArkUI Project in 2026 for interruptible shade physics.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -153,6 +154,7 @@ import com.android.systemui.shade.data.repository.ShadeDisplaysRepository;
 import com.android.systemui.shade.data.repository.ShadeRepository;
 import com.android.systemui.shade.domain.interactor.ShadeAnimationInteractor;
 import com.android.systemui.shade.shared.flag.ShadeWindowGoesAround;
+import com.android.systemui.shared.animation.DampedSpringInterpolator;
 import com.android.systemui.shared.system.QuickStepContract;
 import com.android.systemui.statusbar.CommandQueue;
 import com.android.systemui.statusbar.GestureRecorder;
@@ -533,6 +535,9 @@ public final class NotificationPanelViewController implements
     private boolean mAnimatingOnDown;
     private boolean mHandlingPointerUp;
     private ValueAnimator mHeightAnimator;
+    private float mHeightAnimationDistance;
+    private float mInterruptedHeightVelocity;
+    private long mHeightInterruptionTime;
     /** Whether an instant expand request is currently pending and we are waiting for layout. */
     private boolean mInstantExpanding;
     private boolean mAnimateAfterExpanding;
@@ -1351,6 +1356,14 @@ public final class NotificationPanelViewController implements
     @VisibleForTesting
     void cancelHeightAnimator() {
         if (mHeightAnimator != null) {
+            if (mHeightAnimator.getInterpolator() instanceof DampedSpringInterpolator spring) {
+                mInterruptedHeightVelocity = mHeightAnimationDistance * spring.getVelocity(
+                        (float) mHeightAnimator.getCurrentPlayTime()
+                                / Math.max(1L, mHeightAnimator.getDuration()));
+                mHeightInterruptionTime = mSystemClock.uptimeMillis();
+            } else {
+                mHeightInterruptionTime = 0;
+            }
             if (mHeightAnimator.isRunning()) {
                 mPanelUpdateWhenAnimatorEnds = false;
             }
@@ -1425,17 +1438,26 @@ public final class NotificationPanelViewController implements
     @VisibleForTesting
     void flingToHeight(float vel, boolean expand, float target,
             float collapseSpeedUpFactor, boolean expandBecauseOfFalsing) {
+        // Retire the old owner before installing callbacks for a reversed fling.
+        if (mHeightAnimator != null) cancelHeightAnimator();
+        setClosing(!expand);
+        if (vel == 0f && mBarState == SHADE && mHeightInterruptionTime != 0
+                && mSystemClock.uptimeMillis() - mHeightInterruptionTime < 100) {
+            vel = mInterruptedHeightVelocity;
+        }
+        mHeightInterruptionTime = 0;
         mQsController.setLastShadeFlingWasExpanding(expand);
         mHeadsUpTouchHelper.notifyFling(!expand);
         mKeyguardStateController.notifyPanelFlingStart(!expand /* flingingToDismiss */);
         setClosingWithAlphaFadeout(!expand && !isKeyguardShowing() && getFadeoutAlpha() == 1.0f);
         mNotificationStackScrollLayoutController.setPanelFlinging(true);
         mShadeRepository.setCurrentFling(new FlingInfo(expand, vel));
-        if (target == mExpandedHeight) {
+        if (target == mExpandedHeight && mOverExpansion == 0f) {
             onFlingEnd(false /* cancelled */);
             return;
         }
         mIsFlinging = true;
+        mHeightAnimationDistance = target - mExpandedHeight - mOverExpansion;
         ValueAnimator animator = createHeightAnimator(target);
         if (expand) {
             maybeVibrateOnOpening(true /* openingWithTouch */);
@@ -1480,6 +1502,12 @@ public final class NotificationPanelViewController implements
                 }
             });
         }
+        if (mBarState == SHADE && mFixedDuration == NO_FIXED_DURATION) {
+            long duration = expand ? 460L : Math.round(380f / Math.max(.1f, collapseSpeedUpFactor));
+            animator.setDuration(duration);
+            animator.setInterpolator(new DampedSpringInterpolator(
+                    vel, mHeightAnimationDistance, duration));
+        }
         animator.addListener(new AnimatorListenerAdapter() {
             private boolean mCancelled;
 
@@ -1497,7 +1525,7 @@ public final class NotificationPanelViewController implements
 
             @Override
             public void onAnimationEnd(Animator animation) {
-                onFlingEnd(mCancelled);
+                if (mHeightAnimator == animation) onFlingEnd(mCancelled);
             }
         });
         if (!mScrimController.isScreenOn()) {
@@ -1511,7 +1539,7 @@ public final class NotificationPanelViewController implements
     void onFlingEnd(boolean cancelled) {
         mIsFlinging = false;
         mExpectingSynthesizedDown = false;
-        setOverExpansionInternal(0);
+        if (!cancelled) setOverExpansionInternal(0);
         setAnimator(null);
         mKeyguardStateController.notifyPanelFlingEnd();
         if (!cancelled) {
@@ -2078,14 +2106,15 @@ public final class NotificationPanelViewController implements
 
     @VisibleForTesting
     void setOverExpansion(float overExpansion) {
-        // Panel height stops at its endpoint; pulling farther does not stretch either page.
-        mOverExpansion = 0f;
+        // Keep logical expansion bounded; only the content carries a small spring rebound.
+        mOverExpansion = mBarState == SHADE
+                ? Math.max(0f, Math.min(overExpansion, mView.getHeight() * .035f)) : 0f;
+        mQsController.setOverScrollAmount(Math.round(mOverExpansion));
         if (mSplitShadeEnabled) {
-            mQsController.setOverScrollAmount(0);
-            mScrimController.setNotificationsOverScrollAmount(0);
+            mScrimController.setNotificationsOverScrollAmount((int) mOverExpansion);
         }
         mQsController.updateQsFrameTranslation();
-        mNotificationStackScrollLayoutController.setOverExpansion(0f);
+        mNotificationStackScrollLayoutController.setOverExpansion(mOverExpansion);
     }
 
     private void falsingAdditionalTapRequired() {
@@ -2412,6 +2441,7 @@ public final class NotificationPanelViewController implements
         mTouchDisabled = disabled;
         if (mTouchDisabled) {
             cancelHeightAnimator();
+            setOverExpansionInternal(0);
             if (isTracking()) {
                 onTrackingStopped(true /* expanded */);
             }
@@ -2909,7 +2939,7 @@ public final class NotificationPanelViewController implements
         if (!mHandlingPointerUp && !mStatusBarStateController.isDozing()) {
             mQsController.beginJankMonitoring(isFullyCollapsed());
         }
-        mInitialOffsetOnTouch = expandedHeight;
+        mInitialOffsetOnTouch = expandedHeight + mOverExpansion;
         if (!isTracking() || isFullyCollapsed()) {
             mInitialExpandY = newY;
             mInitialExpandX = newX;
@@ -3086,7 +3116,8 @@ public final class NotificationPanelViewController implements
                 mExpandLatencyTracking = false;
             }
             float maxPanelHeight = getMaxPanelTransitionDistance();
-            mExpandedHeight = Math.min(h, maxPanelHeight);
+            setOverExpansionInternal(Math.max(0f, h - maxPanelHeight));
+            mExpandedHeight = Math.max(0f, Math.min(h, maxPanelHeight));
             // If we are closing the panel and we are almost there due to a slow decelerating
             // interpolator, abort the animation.
             if (mExpandedHeight < 1f && mExpandedHeight != 0f && isClosing()) {
@@ -3207,9 +3238,10 @@ public final class NotificationPanelViewController implements
         return mHeightAnimator != null;
     }
 
-    /** Create an animator for the panel's bounded height. */
+    /** Animate logical height and its bounded visual overshoot on the same clock. */
     private ValueAnimator createHeightAnimator(float targetHeight) {
-        ValueAnimator animator = ValueAnimator.ofFloat(mExpandedHeight, targetHeight);
+        ValueAnimator animator = ValueAnimator.ofFloat(
+                mExpandedHeight + mOverExpansion, targetHeight);
         registerAnimatorForTest(animator);
         animator.addUpdateListener(
                 animation -> setExpandedHeightInternal((float) animation.getAnimatedValue()));

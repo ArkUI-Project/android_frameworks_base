@@ -1,5 +1,5 @@
 /*
- * Modified by the ArkUI Project in 2026 to default to separate shade panels.
+ * Modified by the ArkUI Project in 2026 for separate panels and interruptible shade physics.
  * Copyright (C) 2022 The Android Open Source Project
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
@@ -90,6 +90,7 @@ import com.android.systemui.screenrecord.ScreenRecordUxController;
 import com.android.systemui.shade.data.repository.ShadeRepository;
 import com.android.systemui.shade.domain.interactor.ShadeInteractor;
 import com.android.systemui.shade.shared.flag.ShadeWindowGoesAround;
+import com.android.systemui.shared.animation.DampedSpringInterpolator;
 import com.android.systemui.shared.system.QuickStepContract;
 import com.android.systemui.statusbar.LockscreenShadeTransitionController;
 import com.android.systemui.statusbar.NotificationRemoteInputManager;
@@ -312,6 +313,9 @@ public class QuickSettingsControllerImpl implements QuickSettingsController, Dum
     private ValueAnimator mClippingAnimator = null;
     /** The main animator for QS expansion */
     private ValueAnimator mExpansionAnimator;
+    private float mExpansionAnimationDistance;
+    private float mInterruptedExpansionVelocity;
+    private long mExpansionInterruptionTime;
     /** The animator for QS size change */
     private ValueAnimator mSizeChangeAnimator;
 
@@ -2138,7 +2142,7 @@ public class QuickSettingsControllerImpl implements QuickSettingsController, Dum
                 return;
             }
             float height = mExpansionHeight;
-            mExpansionAnimator.cancel();
+            cancelExpansionAnimation();
             setExpansionHeight(height);
         }
         flingQs(0 /* vel */, animateAway ? FLING_HIDE : FLING_COLLAPSE);
@@ -2146,6 +2150,14 @@ public class QuickSettingsControllerImpl implements QuickSettingsController, Dum
 
     private void cancelExpansionAnimation() {
         if (mExpansionAnimator != null) {
+            if (mExpansionAnimator.getInterpolator() instanceof DampedSpringInterpolator spring) {
+                mInterruptedExpansionVelocity = mExpansionAnimationDistance * spring.getVelocity(
+                        (float) mExpansionAnimator.getCurrentPlayTime()
+                                / Math.max(1L, mExpansionAnimator.getDuration()));
+                mExpansionInterruptionTime = android.os.SystemClock.uptimeMillis();
+            } else {
+                mExpansionInterruptionTime = 0;
+            }
             mExpansionAnimator.cancel();
         }
     }
@@ -2165,6 +2177,13 @@ public class QuickSettingsControllerImpl implements QuickSettingsController, Dum
      */
     private void flingQs(float vel, int type, final Runnable onFinishRunnable,
             boolean isClick) {
+        cancelExpansionAnimation();
+        boolean springMotion = mBarState == StatusBarState.SHADE;
+        if (vel == 0f && springMotion && mExpansionInterruptionTime != 0
+                && android.os.SystemClock.uptimeMillis() - mExpansionInterruptionTime < 100) {
+            vel = mInterruptedExpansionVelocity;
+        }
+        mExpansionInterruptionTime = 0;
         mShadeLog.flingQs(type, isClick);
         float target;
         switch (type) {
@@ -2193,10 +2212,10 @@ public class QuickSettingsControllerImpl implements QuickSettingsController, Dum
             return;
         }
 
-        // If we move in the opposite direction, reset velocity and use a different duration.
+        // The legacy keyguard curve cannot represent a reversal; springs retain its velocity.
         boolean oppositeDirection = false;
         boolean expanding = type == FLING_EXPAND;
-        if (vel > 0 && !expanding || vel < 0 && expanding) {
+        if (!springMotion && (vel > 0 && !expanding || vel < 0 && expanding)) {
             vel = 0;
             oppositeDirection = true;
         }
@@ -2213,6 +2232,13 @@ public class QuickSettingsControllerImpl implements QuickSettingsController, Dum
         }
         if (oppositeDirection) {
             animator.setDuration(350);
+        }
+        mExpansionAnimationDistance = target - mExpansionHeight;
+        if (springMotion) {
+            long duration = expanding ? 460L : 380L;
+            animator.setDuration(duration);
+            animator.setInterpolator(new DampedSpringInterpolator(
+                    vel, mExpansionAnimationDistance, duration));
         }
         animator.addUpdateListener(
                 animation -> setExpansionHeight((Float) animation.getAnimatedValue()));
@@ -2231,6 +2257,7 @@ public class QuickSettingsControllerImpl implements QuickSettingsController, Dum
 
             @Override
             public void onAnimationEnd(Animator animation) {
+                if (mExpansionAnimator != animation) return;
                 mAnimatingHiddenFromCollapsed = false;
                 mAnimating = false;
                 mPanelViewControllerLazy.get().notifyExpandingFinished();
@@ -2245,11 +2272,11 @@ public class QuickSettingsControllerImpl implements QuickSettingsController, Dum
         // Let's note that we're animating QS. Moving the animator here will cancel it immediately,
         // so we need a separate flag.
         mAnimating = true;
-        animator.start();
         mExpansionAnimator = animator;
         mAnimatorExpand = expanding;
         mAnimatingHiddenFromCollapsed =
                 computeExpansionFraction() == 0.0f && target == 0;
+        animator.start();
     }
 
     private void flingQsWithCurrentVelocity(float y, boolean isCancelMotionEvent) {
