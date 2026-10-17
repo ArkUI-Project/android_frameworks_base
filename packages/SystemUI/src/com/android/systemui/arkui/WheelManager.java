@@ -428,6 +428,8 @@ public final class WheelManager implements CoreStartable {
         boolean supports = SmallWindowSettings.isPackageAllowed(users.getUserContext(), component.getPackageName());
         ActivityOptions options = ActivityOptions.makeBasic(); options.setLaunchDisplayId(Display.DEFAULT_DISPLAY);
         options.setLaunchWindowingMode(small && supports ? WindowConfiguration.WINDOWING_MODE_MINI_WINDOW_EXT : WindowConfiguration.WINDOWING_MODE_FULLSCREEN);
+        SmallWindowLaunchAnimation.apply(users.getUserContext(), main, options,
+                component.getPackageName());
         if (small && !supports) Toast.makeText(context, R.string.arkui_sidebar_fullscreen_fallback, Toast.LENGTH_SHORT).show();
         launcher.startMainActivity(component, users.getUserHandle(), null, options.toBundle());
     }

@@ -364,6 +364,8 @@ public final class SidebarManager implements CoreStartable {
             options.setLaunchWindowingMode(small && allowed
                     ? WindowConfiguration.WINDOWING_MODE_MINI_WINDOW_EXT
                     : WindowConfiguration.WINDOWING_MODE_FULLSCREEN);
+            SmallWindowLaunchAnimation.apply(users.getUserContext(), main, options,
+                    component.getPackageName());
             if (small && !allowed) Toast.makeText(context, R.string.arkui_sidebar_fullscreen_fallback, Toast.LENGTH_SHORT).show();
             launcher.startMainActivity(component, users.getUserHandle(), null, options.toBundle());
         } catch (RuntimeException e) {
