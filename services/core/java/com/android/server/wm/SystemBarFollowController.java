@@ -7,6 +7,7 @@ import static android.view.Display.DEFAULT_DISPLAY;
 import static android.view.WindowInsetsController.APPEARANCE_LIGHT_NAVIGATION_BARS;
 import static android.view.WindowManager.TRANSIT_CLOSE;
 import static android.view.WindowManager.TRANSIT_CHANGE;
+import static android.view.WindowManager.TRANSIT_FLAG_IS_RECENTS;
 import static android.view.WindowManager.TRANSIT_OPEN;
 import static android.view.WindowManager.TRANSIT_TO_BACK;
 import static android.view.WindowManager.TRANSIT_TO_FRONT;
@@ -39,6 +40,7 @@ final class SystemBarFollowController {
     // A real bar can belong to only one transition. In particular, a queued transition must not
     // borrow it before the previous transition's finish and cleanup transactions have applied.
     private Session mStatusSession;
+    private Session mPendingStatusSession;
 
     SystemBarFollowController(WindowManagerService service) { mService = service; }
 
@@ -50,8 +52,15 @@ final class SystemBarFollowController {
                 synchronized (mService.mGlobalLock) {
                     if (getSendingUserId() == mService.mCurrentUserId) {
                         boolean running = intent.getBooleanExtra("running", false);
-                        if (mActiveSession != null) mActiveSession.setAnimating(running);
-                        if (mStatusSession != null) mStatusSession.setStatusAnimating(running);
+                        if (mActiveSession != null && mActiveSession.recents) {
+                            mActiveSession.setAnimating(running);
+                        }
+                        if (mStatusSession != null && mStatusSession.recents) {
+                            mStatusSession.setStatusAnimating(running);
+                        }
+                        if (mPendingStatusSession != null && mPendingStatusSession.recents) {
+                            mPendingStatusSession.setStatusAnimating(running);
+                        }
                     }
                 }
             }
@@ -119,12 +128,17 @@ final class SystemBarFollowController {
 
             cancelFade();
             Session session = new Session(++mGeneration, user, display, navigation,
-                    (window.mAttrs.insetsFlags.appearance & APPEARANCE_LIGHT_NAVIGATION_BARS) != 0);
+                    (window.mAttrs.insetsFlags.appearance & APPEARANCE_LIGHT_NAVIGATION_BARS) != 0,
+                    (info.getFlags() & TRANSIT_FLAG_IS_RECENTS) != 0);
             mActiveSession = session;
+            if (mPendingStatusSession != null) {
+                mPendingStatusSession.statusRevoked = true;
+                mPendingStatusSession = null;
+            }
             try {
                 WindowState statusWindow = display.getDisplayPolicy().getStatusBar();
                 if (status && window.isRequestedVisible(WindowInsets.Type.statusBars())
-                        && mStatusSession == null && statusWindow != null
+                        && statusWindow != null
                         && statusWindow.mToken != null
                         && statusWindow.mToken.getAnimationLeash() == null
                         && statusWindow.mToken.getSurfaceControl() != null) {
@@ -147,7 +161,7 @@ final class SystemBarFollowController {
                 Slog.w("SystemBarFollow", "Cannot create transition visuals", e);
                 // attachStatusBar may already have written its reparent into the start
                 // transaction. Override it in that same transaction if a later allocation fails.
-                session.writeStatusBarRestore(start);
+                if (mStatusSession == session) session.writeStatusBarRestore(start);
                 session.remove();
                 return null;
             }
@@ -190,6 +204,10 @@ final class SystemBarFollowController {
     }
 
     private void restoreStatusBar() {
+        if (mPendingStatusSession != null) {
+            mPendingStatusSession.statusRevoked = true;
+            mPendingStatusSession = null;
+        }
         if (mStatusSession == null) return;
         try (var transaction = new SurfaceControl.Transaction()) {
             mStatusSession.revokeStatusBar(transaction);
@@ -245,7 +263,7 @@ final class SystemBarFollowController {
     final class Session {
         final int generation, user;
         final DisplayContent display;
-        final boolean dark;
+        final boolean dark, recents;
         final ArrayList<SurfaceControl> surfaces = new ArrayList<>();
         boolean navigation;
         SurfaceControl followingHandle;
@@ -260,9 +278,10 @@ final class SystemBarFollowController {
         boolean statusMotionRunning = true;
         boolean statusRevoked;
 
-        Session(int generation, int user, DisplayContent display, boolean navigation, boolean dark) {
+        Session(int generation, int user, DisplayContent display, boolean navigation, boolean dark,
+                boolean recents) {
             this.generation = generation; this.user = user; this.display = display;
-            this.navigation = navigation; this.dark = dark;
+            this.navigation = navigation; this.dark = dark; this.recents = recents;
         }
 
         void attachStatusBar(WindowToken token, SurfaceControl appLeash, Rect bounds,
@@ -277,26 +296,36 @@ final class SystemBarFollowController {
                     .setContainerLayer().setCallsite("SystemBarFollowController.attachStatusBar")
                     .build();
             surfaces.add(followingStatus);
-            mStatusSession = this;
             // Only the existing status bar is moved. Its real window keeps drawing and receiving
             // the foreground app's contrast updates; no second set of glyphs stays on the display.
             start.setPosition(followingStatus, -bounds.left, -bounds.top)
                     .setLayer(followingStatus, Integer.MAX_VALUE - 1)
-                    .setAlpha(followingStatus, 1).show(followingStatus)
-                    .reparent(statusSurface, followingStatus).setLayer(statusSurface, 0);
-            writeStatusBarRestore(finish);
-            writeStatusBarRestore(cleanup);
-            finish.reparent(followingStatus, null);
-            cleanup.reparent(followingStatus, null);
+                    .setAlpha(followingStatus, 1).show(followingStatus);
+            if (mStatusSession == null) {
+                mStatusSession = this;
+                mPendingStatusSession = null;
+                start.reparent(statusSurface, followingStatus).setLayer(statusSurface, 0);
+                writeStatusBarRestore(finish);
+                writeStatusBarRestore(cleanup);
+                finish.reparent(followingStatus, null);
+                cleanup.reparent(followingStatus, null);
+            } else {
+                // Give the next animation a target immediately so it can fit the bar to its
+                // first crop. Move the real bar only after the old owner's cleanup has run.
+                // This pending session must not send a future restore through Shell: by then
+                // the bar may already belong to a third transition.
+                mPendingStatusSession = this;
+                statusRestored = true;
+            }
             // Motion can settle while this start waits in Shell's queue. Replay its latest intent
             // after presentation, rather than starting an independent, timed status-bar fade.
             start.addTransactionCommittedListener(new HandlerExecutor(mService.mH), () -> {
                 synchronized (mService.mGlobalLock) {
-                    if (mStatusSession != this || followingStatus == null
-                            || !followingStatus.isValid()) return;
+                    if (followingStatus == null || !followingStatus.isValid()) return;
                     statusStarted = true;
                     try (var transaction = new SurfaceControl.Transaction()) {
-                        updateStatusBarMotion(transaction);
+                        if (mStatusSession == this) updateStatusBarMotion(transaction);
+                        else acquirePendingStatusBar(transaction);
                         transaction.apply();
                     }
                 }
@@ -311,7 +340,9 @@ final class SystemBarFollowController {
             TransitionInfo.Change bar = new TransitionInfo.Change(null,
                     new SurfaceControl(followingStatus, "ArkUI original status bar target"));
             bar.setParent(app.getContainer());
-            bar.setMode(TRANSIT_CHANGE);
+            // An opening target has its geometry ready but is still waiting for the real bar.
+            // Let the animation owner avoid capturing that temporarily empty container.
+            bar.setMode(mPendingStatusSession == this ? TRANSIT_OPEN : TRANSIT_CHANGE);
             bar.setFlags(TransitionInfo.FLAG_IS_SYSTEM_WINDOW | TransitionInfo.FLAG_NO_ANIMATION
                     | TransitionInfo.FLAG_ARKUI_STATUS_BAR_FOLLOW);
             Rect source = new Rect(0, 0, bounds.width(), bounds.height());
@@ -359,7 +390,11 @@ final class SystemBarFollowController {
         }
 
         private boolean canFollowStatusBar() {
-            return mStatusSession == this && !statusRevoked
+            return mStatusSession == this && isStatusBarValid();
+        }
+
+        private boolean isStatusBarValid() {
+            return !statusRevoked
                     && followingStatus != null && followingStatus.isValid()
                     && statusSurface != null && statusSurface.isValid()
                     && statusAppLeash != null && statusAppLeash.isValid()
@@ -371,6 +406,15 @@ final class SystemBarFollowController {
                     && display.getRotation() == statusRotation
                     && user == mService.mCurrentUserId && mService.getAnimationScale(1) != 0
                     && SystemBarFollowSettings.statusEnabled(display.getDisplayUiContext(), user);
+        }
+
+        private void acquirePendingStatusBar(SurfaceControl.Transaction transaction) {
+            if (mStatusSession != null || mPendingStatusSession != this || !statusStarted) return;
+            mPendingStatusSession = null;
+            if (!isStatusBarValid()) return;
+            mStatusSession = this;
+            statusRestored = true;
+            updateStatusBarMotion(transaction);
         }
 
         private void updateStatusBarMotion(SurfaceControl.Transaction transaction) {
@@ -399,10 +443,16 @@ final class SystemBarFollowController {
             }
             try (var transaction = new SurfaceControl.Transaction()) {
                 revokeStatusBar(transaction);
+                if (mPendingStatusSession == this) mPendingStatusSession = null;
+                if (mStatusSession == this) mStatusSession = null;
                 for (SurfaceControl surface : surfaces) if (surface.isValid()) transaction.remove(surface);
+                // Restore/remove the old container and attach the bar to the already fitted new
+                // one in a single transaction. The old finish/cleanup can no longer steal it.
+                if (mPendingStatusSession != null) {
+                    mPendingStatusSession.acquirePendingStatusBar(transaction);
+                }
                 transaction.apply();
             }
-            if (mStatusSession == this) mStatusSession = null;
             followingStatus = null;
             statusSurface = null;
             statusAppLeash = null;

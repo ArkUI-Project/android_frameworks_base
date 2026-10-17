@@ -350,7 +350,8 @@ public class TransitionUtil {
                     : parent.getTaskInfo();
             final Rect source = new Rect(change.getEndAbsBounds());
             return new RemoteAnimationTarget(owner == null ? INVALID_TASK_ID : owner.taskId,
-                    MODE_CHANGING, change.getLeash(), true, null, new Rect(), order, null,
+                    newModeToLegacyMode(change.getMode()), change.getLeash(), true, null,
+                    new Rect(), order, null,
                     source, source, new WindowConfiguration(), true, null,
                     new Rect(change.getStartAbsBounds()), null, false, TYPE_STATUS_BAR);
         }
