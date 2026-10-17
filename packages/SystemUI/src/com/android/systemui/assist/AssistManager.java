@@ -315,6 +315,16 @@ public class AssistManager {
                     mSelectedUserInteractor.getSelectedUserId());
             return;
         }
+        if (args != null
+                && args.getInt(INVOCATION_TYPE_KEY) == INVOCATION_TYPE_HOME_BUTTON_LONG_PRESS
+                && AssistantInvocation.isAvailable(mContext,
+                        mSelectedUserInteractor.getSelectedUserId())) {
+            // The three-button Home shortcut follows the same ArkUI action as the nav handle,
+            // independently of the assistant role or a previously registered GMS override.
+            AssistantInvocation.invoke(mContext, AssistantInvocation.LONG_PRESS,
+                    mSelectedUserInteractor.getSelectedUserId());
+            return;
+        }
         if (shouldOverrideAssist(args)) {
             try {
                 if (mLauncherProxyService.getProxy() == null) {
@@ -364,6 +374,11 @@ public class AssistManager {
 
     /** @return true if the invocation type should be handled by LauncherProxy instead of SysUI. */
     public boolean shouldOverrideAssist(int invocationType) {
+        if (invocationType == INVOCATION_TYPE_HOME_BUTTON_LONG_PRESS
+                && mContext.getResources().getString(com.android.internal.R.string
+                        .config_defaultContextualSearchPackageName).isEmpty()) {
+            return false;
+        }
         return mAssistOverrideInvocationTypes != null
                 && Arrays.stream(mAssistOverrideInvocationTypes).anyMatch(
                     override -> override == invocationType);
