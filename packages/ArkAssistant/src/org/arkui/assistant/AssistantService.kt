@@ -45,6 +45,7 @@ internal data class TaskSnapshot(
     val limit: Int = 0,
     val running: Boolean = false,
     val paused: Boolean = false,
+    val userInControl: Boolean = false,
     val confirmation: String? = null,
     val events: List<TaskEvent> = emptyList(),
     val background: Boolean = false,
@@ -142,7 +143,8 @@ class AssistantService : Service() {
                 bridge?.setExecutionActive(operating && !paused)
                 ++observationVersion
                 if (!paused) resumeAfter = SystemClock.uptimeMillis() + 650
-                publish(snapshot.copy(paused = paused, status = if (paused) R.string.paused else R.string.thinking))
+                publish(snapshot.copy(paused = paused, userInControl = paused && snapshot.userInControl,
+                    status = if (paused) R.string.paused else R.string.thinking))
             }
             APPROVE -> confirmation?.complete(true)
             START -> {
@@ -169,7 +171,8 @@ class AssistantService : Service() {
                     paused = false; resumeAfter = SystemClock.uptimeMillis() + 400
                     bridge?.setExecutionActive(operating)
                     overlay.supplement = false; overlay.setFocus(false)
-                    publish(snapshot.copy(prompt = (snapshot.prompt + "\n" + prompt).takeLast(6000), paused = false, status = R.string.thinking))
+                    publish(snapshot.copy(prompt = (snapshot.prompt + "\n" + prompt).takeLast(6000),
+                        paused = false, userInControl = false, status = R.string.thinking))
                     return START_NOT_STICKY
                 }
                 supplements.clear()
@@ -193,7 +196,9 @@ class AssistantService : Service() {
     }
 
     private fun publish(value: TaskSnapshot) {
-        snapshot = if (value.running && paused) value.copy(status = R.string.paused, paused = true) else value
+        // Taking control is scoped to this pause, not to later AI execution or another task.
+        snapshot = if (value.running && paused) value.copy(status = R.string.paused, paused = true)
+            else value.copy(userInControl = false)
         TaskState.update(snapshot)
         if (snapshot.running) getSystemService(NotificationManager::class.java).notify(NOTIFICATION, notification())
     }
@@ -535,14 +540,15 @@ class AssistantService : Service() {
         paused = true; ++observationVersion
         system.setExecutionActive(false)
         overlay.takingOver = true
-        publish(snapshot.copy(paused = true, status = R.string.paused))
+        publish(snapshot.copy(paused = true, userInControl = false, status = R.string.paused))
         controls.submit {
             val result = runCatching { system.takeOver() }
             main.post {
                 overlay.takingOver = false
                 if (token != generation || cancelled || destroyed || !snapshot.running) return@post
                 if (result.isSuccess) {
-                    publish(snapshot.copy(background = false, detail = getString(R.string.user_in_control)))
+                    publish(snapshot.copy(background = false, userInControl = true,
+                        detail = getString(R.string.user_in_control)))
                     overlay.background = false
                     overlay.closeProgress(); overlay.expanded = false; overlay.setFocus(false)
                 } else publish(snapshot.copy(detail = getString(R.string.takeover_failed)))

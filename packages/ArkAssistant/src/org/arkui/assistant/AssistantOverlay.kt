@@ -120,8 +120,12 @@ internal class AssistantOverlay(private val service: AssistantService) : Lifecyc
                 private var outsideDown: MotionEvent? = null
                 private val touchRegion = ViewTreeObserver.OnComputeInternalInsetsListener { insets ->
                     insets.setTouchableInsets(ViewTreeObserver.InternalInsetsInfo.TOUCHABLE_INSETS_REGION)
-                    val navigation = rootWindowInsets?.getInsets(android.view.WindowInsets.Type.navigationBars())?.bottom ?: 0
-                    insets.touchableRegion.set(0, 0, width, height - navigation)
+                    // Reserve the system's swipe-up area even when the navigation bar is
+                    // hidden. Going Home/Recents must remain available during AI execution.
+                    val navigation = rootWindowInsets?.getInsetsIgnoringVisibility(
+                        android.view.WindowInsets.Type.navigationBars() or
+                            android.view.WindowInsets.Type.mandatorySystemGestures())?.bottom ?: 0
+                    insets.touchableRegion.set(0, 0, width, (height - navigation).coerceAtLeast(0))
                 }
                 override fun dispatchTouchEvent(event: MotionEvent): Boolean {
                     if (event.actionMasked == MotionEvent.ACTION_DOWN && event.y < (composition?.top ?: height)) {
@@ -134,7 +138,10 @@ internal class AssistantOverlay(private val service: AssistantService) : Lifecyc
                             val tapped = event.actionMasked == MotionEvent.ACTION_UP &&
                                 kotlin.math.abs(event.x - down.x) < slop && kotlin.math.abs(event.y - down.y) < slop
                             down.recycle(); outsideDown = null
-                            if (tapped) minimize()
+                            val task = TaskState.current
+                            // Pausing or waiting for confirmation does not hand control to
+                            // the user. Only a completed takeover unlocks outside dismissal.
+                            if (tapped && (!task.running || task.userInControl)) minimize()
                         }
                         return true
                     }
