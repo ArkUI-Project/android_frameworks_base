@@ -186,6 +186,7 @@ import android.os.PowerManager.WakeReason;
 import android.os.PowerManagerInternal;
 import android.os.Process;
 import android.os.RemoteException;
+import android.os.ResultReceiver;
 import android.os.ServiceManager;
 import android.os.StrictMode;
 import android.os.SystemClock;
@@ -556,6 +557,8 @@ public class PhoneWindowManager implements WindowManagerPolicy {
     // handler thread.  We'll need to resolve this someday by teaching the input dispatcher
     // to hold wakelocks during dispatch and eliminating the critical path.
     volatile boolean mPowerKeyHandled;
+    private volatile long mArkAiPowerKeyDownTime = -1;
+    private ArkAiPowerKeySession mArkAiPowerKeySession;
     volatile boolean mBackKeyHandled;
     volatile boolean mEndCallKeyHandled;
     volatile boolean mPowerButtonLaunchGestureTriggered;
@@ -1197,6 +1200,9 @@ public class PhoneWindowManager implements WindowManagerPolicy {
 
     private void interceptPowerKeyDown(KeyEvent event, boolean interactive,
             boolean isKeyGestureTriggered) {
+        if (event.getRepeatCount() == 0) {
+            mArkAiPowerKeyDownTime = event.getDownTime();
+        }
         // Hold a wake lock until the power key is released.
         if (!mPowerKeyWakeLock.isHeld()) {
             mPowerKeyWakeLock.acquire();
@@ -1253,6 +1259,14 @@ public class PhoneWindowManager implements WindowManagerPolicy {
     }
 
     private void interceptPowerKeyUp(KeyEvent event, boolean canceled) {
+        final long downTime = event.getDownTime();
+        mArkAiPowerKeyDownTime = -1;
+        mHandler.post(() -> {
+            if (mArkAiPowerKeySession != null
+                    && mArkAiPowerKeySession.mDownTime == downTime) {
+                mArkAiPowerKeySession.finish(AssistantInvocation.POWER_KEY_RELEASED);
+            }
+        });
         // Inform the StatusBar; but do not allow it to consume the event.
         sendSystemKeyToStatusBarAsync(event);
 
@@ -1660,11 +1674,22 @@ public class PhoneWindowManager implements WindowManagerPolicy {
         final int behavior = mResolvedLongPressOnPowerBehavior;
         if (isScreenOn() && !FactoryTest.isLongPressOnPowerOffEnabled()
                 && behavior != LONG_PRESS_POWER_TORCH
-                && AssistantInvocation.invoke(mContext, AssistantInvocation.POWER, mCurrentUserId)) {
-            mPowerKeyHandled = true;
-            performHapticFeedback(HapticFeedbackConstants.ASSISTANT_BUTTON,
-                    "Power - Long Press - ArkAI");
-            return;
+                && mArkAiPowerKeyDownTime == eventTime
+                && AssistantInvocation.canInvoke(mContext, AssistantInvocation.POWER,
+                        mCurrentUserId)) {
+            final ArkAiPowerKeySession session = new ArkAiPowerKeySession(eventTime);
+            if (AssistantInvocation.invoke(mContext, AssistantInvocation.POWER, mCurrentUserId,
+                    session)) {
+                if (mArkAiPowerKeySession != null) {
+                    mArkAiPowerKeySession.finish(AssistantInvocation.POWER_KEY_RELEASED);
+                }
+                mArkAiPowerKeySession = session;
+                session.start();
+                mPowerKeyHandled = true;
+                performHapticFeedback(HapticFeedbackConstants.ASSISTANT_BUTTON,
+                        "Power - Long Press - ArkAI");
+                return;
+            }
         }
         Slog.d(TAG, "powerLongPress: eventTime=" + eventTime
                 + " mResolvedLongPressOnPowerBehavior=" + mResolvedLongPressOnPowerBehavior);
@@ -1727,6 +1752,76 @@ public class PhoneWindowManager implements WindowManagerPolicy {
                 msg.setAsynchronous(true);
                 msg.sendToTarget();
                 break;
+        }
+    }
+
+    /** A live physical key hold, shared with ArkAI through a per-invocation callback. */
+    private final class ArkAiPowerKeySession extends ResultReceiver implements Runnable {
+        private final long mDownTime;
+        private final int mUserId = mCurrentUserId;
+        private final long mDeadline = SystemClock.uptimeMillis()
+                + AssistantInvocation.POWER_MENU_HOLD_DURATION_MILLIS;
+        private int mState = AssistantInvocation.POWER_KEY_HELD;
+        private ResultReceiver mCallback;
+
+        ArkAiPowerKeySession(long downTime) {
+            super(mHandler);
+            mDownTime = downTime;
+        }
+
+        void start() {
+            if (mArkAiPowerKeyDownTime != mDownTime) {
+                finish(AssistantInvocation.POWER_KEY_RELEASED);
+                return;
+            }
+            mHandler.postAtTime(this, mDeadline);
+        }
+
+        @Override
+        protected void onReceiveResult(int resultCode, Bundle data) {
+            if (resultCode == AssistantInvocation.POWER_KEY_REGISTER && data != null) {
+                mCallback = data.getParcelable(AssistantInvocation.EXTRA_POWER_KEY_CALLBACK,
+                        ResultReceiver.class);
+                // Registration can arrive after key-up or the deadline while ArkAI starts.
+                if (mState == AssistantInvocation.POWER_KEY_HELD
+                        && mArkAiPowerKeyDownTime != mDownTime) {
+                    finish(AssistantInvocation.POWER_KEY_RELEASED);
+                } else {
+                    notifyState();
+                }
+            } else if (resultCode == AssistantInvocation.POWER_KEY_CANCEL) {
+                finish(AssistantInvocation.POWER_KEY_RELEASED);
+            }
+        }
+
+        private void notifyState() {
+            if (mCallback == null) return;
+            final Bundle data = new Bundle();
+            data.putLong(AssistantInvocation.EXTRA_POWER_KEY_DEADLINE, mDeadline);
+            mCallback.send(mState, data);
+            if (mState != AssistantInvocation.POWER_KEY_HELD) mCallback = null;
+        }
+
+        void finish(int state) {
+            if (mState != AssistantInvocation.POWER_KEY_HELD) return;
+            mState = state;
+            mHandler.removeCallbacks(this);
+            if (mArkAiPowerKeySession == this) mArkAiPowerKeySession = null;
+            notifyState();
+        }
+
+        @Override
+        public void run() {
+            if (mState != AssistantInvocation.POWER_KEY_HELD) return;
+            if (mArkAiPowerKeyDownTime != mDownTime || mCurrentUserId != mUserId
+                    || mRequestedOrSleepingDefaultDisplay || !isScreenOn()) {
+                finish(AssistantInvocation.POWER_KEY_RELEASED);
+                return;
+            }
+            finish(AssistantInvocation.POWER_KEY_MENU);
+            performHapticFeedback(HapticFeedbackConstants.LONG_PRESS_POWER_BUTTON,
+                    "Power - ArkAI Hold - Global Actions");
+            showGlobalActions();
         }
     }
 
@@ -2123,6 +2218,9 @@ public class PhoneWindowManager implements WindowManagerPolicy {
     }
 
     void showGlobalActionsInternal() {
+        if (mArkAiPowerKeySession != null) {
+            mArkAiPowerKeySession.finish(AssistantInvocation.POWER_KEY_MENU);
+        }
         if (mGlobalActions == null) {
             mGlobalActions = mGlobalActionsFactory.get();
         }
@@ -2976,6 +3074,7 @@ public class PhoneWindowManager implements WindowManagerPolicy {
         }
 
         private void onVeryLongPress() {
+            if (mArkAiPowerKeySession != null) return;
             mActivityManagerInternal.prepareForPossibleShutdown();
             powerVeryLongPress();
         }

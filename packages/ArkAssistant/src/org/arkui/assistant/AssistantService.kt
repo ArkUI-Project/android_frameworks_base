@@ -16,6 +16,7 @@ import android.os.Bundle
 import android.os.Handler
 import android.os.IBinder
 import android.os.Looper
+import android.os.ResultReceiver
 import android.os.SystemClock
 import android.util.Base64
 import android.view.ScreenContent
@@ -93,6 +94,7 @@ class AssistantService : Service() {
     private val supplements = ConcurrentLinkedQueue<String>()
     private var voiceForeground = false
     private var destroyed = false
+    private var powerKeySession: ResultReceiver? = null
 
     override fun onBind(intent: Intent): IBinder? = null
 
@@ -108,7 +110,13 @@ class AssistantService : Service() {
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
         when (intent?.action) {
             INVOKE -> {
-                if (!ConfigStore(this).enabled) return START_NOT_STICKY
+                val powerSession = intent.getParcelableExtra(
+                    AssistantInvocation.EXTRA_POWER_KEY_SESSION, ResultReceiver::class.java)
+                if (!ConfigStore(this).enabled) {
+                    powerSession?.send(AssistantInvocation.POWER_KEY_CANCEL, null)
+                    return START_NOT_STICKY
+                }
+                cancelPowerKeyHold()
                 val action = intent.getIntExtra(AssistantInvocation.EXTRA_ACTION, 0)
                 val entry = intent.getStringExtra(AssistantInvocation.EXTRA_ENTRY)
                 val effect = when {
@@ -124,6 +132,7 @@ class AssistantService : Service() {
                     AssistantInvocation.TEXT -> if (snapshot.running) overlay.edit() else overlay.openKeyboard()
                     AssistantInvocation.SCREEN -> overlay.submit(getString(R.string.summarize_prompt))
                 }
+                if (entry == AssistantInvocation.POWER) attachPowerKeySession(powerSession)
             }
             SHOW -> overlay.show(AssistantInvocationEffect.AURORA)
             PROGRESS -> { overlay.show(); overlay.openProgress() }
@@ -193,6 +202,38 @@ class AssistantService : Service() {
         }
         if (!snapshot.running && !overlay.shown) stopSelf()
         return START_NOT_STICKY
+    }
+
+    private fun attachPowerKeySession(session: ResultReceiver?) {
+        if (session == null) return
+        powerKeySession = session
+        val callback = object : ResultReceiver(main) {
+            override fun onReceiveResult(resultCode: Int, resultData: Bundle?) {
+                if (powerKeySession !== session) return
+                when (resultCode) {
+                    AssistantInvocation.POWER_KEY_HELD -> overlay.setPowerMenuHold(
+                        resultData?.getLong(AssistantInvocation.EXTRA_POWER_KEY_DEADLINE) ?: 0L)
+                    AssistantInvocation.POWER_KEY_RELEASED, AssistantInvocation.POWER_KEY_MENU -> {
+                        powerKeySession = null
+                        overlay.setPowerMenuHold(0L)
+                        if (resultCode == AssistantInvocation.POWER_KEY_MENU) {
+                            voicePermission = null
+                            overlay.hide()
+                        }
+                    }
+                }
+            }
+        }
+        session.send(AssistantInvocation.POWER_KEY_REGISTER, Bundle().apply {
+            putParcelable(AssistantInvocation.EXTRA_POWER_KEY_CALLBACK, callback)
+        })
+    }
+
+    internal fun cancelPowerKeyHold() {
+        val session = powerKeySession
+        powerKeySession = null
+        overlay.setPowerMenuHold(0L)
+        session?.send(AssistantInvocation.POWER_KEY_CANCEL, null)
     }
 
     private fun publish(value: TaskSnapshot) {

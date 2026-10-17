@@ -158,4 +158,5 @@
     <string name="ime_voice_disabled">Turn on ArkAI and unlock your device to use voice input.</string>
     <string name="ime_voice_cancelled">Dictation cancelled</string>
     <string name="microphone_permission">Microphone access</string>
+    <string name="power_menu_hold_hint">Keep holding the power button for 5 seconds to open the power menu</string>
 </resources>

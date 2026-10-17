@@ -37,6 +37,7 @@ import androidx.compose.animation.scaleIn
 import androidx.compose.animation.scaleOut
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.mutableLongStateOf
 import androidx.compose.runtime.setValue
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.remember
@@ -64,6 +65,8 @@ internal class AssistantOverlay(private val service: AssistantService) : Lifecyc
     private val manager = context.getSystemService(WindowManager::class.java)
     private var root: FrameLayout? = null
     private var composition: ComposeView? = null
+    private var powerMenuComposition: ComposeView? = null
+    private var powerMenuDeadline by mutableLongStateOf(0L)
     private var backdrop: ProgressiveBlur? = null
     private var invocationGlow: AssistantInvocationGlow? = null
     private var focus = false
@@ -170,6 +173,8 @@ internal class AssistantOverlay(private val service: AssistantService) : Lifecyc
                     }
                     invocationGlow?.measure(MeasureSpec.makeMeasureSpec(measuredWidth, MeasureSpec.EXACTLY),
                         MeasureSpec.makeMeasureSpec(measuredHeight, MeasureSpec.EXACTLY))
+                    powerMenuComposition?.measure(widthSpec,
+                        MeasureSpec.makeMeasureSpec(measuredHeight, MeasureSpec.AT_MOST))
                 }
                 override fun onAttachedToWindow() {
                     super.onAttachedToWindow()
@@ -217,6 +222,11 @@ internal class AssistantOverlay(private val service: AssistantService) : Lifecyc
                 }
             }
             frame.addView(compose, FrameLayout.LayoutParams(-1, -2, Gravity.BOTTOM))
+            val powerMenu = ComposeView(context).apply {
+                setContent { AssistantTheme { PowerMenuHoldHint(powerMenuDeadline) } }
+            }
+            powerMenuComposition = powerMenu
+            frame.addView(powerMenu, FrameLayout.LayoutParams(-1, -2, Gravity.TOP))
             // Vote only while drawing, including Compose's child views and the wake glow.
             // Let the display policy choose the high rate supported by the current mode.
             frame.propagateRequestedFrameRate(View.REQUESTED_FRAME_RATE_CATEGORY_HIGH, true)
@@ -231,6 +241,7 @@ internal class AssistantOverlay(private val service: AssistantService) : Lifecyc
 
     private val remove = Runnable {
         composition?.disposeComposition(); composition = null
+        powerMenuComposition?.disposeComposition(); powerMenuComposition = null
         root?.let { manager.removeViewImmediate(it) }; root = null
         backdrop = null
         invocationGlow = null
@@ -240,12 +251,15 @@ internal class AssistantOverlay(private val service: AssistantService) : Lifecyc
     }
 
     fun hide() {
+        service.cancelPowerKeyHold()
         invocationGlow?.stop()
         voice.cancel(); visible = false; setFocus(false)
         if (root != null) main.postDelayed(remove, (AssistantMotion.exit + 30).toLong()) else service.overlayHidden()
     }
 
     fun minimize() { minimizing = true; hide() }
+
+    fun setPowerMenuHold(deadline: Long) { powerMenuDeadline = deadline }
 
     fun setBackdrop(color: Int, voice: Boolean, bottomInset: Int, voiceReveal: Float) {
         backdrop?.configure(color, voice, bottomInset)
@@ -333,10 +347,12 @@ internal class AssistantOverlay(private val service: AssistantService) : Lifecyc
     fun command(action: String) = service.command(action)
 
     fun destroy() {
+        service.cancelPowerKeyHold()
         main.removeCallbacksAndMessages(null)
         invocationGlow?.stop()
         voice.destroy(); visible = false
         composition?.disposeComposition(); composition = null
+        powerMenuComposition?.disposeComposition(); powerMenuComposition = null
         root?.let { manager.removeViewImmediate(it) }; root = null
         backdrop = null
         invocationGlow = null

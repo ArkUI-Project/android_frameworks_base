@@ -158,4 +158,5 @@
     <string name="ime_voice_disabled">请启用 ArkAI 并解锁设备后使用语音输入。</string>
     <string name="ime_voice_cancelled">已取消听写</string>
     <string name="microphone_permission">麦克风权限</string>
+    <string name="power_menu_hold_hint">继续长按电源键 5 秒，打开电源菜单</string>
 </resources>

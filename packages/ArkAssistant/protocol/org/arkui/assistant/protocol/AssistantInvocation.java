@@ -6,6 +6,7 @@ import android.app.KeyguardManager;
 import android.content.Context;
 import android.content.Intent;
 import android.content.pm.PackageManager;
+import android.os.ResultReceiver;
 import android.os.UserHandle;
 import android.provider.Settings;
 import android.util.Log;
@@ -18,6 +19,16 @@ public final class AssistantInvocation {
     public static final String LONG_PRESS = "arkui_assistant_nav_long_press";
     public static final String EXTRA_ACTION = "assistant_action";
     public static final String EXTRA_ENTRY = "arkui_assistant_entry";
+    // The system owns the hold timer and replays its state when the overlay registers.
+    public static final String EXTRA_POWER_KEY_SESSION = "arkui_assistant_power_key_session";
+    public static final String EXTRA_POWER_KEY_CALLBACK = "arkui_assistant_power_key_callback";
+    public static final String EXTRA_POWER_KEY_DEADLINE = "arkui_assistant_power_key_deadline";
+    public static final long POWER_MENU_HOLD_DURATION_MILLIS = 5000;
+    public static final int POWER_KEY_REGISTER = 1;
+    public static final int POWER_KEY_CANCEL = 2;
+    public static final int POWER_KEY_HELD = 3;
+    public static final int POWER_KEY_RELEASED = 4;
+    public static final int POWER_KEY_MENU = 5;
     public static final int NONE = 0;
     public static final int VOICE = 1;
     public static final int TEXT = 2;
@@ -59,6 +70,11 @@ public final class AssistantInvocation {
     }
 
     public static boolean invoke(Context context, String entry, int userId) {
+        return invoke(context, entry, userId, null);
+    }
+
+    public static boolean invoke(Context context, String entry, int userId,
+            ResultReceiver powerKeySession) {
         if (!canInvoke(context, entry, userId)) return false;
         int action = action(context, entry, userId);
         if (action == NONE) return false;
@@ -68,6 +84,7 @@ public final class AssistantInvocation {
                             AssistantProtocol.PACKAGE + ".AssistantShortcutActivity")
                     .putExtra(EXTRA_ACTION, action)
                     .putExtra(EXTRA_ENTRY, entry)
+                    .putExtra(EXTRA_POWER_KEY_SESSION, powerKeySession)
                     .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK | Intent.FLAG_ACTIVITY_NO_ANIMATION),
                     UserHandle.of(userId));
             return true;

@@ -10,6 +10,7 @@ import android.content.ClipboardManager
 import android.content.Intent
 import android.content.pm.PackageManager
 import android.os.Bundle
+import android.os.ResultReceiver
 import android.service.quicksettings.Tile
 import android.service.quicksettings.TileService
 import android.widget.ImageView
@@ -118,13 +119,18 @@ class AssistantShortcutActivity : ComponentActivity() {
         super.onCreate(savedInstanceState)
         overrideActivityTransition(OVERRIDE_TRANSITION_OPEN, 0, 0)
         overrideActivityTransition(OVERRIDE_TRANSITION_CLOSE, 0, 0)
+        val powerSession = intent.getParcelableExtra(
+            org.arkui.assistant.protocol.AssistantInvocation.EXTRA_POWER_KEY_SESSION,
+            ResultReceiver::class.java)
         if (!getSystemService(android.app.KeyguardManager::class.java).isKeyguardLocked && ConfigStore(this).enabled) {
             startService(Intent(this, AssistantService::class.java).setAction(AssistantService.INVOKE)
                 .putExtra(org.arkui.assistant.protocol.AssistantInvocation.EXTRA_ACTION,
                     intent.getIntExtra(org.arkui.assistant.protocol.AssistantInvocation.EXTRA_ACTION, 0))
                 .putExtra(org.arkui.assistant.protocol.AssistantInvocation.EXTRA_ENTRY,
-                    intent.getStringExtra(org.arkui.assistant.protocol.AssistantInvocation.EXTRA_ENTRY)))
-        }
+                    intent.getStringExtra(org.arkui.assistant.protocol.AssistantInvocation.EXTRA_ENTRY))
+                .putExtra(org.arkui.assistant.protocol.AssistantInvocation.EXTRA_POWER_KEY_SESSION,
+                    powerSession))
+        } else powerSession?.send(org.arkui.assistant.protocol.AssistantInvocation.POWER_KEY_CANCEL, null)
         finish()
     }
 }
