@@ -95,6 +95,7 @@ class RoundedCornerResDelegateImpl(
                 return
             }
             reloadToken = newReloadToken
+            reloadRes()
             reloadMeasures()
         }
     }
@@ -126,6 +127,15 @@ class RoundedCornerResDelegateImpl(
         }
         bottomRoundedDrawable?.let {
             bottomRoundedSize = Size(it.intrinsicWidth, it.intrinsicHeight)
+        }
+
+        val radius = com.android.internal.policy.DisplayShapeConfig
+            .roundedCornerRadius(res, displayUniqueId)
+        if (radius >= 0) {
+            hasTop = radius > 0
+            hasBottom = radius > 0
+            topRoundedSize = Size(radius, radius)
+            bottomRoundedSize = Size(radius, radius)
         }
 
         if (physicalPixelDisplaySizeRatio != 1f) {

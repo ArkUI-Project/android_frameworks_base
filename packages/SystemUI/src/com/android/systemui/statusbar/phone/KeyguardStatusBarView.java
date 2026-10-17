@@ -342,6 +342,12 @@ public class KeyguardStatusBarView extends RelativeLayout {
         setPadding(minLeft, top, minRight, 0);
     }
 
+    public void refreshContentInsets(StatusBarContentInsetsProvider insetsProvider) {
+        loadDimens();
+        updateKeyguardStatusBarHeight();
+        updatePadding(insetsProvider);
+    }
+
     private boolean updateLayoutParamsNoCutout() {
         if (mLayoutState == LAYOUT_NO_CUTOUT) {
             return false;

@@ -6424,4 +6424,8 @@
     <java-symbol type="string" name="ime_voice_connecting" />
     <java-symbol type="string" name="ime_voice_processing" />
     <java-symbol type="string" name="ime_voice_unavailable" />
+  <java-symbol type="string" name="config_arkuiDisplayShapeUniqueId" />
+  <java-symbol type="dimen" name="config_arkuiRoundedCornerRadius" />
+  <java-symbol type="bool" name="config_arkuiDisplayCutoutOverride" />
+  <java-symbol type="string" name="config_arkuiDisplayCutoutPath" />
 </resources>

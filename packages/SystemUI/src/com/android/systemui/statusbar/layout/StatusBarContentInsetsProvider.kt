@@ -358,14 +358,25 @@ constructor(
                 rotatedResources.getDimensionPixelSize(R.dimen.ongoing_appops_dot_diameter)
             else 0
 
-        val minLeft: Int
-        val minRight: Int
+        var minLeft: Int
+        var minRight: Int
         if (configurationController.isLayoutRtl) {
             minLeft = max(minDotPadding, roundedCornerPadding)
             minRight = roundedCornerPadding
         } else {
             minLeft = roundedCornerPadding
             minRight = max(minDotPadding, roundedCornerPadding)
+        }
+
+        if (context.displayId == DEFAULT_DISPLAY) {
+            val left = rotatedResources.getDimensionPixelSize(R.dimen.arkui_status_bar_padding_left)
+            val right = rotatedResources.getDimensionPixelSize(R.dimen.arkui_status_bar_padding_right)
+            if (left >= 0) {
+                minLeft = max(left, if (configurationController.isLayoutRtl) minDotPadding else 0)
+            }
+            if (right >= 0) {
+                minRight = max(right, if (configurationController.isLayoutRtl) 0 else minDotPadding)
+            }
         }
 
         val bottomAlignedMargin = getBottomAlignedMargin(targetRotation, rotatedResources)
@@ -418,6 +429,11 @@ constructor(
 
     @Px
     private fun getBottomAlignedMargin(targetRotation: Int, resources: Resources): Int {
+        if (context.displayId == DEFAULT_DISPLAY && resources.getDimensionPixelSize(
+                R.dimen.arkui_status_bar_padding_top) >= 0) {
+            // Custom top padding already positions the content within the calibrated height.
+            return -1
+        }
         val override = marginBottomOverrides[targetRotation]
         if (override != null) {
             return override

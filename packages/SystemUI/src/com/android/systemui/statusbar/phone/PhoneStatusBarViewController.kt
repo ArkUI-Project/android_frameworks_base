@@ -45,6 +45,7 @@ import com.android.systemui.shade.shared.flag.ShadeWindowGoesAround
 import com.android.systemui.statusbar.core.StatusBarConnectedDisplays
 import com.android.systemui.statusbar.data.repository.StatusBarConfigurationController
 import com.android.systemui.statusbar.data.repository.StatusBarContentInsetsProviderStore
+import com.android.systemui.statusbar.layout.StatusBarContentInsetsChangedListener
 import com.android.systemui.statusbar.policy.Clock
 import com.android.systemui.statusbar.policy.ConfigurationController
 import com.android.systemui.statusbar.window.StatusBarWindowControllerStore
@@ -172,7 +173,14 @@ private constructor(
             }
         }
 
+    private val contentInsetsChangedListener = object : StatusBarContentInsetsChangedListener {
+        override fun onStatusBarContentInsetsChanged() {
+            mView.updateSafeInsets()
+        }
+    }
+
     override fun onViewAttached() {
+        statusBarContentInsetsProvider?.addCallback(contentInsetsChangedListener)
         clock = mView.requireViewById(R.id.clock)
         clockCenter = mView.requireViewById(R.id.clock_center)
         clockRight = mView.requireViewById(R.id.clock_right)
@@ -259,6 +267,7 @@ private constructor(
 
     @VisibleForTesting
     public override fun onViewDetached() {
+        statusBarContentInsetsProvider?.removeCallback(contentInsetsChangedListener)
         if (mView.context.displayId == DEFAULT_DISPLAY) {
             shadeHeaderController.get().clearStatusBarView(mView)
         }

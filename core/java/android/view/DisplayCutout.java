@@ -1047,6 +1047,9 @@ public final class DisplayCutout {
      * {@link R.array#config_displayUniqueIdArray} is not set.
      */
     private static String getDisplayCutoutPath(Resources res, String displayUniqueId) {
+        if (com.android.internal.policy.DisplayShapeConfig.overridesCutout(res, displayUniqueId)) {
+            return com.android.internal.policy.DisplayShapeConfig.cutoutPath(res);
+        }
         final int index = DisplayUtils.getDisplayUniqueIdConfigIndex(res, displayUniqueId);
         final String[] array = res.getStringArray(R.array.config_displayCutoutPathArray);
         if (index >= 0 && index < array.length) {
@@ -1062,6 +1065,9 @@ public final class DisplayCutout {
      * {@link R.array#config_displayUniqueIdArray} is not set.
      */
     private static String getDisplayCutoutApproximationRect(Resources res, String displayUniqueId) {
+        if (com.android.internal.policy.DisplayShapeConfig.overridesCutout(res, displayUniqueId)) {
+            return com.android.internal.policy.DisplayShapeConfig.cutoutPath(res);
+        }
         final int index = DisplayUtils.getDisplayUniqueIdConfigIndex(res, displayUniqueId);
         final String[] array = res.getStringArray(
                 R.array.config_displayCutoutApproximationRectArray);
@@ -1081,6 +1087,9 @@ public final class DisplayCutout {
      * @hide
      */
     public static boolean getMaskBuiltInDisplayCutout(Resources res, String displayUniqueId) {
+        if (com.android.internal.policy.DisplayShapeConfig.overridesCutout(res, displayUniqueId)) {
+            return false;
+        }
         final int index = DisplayUtils.getDisplayUniqueIdConfigIndex(res, displayUniqueId);
         final TypedArray array = res.obtainTypedArray(R.array.config_maskBuiltInDisplayCutoutArray);
         boolean maskCutout;
@@ -1103,6 +1112,9 @@ public final class DisplayCutout {
      * @hide
      */
     public static boolean getFillBuiltInDisplayCutout(Resources res, String displayUniqueId) {
+        if (com.android.internal.policy.DisplayShapeConfig.overridesCutout(res, displayUniqueId)) {
+            return true;
+        }
         final int index = DisplayUtils.getDisplayUniqueIdConfigIndex(res, displayUniqueId);
         final TypedArray array = res.obtainTypedArray(R.array.config_fillBuiltInDisplayCutoutArray);
         boolean fillCutout;

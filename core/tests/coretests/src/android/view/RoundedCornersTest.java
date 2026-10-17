@@ -78,6 +78,39 @@ public class RoundedCornersTest {
             new RoundedCorner(POSITION_BOTTOM_LEFT, 20, 20, 380));
 
     @Test
+    public void displayCalibration_overridesAllRadiiAndAdjustments() {
+        when(mMockResources.getString(R.string.config_arkuiDisplayShapeUniqueId))
+                .thenReturn("local:main");
+        when(mMockResources.getDimensionPixelSize(R.dimen.config_arkuiRoundedCornerRadius))
+                .thenReturn(42);
+        assertEquals(42, RoundedCorners.getRoundedCornerRadius(mMockResources, "local:main"));
+        assertEquals(42, RoundedCorners.getRoundedCornerTopRadius(mMockResources, "local:main"));
+        assertEquals(42, RoundedCorners.getRoundedCornerBottomRadius(mMockResources, "local:main"));
+        assertEquals(0, RoundedCorners.getRoundedCornerRadiusAdjustment(mMockResources, "local:main"));
+        assertEquals(0, RoundedCorners.getRoundedCornerRadiusTopAdjustment(mMockResources, "local:main"));
+        assertEquals(0, RoundedCorners.getRoundedCornerRadiusBottomAdjustment(mMockResources, "local:main"));
+    }
+
+    @Test
+    public void displayCalibration_zeroRadiusDisablesRounding() {
+        when(mMockResources.getString(R.string.config_arkuiDisplayShapeUniqueId))
+                .thenReturn("local:main");
+        when(mMockResources.getDimensionPixelSize(R.dimen.config_arkuiRoundedCornerRadius))
+                .thenReturn(0);
+        assertEquals(0, RoundedCorners.getRoundedCornerRadius(mMockResources, "local:main"));
+        assertEquals(0, RoundedCorners.getRoundedCornerTopRadius(mMockResources, "local:main"));
+        assertEquals(0, RoundedCorners.getRoundedCornerBottomRadius(mMockResources, "local:main"));
+    }
+
+    @Test
+    public void displayCalibration_doesNotApplyToAnotherDisplay() {
+        when(mMockResources.getString(R.string.config_arkuiDisplayShapeUniqueId))
+                .thenReturn("local:main");
+        assertEquals(-1, com.android.internal.policy.DisplayShapeConfig
+                .roundedCornerRadius(mMockResources, "external:secondary"));
+    }
+
+    @Test
     public void testGetRoundedCorner() {
         final Pair<Integer, Integer> radius = new Pair<>(10, 20);
         RoundedCorners roundedCorners = RoundedCorners.fromRadii(radius, 200, 400);

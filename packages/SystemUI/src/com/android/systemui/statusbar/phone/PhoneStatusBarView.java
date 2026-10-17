@@ -335,10 +335,16 @@ public class PhoneStatusBarView extends FrameLayout {
         int statusBarPaddingStart = getResources().getDimensionPixelSize(
                 R.dimen.status_bar_padding_start);
 
+        final int left = mContext.getDisplayId() == Display.DEFAULT_DISPLAY
+                ? getResources().getDimensionPixelSize(R.dimen.arkui_status_bar_padding_left) : -1;
+        final int right = mContext.getDisplayId() == Display.DEFAULT_DISPLAY
+                ? getResources().getDimensionPixelSize(R.dimen.arkui_status_bar_padding_right) : -1;
+        // The insets provider already applies the physical left/right calibration to our root.
         findViewById(R.id.status_bar_contents).setPaddingRelative(
-                statusBarPaddingStart,
+                (isLayoutRtl() ? right : left) >= 0 ? 0 : statusBarPaddingStart,
                 getResources().getDimensionPixelSize(R.dimen.status_bar_padding_top),
-                getResources().getDimensionPixelSize(R.dimen.status_bar_padding_end),
+                (isLayoutRtl() ? left : right) >= 0 ? 0
+                        : getResources().getDimensionPixelSize(R.dimen.status_bar_padding_end),
                 0);
 
         findViewById(R.id.notification_lights_out)
@@ -388,7 +394,7 @@ public class PhoneStatusBarView extends FrameLayout {
         lp.height = bounds.height();
     }
 
-    private void updateSafeInsets() {
+    public void updateSafeInsets() {
         if (mInsetsFetcher == null) {
             Log.e(TAG, "mInsetsFetcher unexpectedly null");
             return;

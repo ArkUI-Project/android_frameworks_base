@@ -1117,11 +1117,16 @@ public class ScreenDecorations implements
             }
             int oldRotation = mRotation;
             mPendingConfigChange = false;
+            // Radius-only calibration changes do not alter display size or cutout bounds.
+            // Reload before choosing providers so zero-to-rounded changes create the masks.
+            mRoundedCornerResDelegate.updateDisplayUniqueId(mDisplayUniqueId, ++mProviderRefreshToken);
             updateConfiguration();
             if (oldRotation != mRotation) {
                 mLogger.logRotationChanged(oldRotation, mRotation);
             }
             setupDecorations();
+            updateHwLayerRoundedCornerExistAndSize();
+            updateHwLayerRoundedCornerDrawable();
             if (mOverlays != null) {
                 // Updating the layout params ensures that ViewRootImpl will call relayoutWindow(),
                 // which ensures that the forced seamless rotation will end, even if we updated

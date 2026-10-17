@@ -1,0 +1,8 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Copyright (C) 2026 The ArkUI Project; SPDX-License-Identifier: Apache-2.0 -->
+<resources>
+    <string name="config_arkuiDisplayShapeUniqueId" translatable="false" />
+    <dimen name="config_arkuiRoundedCornerRadius">-1px</dimen>
+    <bool name="config_arkuiDisplayCutoutOverride">false</bool>
+    <string name="config_arkuiDisplayCutoutPath" translatable="false" />
+</resources>

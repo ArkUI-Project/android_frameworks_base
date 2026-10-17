@@ -189,6 +189,9 @@ public class RoundedCorners implements Parcelable {
      * @hide
      */
     public static int getRoundedCornerRadius(Resources res, String displayUniqueId) {
+        final int override = com.android.internal.policy.DisplayShapeConfig
+                .roundedCornerRadius(res, displayUniqueId);
+        if (override >= 0) return override;
         final int index = DisplayUtils.getDisplayUniqueIdConfigIndex(res, displayUniqueId);
         final TypedArray array = res.obtainTypedArray(R.array.config_roundedCornerRadiusArray);
         int radius;
@@ -217,6 +220,9 @@ public class RoundedCorners implements Parcelable {
      * @hide
      */
     public static int getRoundedCornerTopRadius(Resources res, String displayUniqueId) {
+        final int override = com.android.internal.policy.DisplayShapeConfig
+                .roundedCornerRadius(res, displayUniqueId);
+        if (override >= 0) return override;
         final int index = DisplayUtils.getDisplayUniqueIdConfigIndex(res, displayUniqueId);
         final TypedArray array = res.obtainTypedArray(R.array.config_roundedCornerTopRadiusArray);
         int radius;
@@ -239,6 +245,9 @@ public class RoundedCorners implements Parcelable {
      * @hide
      */
     public static int getRoundedCornerBottomRadius(Resources res, String displayUniqueId) {
+        final int override = com.android.internal.policy.DisplayShapeConfig
+                .roundedCornerRadius(res, displayUniqueId);
+        if (override >= 0) return override;
         final int index = DisplayUtils.getDisplayUniqueIdConfigIndex(res, displayUniqueId);
         final TypedArray array = res.obtainTypedArray(
                 R.array.config_roundedCornerBottomRadiusArray);
@@ -262,6 +271,8 @@ public class RoundedCorners implements Parcelable {
      * @hide
      */
     public static int getRoundedCornerRadiusAdjustment(Resources res, String displayUniqueId) {
+        if (com.android.internal.policy.DisplayShapeConfig
+                .roundedCornerRadius(res, displayUniqueId) >= 0) return 0;
         final int index = DisplayUtils.getDisplayUniqueIdConfigIndex(res, displayUniqueId);
         final TypedArray array = res.obtainTypedArray(
                 R.array.config_roundedCornerRadiusAdjustmentArray);
@@ -285,6 +296,8 @@ public class RoundedCorners implements Parcelable {
      * @hide
      */
     public static int getRoundedCornerRadiusTopAdjustment(Resources res, String displayUniqueId) {
+        if (com.android.internal.policy.DisplayShapeConfig
+                .roundedCornerRadius(res, displayUniqueId) >= 0) return 0;
         final int index = DisplayUtils.getDisplayUniqueIdConfigIndex(res, displayUniqueId);
         final TypedArray array = res.obtainTypedArray(
                 R.array.config_roundedCornerTopRadiusAdjustmentArray);
@@ -309,6 +322,8 @@ public class RoundedCorners implements Parcelable {
      */
     public static int getRoundedCornerRadiusBottomAdjustment(
             Resources res, String displayUniqueId) {
+        if (com.android.internal.policy.DisplayShapeConfig
+                .roundedCornerRadius(res, displayUniqueId) >= 0) return 0;
         final int index = DisplayUtils.getDisplayUniqueIdConfigIndex(res, displayUniqueId);
         final TypedArray array = res.obtainTypedArray(
                 R.array.config_roundedCornerBottomRadiusAdjustmentArray);

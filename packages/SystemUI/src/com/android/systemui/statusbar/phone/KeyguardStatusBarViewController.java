@@ -78,6 +78,7 @@ import com.android.systemui.statusbar.disableflags.DisableStateTracker;
 import com.android.systemui.statusbar.events.SystemStatusAnimationCallback;
 import com.android.systemui.statusbar.events.SystemStatusAnimationScheduler;
 import com.android.systemui.statusbar.layout.StatusBarContentInsetsProvider;
+import com.android.systemui.statusbar.layout.StatusBarContentInsetsChangedListener;
 import com.android.systemui.statusbar.notification.AnimatableProperty;
 import com.android.systemui.statusbar.notification.PropertyAnimator;
 import com.android.systemui.statusbar.notification.stack.AnimationProperties;
@@ -455,6 +456,9 @@ public class KeyguardStatusBarViewController extends ViewController<KeyguardStat
         }
     }
 
+    private final StatusBarContentInsetsChangedListener mContentInsetsChangedListener =
+            () -> mView.refreshContentInsets(insetsProvider());
+
     private StatusBarContentInsetsProvider insetsProvider() {
         return mInsetsProviderStore.forDisplay(mContext.getDisplayId());
     }
@@ -473,6 +477,7 @@ public class KeyguardStatusBarViewController extends ViewController<KeyguardStat
 
     @Override
     protected void onViewAttached() {
+        insetsProvider().addCallback(mContentInsetsChangedListener);
         if (SceneContainerFlag.isEnabled()) {
             mKeyguardStateControllerCallback.onKeyguardFadingAwayChanged();
             mKeyguardStateController.addCallback(mKeyguardStateControllerCallback);
@@ -570,6 +575,7 @@ public class KeyguardStatusBarViewController extends ViewController<KeyguardStat
 
     @Override
     protected void onViewDetached() {
+        insetsProvider().removeCallback(mContentInsetsChangedListener);
         mSystemIconsContainer.setOnHoverListener(null);
         mConfigurationController.removeCallback(mConfigurationListener);
         mAnimationScheduler.removeCallback(mAnimationCallback);
