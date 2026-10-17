@@ -58,6 +58,7 @@ import androidx.test.runner.AndroidJUnit4;
 
 import com.android.internal.logging.UiEventLogger;
 import com.android.systemui.SysuiTestCase;
+import com.android.systemui.arkui.intelligence.ProactiveSuggestionController;
 import com.android.systemui.broadcast.BroadcastSender;
 import com.android.systemui.plugins.ActivityStartOptions;
 import com.android.systemui.plugins.ActivityStarter;
@@ -107,6 +108,8 @@ public class ClipboardOverlayControllerTest extends SysuiTestCase {
     private UiEventLogger mUiEventLogger;
     @Mock
     private ActivityStarter mActivityStarter;
+    @Mock
+    private ProactiveSuggestionController mSuggestions;
     private FakeDisplayTracker mDisplayTracker = new FakeDisplayTracker(mContext);
 
     @Mock
@@ -209,7 +212,8 @@ public class ClipboardOverlayControllerTest extends SysuiTestCase {
                 mClipboardInputEventReceiver,
                 mClipboardIndicationProvider,
                 mUiEventLogger,
-                fakeIntentCreator);
+                fakeIntentCreator,
+                mSuggestions);
         verify(mClipboardOverlayView).setCallbacks(mOverlayCallbacksCaptor.capture());
         mCallbacks = mOverlayCallbacksCaptor.getValue();
     }

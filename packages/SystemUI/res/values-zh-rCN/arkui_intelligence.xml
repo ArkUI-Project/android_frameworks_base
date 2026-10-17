@@ -19,4 +19,5 @@
     <string name="arkui_suggest_enable">开启</string>
     <string name="arkui_suggest_awake_active">临时屏幕常亮已开启</string>
     <string name="arkui_suggest_awake_stop">点击结束常亮，也可按电源键熄屏</string>
+    <string name="arkui_suggest_awake_end">结束常亮</string>
 </resources>

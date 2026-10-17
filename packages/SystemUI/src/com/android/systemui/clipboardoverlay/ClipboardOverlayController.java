@@ -54,6 +54,7 @@ import androidx.annotation.Nullable;
 
 import com.android.internal.annotations.VisibleForTesting;
 import com.android.internal.logging.UiEventLogger;
+import com.android.systemui.arkui.intelligence.ProactiveSuggestionController;
 import com.android.systemui.broadcast.BroadcastDispatcher;
 import com.android.systemui.broadcast.BroadcastSender;
 import com.android.systemui.clipboardoverlay.dagger.ClipboardOverlayModule.OverlayWindowContext;
@@ -97,6 +98,7 @@ public class ClipboardOverlayController implements ClipboardListener.ClipboardOv
     private final ClipboardInputEventReceiver mClipboardInputEventReceiver;
     private final ActivityStarter mActivityStarter;
     private final UserTracker mUserTracker;
+    private final ProactiveSuggestionController mSuggestions;
 
 
     private final ClipboardOverlayView mView;
@@ -139,7 +141,8 @@ public class ClipboardOverlayController implements ClipboardListener.ClipboardOv
             ClipboardInputEventReceiver clipboardInputEventReceiver,
             ClipboardIndicationProvider clipboardIndicationProvider,
             UiEventLogger uiEventLogger,
-            IntentCreator intentCreator) {
+            IntentCreator intentCreator,
+            ProactiveSuggestionController suggestions) {
         mContext = context;
         mBroadcastDispatcher = broadcastDispatcher;
         mClipboardImageLoader = clipboardImageLoader;
@@ -148,6 +151,7 @@ public class ClipboardOverlayController implements ClipboardListener.ClipboardOv
         mClipboardIndicationProvider = clipboardIndicationProvider;
         mActivityStarter = activityStarter;
         mUserTracker = userTracker;
+        mSuggestions = suggestions;
 
         mClipboardLogger = new ClipboardLogger(uiEventLogger);
         mIntentCreator = intentCreator;
@@ -217,6 +221,7 @@ public class ClipboardOverlayController implements ClipboardListener.ClipboardOv
 
     @Override // ClipboardListener.ClipboardOverlay
     public void setClipData(ClipData data, String source) {
+        mSuggestions.clearClipboardSuggestion();
         ClipboardModel model = ClipboardModel.fromClipData(mContext, mClipboardUtils, data, source);
         boolean wasExiting = (mExitAnimator != null && mExitAnimator.isRunning());
         if (wasExiting) {
@@ -362,9 +367,10 @@ public class ClipboardOverlayController implements ClipboardListener.ClipboardOv
             mView.post(() -> {
                 if (model != mClipboardModel || mUserTracker.getUserId() != user) return;
                 if (action != null) {
-                    mClipboardLogger.logUnguarded(CLIPBOARD_OVERLAY_ACTION_SHOWN);
-                    mView.resetActionChips();
-                    mView.setActionChip(action, () -> finish(CLIPBOARD_OVERLAY_ACTION_TAPPED));
+                    if (mSuggestions.showClipboardSuggestion(action, user,
+                            () -> finish(CLIPBOARD_OVERLAY_ACTION_TAPPED))) {
+                        mClipboardLogger.logUnguarded(CLIPBOARD_OVERLAY_ACTION_SHOWN);
+                    }
                 } else if (model.getTextLinks() != null && DeviceConfig.getBoolean(
                         DeviceConfig.NAMESPACE_SYSTEMUI, CLIPBOARD_OVERLAY_SHOW_ACTIONS, false)) {
                     classifyText(model);

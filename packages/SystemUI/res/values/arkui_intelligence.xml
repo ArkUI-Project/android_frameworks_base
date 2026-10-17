@@ -2,7 +2,6 @@
 <!-- Copyright (C) 2026 The ArkUI Project; SPDX-License-Identifier: Apache-2.0 -->
 <resources>
     <item type="id" name="arkui_compose_activity_chips" />
-    <style name="Theme.Arkui.Suggestion" parent="Theme.Material3Expressive.DynamicColors.DayNight.NoActionBar" />
     <string name="arkui_suggest_open_app">Open %1$s</string>
     <string name="arkui_suggest_open_link">Open link</string>
     <string name="arkui_suggest_delivery">Track parcel</string>
@@ -21,4 +20,5 @@
     <string name="arkui_suggest_enable">Enable</string>
     <string name="arkui_suggest_awake_active">Temporary screen-on is active</string>
     <string name="arkui_suggest_awake_stop">Tap to stop keeping the screen on</string>
+    <string name="arkui_suggest_awake_end">Stop keeping screen on</string>
 </resources>

@@ -4,7 +4,7 @@
  * SPDX-License-Identifier: Apache-2.0
  *
  * ArkUI reimplements AviumUseful suggestions inside SystemUI. Per-user lifecycle,
- * authenticated SMS/power events and the Material 3 Expressive card are ArkUI changes.
+ * authenticated SMS/power events and native floating suggestions are ArkUI changes.
  */
 package com.android.systemui.arkui.intelligence;
 
@@ -15,6 +15,7 @@ import android.app.Notification;
 import android.app.NotificationChannel;
 import android.app.NotificationManager;
 import android.app.PendingIntent;
+import android.app.RemoteAction;
 import android.content.BroadcastReceiver;
 import android.content.ClipData;
 import android.content.ClipDescription;
@@ -37,14 +38,10 @@ import android.os.UserManager;
 import android.provider.Settings;
 import android.provider.Telephony;
 import android.telephony.SmsMessage;
-import android.view.ContextThemeWrapper;
 import android.view.Display;
 import android.view.Gravity;
-import android.view.MotionEvent;
 import android.view.WindowInsets;
 import android.view.WindowManager;
-import android.widget.LinearLayout;
-import android.widget.TextView;
 import android.util.Log;
 
 import androidx.annotation.NonNull;
@@ -58,9 +55,6 @@ import com.android.systemui.res.R;
 import com.android.systemui.settings.UserTracker;
 import com.android.systemui.statusbar.policy.FlashlightController;
 import com.android.systemui.statusbar.policy.KeyguardStateController;
-import com.google.android.material.button.MaterialButton;
-import com.google.android.material.shape.MaterialShapeDrawable;
-import com.google.android.material.shape.ShapeAppearanceModel;
 
 import java.io.PrintWriter;
 import java.util.HashSet;
@@ -75,6 +69,7 @@ import javax.inject.Inject;
 public final class ProactiveSuggestionController implements CoreStartable {
     public static final String ACTION_DIM_REENGAGED = "org.arkui.action.SCREEN_DIM_REENGAGED";
     private static final String ACTION_STOP_AWAKE = "com.android.systemui.arkui.STOP_AWAKE";
+    private static final String SELF_PERMISSION = "com.android.systemui.permission.SELF";
     private static final String AWAKE_CHANNEL = "arkui_temporary_awake";
     private static final int AWAKE_NOTIFICATION = 59803;
     private static final String CLIP_LEASE = "arkui_otp_lease";
@@ -88,7 +83,9 @@ public final class ProactiveSuggestionController implements CoreStartable {
     private final PowerManager mPower;
     private final Set<Integer> mHeadphones = new HashSet<>();
     private PowerManager.WakeLock mAwake;
-    private LinearLayout mCard;
+    private UserHandle mAwakeUser;
+    private PendingIntent mStopAwake;
+    private FloatingSuggestionView mFloatingIcon;
     private WindowManager mWindow;
     private Suggestion mSuggestion;
     private int mGeneration;
@@ -104,7 +101,12 @@ public final class ProactiveSuggestionController implements CoreStartable {
     private final ContentObserver mObserver;
 
     private record Suggestion(String kind, int priority, int title, int detail, int actionLabel,
-            String code, Runnable action, long expires) { }
+            String code, Runnable action, long expires, RemoteAction remoteAction) {
+        Suggestion(String kind, int priority, int title, int detail, int actionLabel,
+                String code, Runnable action, long expires) {
+            this(kind, priority, title, detail, actionLabel, code, action, expires, null);
+        }
+    }
 
     @Inject public ProactiveSuggestionController(Context context, @Main Handler main,
             @Background Executor background, UserTracker users, ActivityStarter starter,
@@ -124,6 +126,8 @@ public final class ProactiveSuggestionController implements CoreStartable {
     @Override public void start() {
         if (mStarted) return;
         mStarted = true;
+        // Wake locks die with SystemUI, but its previous notification can survive a restart.
+        releaseAwake();
         for (Option option : OPTIONS) mContext.getContentResolver().registerContentObserver(
                 Settings.Secure.getUriFor(option.key()), false, mObserver, UserHandle.USER_ALL);
         mUsers.addCallback(new UserTracker.Callback() {
@@ -186,7 +190,6 @@ public final class ProactiveSuggestionController implements CoreStartable {
         screen.addAction(Intent.ACTION_SCREEN_OFF);
         screen.addAction(Intent.ACTION_SCREEN_ON);
         screen.addAction(Intent.ACTION_USER_PRESENT);
-        screen.addAction(ACTION_STOP_AWAKE);
         mContext.registerReceiverAsUser(new BroadcastReceiver() {
             @Override public void onReceive(Context context, Intent intent) {
                 if (Intent.ACTION_SCREEN_ON.equals(intent.getAction())
@@ -198,6 +201,19 @@ public final class ProactiveSuggestionController implements CoreStartable {
                 dismiss(!"sms".equals(mSuggestion != null ? mSuggestion.kind : ""));
             }
         }, UserHandle.ALL, screen, null, mMain, Context.RECEIVER_NOT_EXPORTED);
+        // Notification commands have their own protected receiver, independent of screen
+        // lifecycle events. Target the SystemUI process that owns the wake lock, even when
+        // the notification is shown for a secondary user.
+        mContext.registerReceiver(new BroadcastReceiver() {
+            @Override public void onReceive(Context context, Intent intent) {
+                if (ACTION_STOP_AWAKE.equals(intent.getAction()) && mAwakeUser != null
+                        && intent.getIntExtra(Intent.EXTRA_USER_HANDLE, UserHandle.USER_NULL)
+                                == mAwakeUser.getIdentifier()) {
+                    releaseAwake();
+                }
+            }
+        }, new IntentFilter(ACTION_STOP_AWAKE), SELF_PERMISSION, mMain,
+                Context.RECEIVER_EXPORTED);
         mFlashlight.addCallback(new FlashlightController.FlashlightListener() {
             @Override public void onFlashlightChanged(boolean enabled) {
                 mMain.post(() -> {
@@ -271,88 +287,92 @@ public final class ProactiveSuggestionController implements CoreStartable {
         mMain.postDelayed(mExpire, Math.max(1, suggestion.expires - SystemClock.elapsedRealtime()));
         showCurrent();
     }
+
+    /** Called on the main thread after clipboard matching finishes for the current user. */
+    public boolean showClipboardSuggestion(RemoteAction action, int user, Runnable onAccepted) {
+        if (user != mUsers.getUserId() || !feature(ENABLED)) return false;
+        final Suggestion suggestion = new Suggestion("clipboard", 2, 0, 0, 0, null, () -> {
+            onAccepted.run();
+            mStarter.startPendingIntentDismissingKeyguard(action.getActionIntent());
+        }, deadline(SUGGESTION_SECONDS), action);
+        offer(suggestion);
+        return mSuggestion == suggestion;
+    }
+
+    /** A new clipboard item invalidates the action derived from the previous item. */
+    public void clearClipboardSuggestion() {
+        if (mSuggestion != null && "clipboard".equals(mSuggestion.kind)) dismiss(true);
+    }
+
     private void showCurrent() {
-        if (mSuggestion == null || mCard != null || !canShow()) return;
+        if (mSuggestion == null || mFloatingIcon != null || !canShow()) return;
         if (mSuggestion.expires <= SystemClock.elapsedRealtime()) { dismiss(true); return; }
         final Suggestion suggestion = mSuggestion;
         final Context windowContext = mContext.createWindowContext(
                 mContext.getSystemService(DisplayManager.class).getDisplay(Display.DEFAULT_DISPLAY),
                 WindowManager.LayoutParams.TYPE_STATUS_BAR_SUB_PANEL, null);
-        final Context theme = new ContextThemeWrapper(windowContext, R.style.Theme_Arkui_Suggestion);
-        final LinearLayout outer = new SwipeCard(theme, () -> dismiss(true));
-        outer.setPadding(dp(16), dp(8), dp(16), dp(16));
-        final LinearLayout card = new LinearLayout(theme);
-        card.setGravity(Gravity.CENTER_VERTICAL);
-        card.setPadding(dp(18), dp(14), dp(10), dp(14));
-        final MaterialShapeDrawable shape = new MaterialShapeDrawable(
-                ShapeAppearanceModel.builder().setAllCornerSizes(dp(28)).build());
-        shape.setFillColor(android.content.res.ColorStateList.valueOf(color(theme,
-                com.google.android.material.R.attr.colorSurfaceContainerHigh)));
-        card.setBackground(shape);
-        card.setElevation(dp(6));
-        outer.addView(card, new LinearLayout.LayoutParams(-1, -2));
-        final LinearLayout words = new LinearLayout(theme);
-        words.setOrientation(LinearLayout.VERTICAL);
-        card.addView(words, new LinearLayout.LayoutParams(0, -2, 1));
-        final TextView title = new TextView(theme);
-        title.setText(suggestion.title);
-        title.setTextSize(14);
-        title.setTextColor(color(theme, com.google.android.material.R.attr.colorOnSurfaceVariant));
-        words.addView(title);
-        final TextView detail = new TextView(theme);
-        detail.setText(suggestion.code != null ? suggestion.code : theme.getString(suggestion.detail));
-        detail.setTextSize(suggestion.code != null ? 24 : 14);
-        detail.setTextColor(color(theme, com.google.android.material.R.attr.colorOnSurface));
-        detail.setMaxLines(2);
-        words.addView(detail);
-        final MaterialButton accept = new MaterialButton(theme);
-        accept.setText(suggestion.actionLabel);
-        accept.setCornerRadius(dp(20));
-        accept.setMinHeight(dp(48));
-        card.addView(accept, new LinearLayout.LayoutParams(-2, -2));
-        accept.setOnClickListener(v -> {
+        final int icon = switch (suggestion.kind) {
+            case "sms" -> R.drawable.arkui_suggestion_sms;
+            case "torch" -> R.drawable.arkui_suggestion_torch;
+            case "awake" -> R.drawable.arkui_suggestion_awake;
+            case "clipboard" -> R.drawable.arkui_suggestion_web;
+            default -> R.drawable.arkui_suggestion_music;
+        };
+        final FloatingSuggestionView floating = new FloatingSuggestionView(windowContext, icon,
+                () -> { if (mSuggestion == suggestion) dismiss(true); });
+        if (suggestion.remoteAction != null) {
+            floating.setIcon(suggestion.remoteAction.getIcon(), mUsers.getUserId());
+            floating.setContentDescription(suggestion.remoteAction.getContentDescription());
+        } else {
+            floating.setContentDescription(windowContext.getString(suggestion.title) + ", "
+                    + windowContext.getString(suggestion.detail) + ", "
+                    + windowContext.getString(suggestion.actionLabel));
+        }
+        floating.setOnClickListener(v -> {
             if (mSuggestion != suggestion || !canShow()
                     || suggestion.expires <= SystemClock.elapsedRealtime()) return;
             dismiss(true);
             suggestion.action.run();
         });
-        final TextView close = new TextView(theme);
-        close.setText("×");
-        close.setTextSize(24);
-        close.setGravity(Gravity.CENTER);
-        close.setTextColor(color(theme, com.google.android.material.R.attr.colorOnSurfaceVariant));
-        close.setContentDescription(theme.getString(R.string.arkui_suggest_dismiss));
-        close.setBackgroundResource(android.R.drawable.list_selector_background);
-        card.addView(close, new LinearLayout.LayoutParams(dp(48), dp(48)));
-        close.setOnClickListener(v -> dismiss(true));
-        final WindowManager.LayoutParams params = new WindowManager.LayoutParams(-1, -2,
+        final WindowManager.LayoutParams params = new WindowManager.LayoutParams(dp(50), dp(50),
                 WindowManager.LayoutParams.TYPE_STATUS_BAR_SUB_PANEL,
                 WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE | WindowManager.LayoutParams.FLAG_NOT_TOUCH_MODAL,
                 PixelFormat.TRANSLUCENT);
-        params.gravity = Gravity.BOTTOM;
+        params.gravity = Gravity.BOTTOM | Gravity.END;
+        params.x = dp(20);
+        params.y = dp(15);
         params.setFitInsetsTypes(WindowInsets.Type.systemBars() | WindowInsets.Type.ime());
         params.privateFlags |= WindowManager.LayoutParams.SYSTEM_FLAG_SHOW_FOR_ALL_USERS;
         params.setTrustedOverlay();
-        params.setTitle("ArkUI contextual suggestion");
+        params.setTitle("ArkUI floating suggestion");
         mWindow = windowContext.getSystemService(WindowManager.class);
-        mCard = outer;
-        try { mWindow.addView(outer, params); }
-        catch (RuntimeException e) { mCard = null; Log.w("ArkIntelligence", "Unable to attach suggestion card", e); return; }
-        outer.setAlpha(0);
-        outer.setTranslationY(dp(16));
-        outer.animate().alpha(1).translationY(0).setDuration(320)
-                .setInterpolator(android.view.animation.AnimationUtils.loadInterpolator(mContext,
-                        android.R.interpolator.fast_out_slow_in)).start();
-        outer.announceForAccessibility(theme.getString(suggestion.title));
+        mFloatingIcon = floating;
+        try { mWindow.addView(floating, params); }
+        catch (RuntimeException e) {
+            mFloatingIcon = null;
+            Log.w("ArkIntelligence", "Unable to attach floating suggestion", e);
+            return;
+        }
+        floating.animateIn();
+        floating.announceForAccessibility(floating.getContentDescription());
     }
     private void dismiss(boolean clear) {
-        if (mCard != null) { mCard.animate().cancel(); mWindow.removeViewImmediate(mCard); mCard = null; }
+        if (mFloatingIcon != null) {
+            mFloatingIcon.animate().cancel();
+            mWindow.removeViewImmediate(mFloatingIcon);
+            mFloatingIcon = null;
+        }
         if (clear) { mSuggestion = null; mMain.removeCallbacks(mExpire); }
     }
     private void reconcile() {
         ++mGeneration;
         if (!feature(KEEP_AWAKE)) releaseAwake();
         if (mSuggestion == null) return;
+        if ("clipboard".equals(mSuggestion.kind)) {
+            // Link, parcel and master switches all invalidate a previously matched action.
+            dismiss(true);
+            return;
+        }
         final Option option = switch (mSuggestion.kind) {
             case "sms" -> SMS_ENABLED;
             case "torch" -> TORCH;
@@ -377,76 +397,41 @@ public final class ProactiveSuggestionController implements CoreStartable {
         clipboard.setPrimaryClip(data);
     }
     @SuppressWarnings("deprecation") private void keepAwake() {
-        if (!canShow() || !feature(KEEP_AWAKE)) return;
+        if (!canShow() || !feature(KEEP_AWAKE) || isAwakeHeld()) return;
+        mAwakeUser = mUsers.getUserHandle();
         mAwake = mPower.newWakeLock(PowerManager.SCREEN_BRIGHT_WAKE_LOCK, "ArkUI:temporary-awake");
         mAwake.acquire();
         final NotificationManager notifications = mContext.getSystemService(NotificationManager.class);
         notifications.createNotificationChannel(new NotificationChannel(AWAKE_CHANNEL,
                 mContext.getString(R.string.arkui_suggest_awake), NotificationManager.IMPORTANCE_LOW));
-        final PendingIntent stop = PendingIntent.getBroadcastAsUser(mContext, 0,
-                new Intent(ACTION_STOP_AWAKE).setPackage(mContext.getPackageName()), PendingIntent.FLAG_IMMUTABLE,
-                mUsers.getUserHandle());
+        mStopAwake = PendingIntent.getBroadcast(mContext, AWAKE_NOTIFICATION,
+                new Intent(ACTION_STOP_AWAKE).setPackage(mContext.getPackageName())
+                        .putExtra(Intent.EXTRA_USER_HANDLE, mAwakeUser.getIdentifier())
+                        .addFlags(Intent.FLAG_RECEIVER_FOREGROUND),
+                PendingIntent.FLAG_IMMUTABLE | PendingIntent.FLAG_UPDATE_CURRENT);
         notifications.notifyAsUser("ArkUI", AWAKE_NOTIFICATION, new Notification.Builder(mContext, AWAKE_CHANNEL)
                 .setSmallIcon(android.R.drawable.ic_menu_view)
                 .setContentTitle(mContext.getString(R.string.arkui_suggest_awake_active))
                 .setContentText(mContext.getString(R.string.arkui_suggest_awake_stop))
-                .setContentIntent(stop).setOngoing(true).setShowWhen(false).setLocalOnly(true).build(), mUsers.getUserHandle());
+                .setContentIntent(mStopAwake)
+                .addAction(new Notification.Action.Builder(null,
+                        mContext.getString(R.string.arkui_suggest_awake_end), mStopAwake).build())
+                .setOngoing(true).setShowWhen(false).setLocalOnly(true).build(), mAwakeUser);
     }
     private boolean isAwakeHeld() { return mAwake != null && mAwake.isHeld(); }
     private void releaseAwake() {
         if (isAwakeHeld()) mAwake.release();
         mAwake = null;
-        mContext.getSystemService(NotificationManager.class).cancelAsUser("ArkUI", AWAKE_NOTIFICATION, UserHandle.ALL);
+        if (mStopAwake != null) { mStopAwake.cancel(); mStopAwake = null; }
+        mContext.getSystemService(NotificationManager.class).cancelAsUser("ArkUI",
+                AWAKE_NOTIFICATION, mAwakeUser != null ? mAwakeUser : UserHandle.ALL);
+        mAwakeUser = null;
     }
     private int dp(int value) { return Math.round(value * mContext.getResources().getDisplayMetrics().density); }
-    /** Intercepts only horizontal drags, leaving action buttons and vertical gestures usable. */
-    private static final class SwipeCard extends LinearLayout {
-        private final Runnable mDismiss;
-        private final float mDensity;
-        private float mX, mY;
-        private boolean mDragging;
-        SwipeCard(Context context, Runnable dismiss) {
-            super(context);
-            mDismiss = dismiss;
-            mDensity = getResources().getDisplayMetrics().density;
-        }
-        @Override public boolean onInterceptTouchEvent(MotionEvent event) {
-            if (event.getActionMasked() == MotionEvent.ACTION_DOWN) {
-                mX = event.getRawX(); mY = event.getRawY(); mDragging = false;
-            } else if (event.getActionMasked() == MotionEvent.ACTION_MOVE) {
-                final float dx = Math.abs(event.getRawX() - mX);
-                if (dx > 16 * mDensity && dx > Math.abs(event.getRawY() - mY)) mDragging = true;
-            }
-            return mDragging || super.onInterceptTouchEvent(event);
-        }
-        @Override public boolean onTouchEvent(MotionEvent event) {
-            if (event.getActionMasked() == MotionEvent.ACTION_DOWN) return true;
-            if (event.getActionMasked() == MotionEvent.ACTION_MOVE
-                    && Math.abs(event.getRawX() - mX) > 16 * mDensity
-                    && Math.abs(event.getRawX() - mX) > Math.abs(event.getRawY() - mY)) mDragging = true;
-            if (!mDragging) return super.onTouchEvent(event);
-            final float delta = event.getRawX() - mX;
-            if (event.getActionMasked() == MotionEvent.ACTION_MOVE) {
-                setTranslationX(delta);
-                setAlpha(Math.max(.3f, 1 - Math.abs(delta) / Math.max(1, getWidth())));
-            } else if (event.getActionMasked() == MotionEvent.ACTION_UP
-                    || event.getActionMasked() == MotionEvent.ACTION_CANCEL) {
-                if (event.getActionMasked() == MotionEvent.ACTION_UP && Math.abs(delta) > 64 * mDensity) mDismiss.run();
-                else animate().translationX(0).alpha(1).setDuration(240).start();
-                mDragging = false;
-            }
-            return true;
-        }
-    }
-    private static int color(Context context, int attr) {
-        final android.util.TypedValue value = new android.util.TypedValue();
-        context.getTheme().resolveAttribute(attr, value, true);
-        return value.resourceId != 0 ? context.getColor(value.resourceId) : value.data;
-    }
     @Override public void dump(@NonNull PrintWriter pw, @NonNull String[] args) {
         pw.println("user=" + mUsers.getUserId() + " enabled=" + feature(ENABLED));
         pw.println("suggestion=" + (mSuggestion == null ? "none" : mSuggestion.kind)
-                + " visible=" + (mCard != null) + " temporaryAwake=" + isAwakeHeld());
+                + " visible=" + (mFloatingIcon != null) + " temporaryAwake=" + isAwakeHeld());
         pw.println("headphones=" + mHeadphones.size());
     }
 }

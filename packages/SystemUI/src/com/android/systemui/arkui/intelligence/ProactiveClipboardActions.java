@@ -62,7 +62,7 @@ public final class ProactiveClipboardActions {
         if (APP_LINKS.enabled(resolver, user) && TAO_TOKEN.matcher(text).find()) {
             final Intent launch = userContext.getPackageManager().getLaunchIntentForPackage("com.taobao.taobao");
             if (launch != null && !"com.taobao.taobao".equals(source)) {
-                return action(userContext, launch, context.getString(R.string.arkui_suggest_open_app,
+                return appAction(userContext, launch, context.getString(R.string.arkui_suggest_open_app,
                         appLabel(userContext, "com.taobao.taobao")), user);
             }
         }
@@ -78,11 +78,11 @@ public final class ProactiveClipboardActions {
                     final String name = host.toLowerCase(Locale.ROOT);
                     if (!(name.equals(rule[0]) || name.endsWith("." + rule[0])) || rule[1].equals(source)) continue;
                     final Intent target = new Intent(open).setPackage(rule[1]);
-                    if (canOpen(userContext, target)) return action(userContext, target,
+                    if (canOpen(userContext, target)) return appAction(userContext, target,
                             context.getString(R.string.arkui_suggest_open_app, appLabel(userContext, rule[1])), user);
                     // Some share tokens/URLs are read from the existing clipboard by the app.
                     final Intent launch = userContext.getPackageManager().getLaunchIntentForPackage(rule[1]);
-                    if (launch != null) return action(userContext, launch,
+                    if (launch != null) return appAction(userContext, launch,
                             context.getString(R.string.arkui_suggest_open_app, appLabel(userContext, rule[1])), user);
                 }
             }
@@ -101,7 +101,8 @@ public final class ProactiveClipboardActions {
                 }
                 if (browserPackage != null) open.setPackage(browserPackage);
                 if (browserPackage != null && canOpen(userContext, open)) return action(userContext, open,
-                        context.getString(R.string.arkui_suggest_open_link), user);
+                        context.getString(R.string.arkui_suggest_open_link), user,
+                        Icon.createWithResource(context, R.drawable.arkui_suggestion_web));
             }
         }
         final String number = text.trim().toUpperCase(Locale.ROOT);
@@ -110,7 +111,8 @@ public final class ProactiveClipboardActions {
                     .path("/result.jsp").appendQueryParameter("nu", number).build();
             final Intent intent = new Intent(Intent.ACTION_VIEW, uri).addCategory(Intent.CATEGORY_BROWSABLE);
             if (canOpen(userContext, intent)) return action(userContext, intent,
-                    context.getString(R.string.arkui_suggest_delivery), user);
+                    context.getString(R.string.arkui_suggest_delivery), user,
+                    Icon.createWithResource(context, R.drawable.arkui_suggestion_parcel));
         }
         return null;
     }
@@ -121,10 +123,25 @@ public final class ProactiveClipboardActions {
     private static boolean canOpen(Context context, Intent intent) {
         return context.getPackageManager().resolveActivity(intent, PackageManager.MATCH_DEFAULT_ONLY) != null;
     }
-    private static RemoteAction action(Context context, Intent intent, String title, int user) {
+    private static RemoteAction appAction(Context context, Intent intent, String title, int user) {
+        Icon icon = Icon.createWithResource(context, R.drawable.arkui_suggestion_web);
+        final String pkg = intent.getPackage() != null ? intent.getPackage()
+                : intent.getComponent() != null ? intent.getComponent().getPackageName() : null;
+        if (pkg != null) {
+            try {
+                final var app = context.getPackageManager().getApplicationInfo(pkg, 0);
+                if (app.icon != 0) icon = Icon.createWithResource(pkg, app.icon);
+            } catch (PackageManager.NameNotFoundException ignored) {
+                // An app can be removed between matching and creating the suggestion.
+            }
+        }
+        return action(context, intent, title, user, icon);
+    }
+    private static RemoteAction action(Context context, Intent intent, String title, int user,
+            Icon icon) {
         intent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK);
         final PendingIntent pending = PendingIntent.getActivityAsUser(context, intent.toUri(0).hashCode(),
                 intent, PendingIntent.FLAG_IMMUTABLE | PendingIntent.FLAG_UPDATE_CURRENT, null, UserHandle.of(user));
-        return new RemoteAction(Icon.createWithResource(context, R.drawable.ic_arrow_forward), title, title, pending);
+        return new RemoteAction(icon, title, title, pending);
     }
 }

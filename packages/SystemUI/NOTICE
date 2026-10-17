@@ -37,6 +37,12 @@ adds per-user controls, sensitive clipboard handling, guarded SMS/power events,
 local LRC synchronization and lifecycle-aware status bar rendering.
 No lyrics database or third-party lyric text is bundled. Lyrics remain subject to
 their authors' and providers' rights.
+FloatingSuggestionView, arkui_suggestion_background.xml and the six
+res/drawable-nodpi/arkui_suggestion_*.png assets adapt FloatingIconManager,
+circle_background.xml, icon_sms.png, icon_music.png, icon_torch_off.png,
+icon_screen_lighton.png, icon_web.png and icon_box.png from the same AviumUseful
+revision. The icon assets are unmodified; ArkUI adds lifecycle, user isolation
+and accessibility handling.
 
 ArkUI keyguard depth wallpaper
 DepthWallpaperRenderer derives its screen-aligned masking from OccludingMaskLayout in
