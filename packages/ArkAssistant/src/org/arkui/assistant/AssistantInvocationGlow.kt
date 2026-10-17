@@ -7,9 +7,7 @@ import android.animation.ValueAnimator
 import android.content.Context
 import android.graphics.Canvas
 import android.graphics.Paint
-import android.graphics.RenderEffect
 import android.graphics.RuntimeShader
-import android.graphics.Shader
 import android.view.RoundedCorner
 import android.view.View
 import android.view.WindowInsets
@@ -31,18 +29,18 @@ internal class AssistantInvocationGlow(context: Context) : View(context) {
     private val paint = Paint().apply { this.shader = this@AssistantInvocationGlow.shader }
     private var animator: ValueAnimator? = null
     private var pending: AssistantInvocationEffect? = null
+    private var activeEffect = AssistantInvocationEffect.AURORA
     private var drawing = false
     private var bottomInset = 0
     private var voiceReveal = 0f
+    private var cornerRadius = 0f
 
     init {
         importantForAccessibility = IMPORTANT_FOR_ACCESSIBILITY_NO
         isClickable = false
         isFocusable = false
         val density = resources.displayMetrics.density
-        // Blur the light layer only; the assistant's text and controls stay sharp.
-        setRenderEffect(RenderEffect.createBlurEffect(3f * density, 3f * density,
-            Shader.TileMode.CLAMP))
+        // The shader supplies the soft falloff directly, without a full-screen blur layer.
         shader.setFloatUniform("density", density)
         shader.setFloatUniform("corners", 0f, 0f, 0f, 0f)
         shader.setFloatUniform("bottomInset", 0f)
@@ -81,6 +79,7 @@ internal class AssistantInvocationGlow(context: Context) : View(context) {
         val effect = pending ?: return
         if (!isAttachedToWindow || width == 0 || height == 0) return
         pending = null
+        activeEffect = effect
         drawing = true
         shader.setFloatUniform("effect", when (effect) {
             AssistantInvocationEffect.AURORA -> 0f
@@ -127,18 +126,41 @@ internal class AssistantInvocationGlow(context: Context) : View(context) {
     }
 
     override fun onApplyWindowInsets(insets: WindowInsets): WindowInsets {
-        shader.setFloatUniform("corners",
-            (insets.getRoundedCorner(RoundedCorner.POSITION_TOP_LEFT)?.radius ?: 0).toFloat(),
-            (insets.getRoundedCorner(RoundedCorner.POSITION_TOP_RIGHT)?.radius ?: 0).toFloat(),
-            (insets.getRoundedCorner(RoundedCorner.POSITION_BOTTOM_RIGHT)?.radius ?: 0).toFloat(),
-            (insets.getRoundedCorner(RoundedCorner.POSITION_BOTTOM_LEFT)?.radius ?: 0).toFloat())
+        val topLeft = (insets.getRoundedCorner(RoundedCorner.POSITION_TOP_LEFT)?.radius ?: 0).toFloat()
+        val topRight = (insets.getRoundedCorner(RoundedCorner.POSITION_TOP_RIGHT)?.radius ?: 0).toFloat()
+        val bottomRight = (insets.getRoundedCorner(RoundedCorner.POSITION_BOTTOM_RIGHT)?.radius ?: 0).toFloat()
+        val bottomLeft = (insets.getRoundedCorner(RoundedCorner.POSITION_BOTTOM_LEFT)?.radius ?: 0).toFloat()
+        cornerRadius = maxOf(topLeft, topRight, bottomRight, bottomLeft)
+        shader.setFloatUniform("corners", topLeft, topRight, bottomRight, bottomLeft)
+        if (drawing) invalidate()
         return super.onApplyWindowInsets(insets)
     }
 
     override fun onDraw(canvas: Canvas) {
         super.onDraw(canvas)
-        if (drawing && canvas.isHardwareAccelerated) {
-            canvas.drawRect(0f, 0f, width.toFloat(), height.toFloat(), paint)
+        if (!drawing || !canvas.isHardwareAccelerated) return
+        val w = width.toFloat()
+        val h = height.toFloat()
+        val density = resources.displayMetrics.density
+        if (activeEffect == AssistantInvocationEffect.AURORA) {
+            val bottom = h - bottomInset
+            val depth = minOf(h * 0.34f, 280f * density)
+            // Beyond this range the Gaussian lobes are below visible alpha precision.
+            val top = (bottom - depth * 2f).coerceAtLeast(0f)
+            val end = (bottom + depth).coerceAtMost(h)
+            if (end > top) canvas.drawRect(0f, top, w, end, paint)
+        } else {
+            // Draw four non-overlapping edge bands instead of shading transparent pixels
+            // in the center. Include rounded corners and the complete visible halo.
+            val band = cornerRadius + 72f * density
+            val x = minOf(band, w / 2f)
+            val y = minOf(band, h / 2f)
+            canvas.drawRect(0f, 0f, w, y, paint)
+            canvas.drawRect(0f, h - y, w, h, paint)
+            if (h > y * 2f) {
+                canvas.drawRect(0f, y, x, h - y, paint)
+                canvas.drawRect(w - x, y, w, h - y, paint)
+            }
         }
     }
 
@@ -213,11 +235,11 @@ internal class AssistantInvocationGlow(context: Context) : View(context) {
                     float reach = smoothstep(0.0, 0.65, time) * 1.30;
                     sweep = 1.0 - smoothstep(reach - 0.10, reach + 0.06, fromButton);
                 }
-                // Gaussian falloff gives the edge a diffuse core instead of a sharp stroke.
-                float coreDistance = distance / (4.5 * density);
-                float haloDistance = distance / (22.0 * density);
-                float core = exp(-0.5 * coreDistance * coreDistance) * 0.36;
-                float halo = exp(-0.5 * haloDistance * haloDistance) * 0.18;
+                // Fold the former 3dp blur into the Gaussian width and peak intensity.
+                float coreDistance = distance / (5.4 * density);
+                float haloDistance = distance / (22.2 * density);
+                float core = exp(-0.5 * coreDistance * coreDistance) * 0.30;
+                float halo = exp(-0.5 * haloDistance * haloDistance) * 0.178;
                 float hue = 0.5 + 0.5 * sin(uv.x * 4.5 + uv.y * 5.0 - progress * 7.0);
                 float3 color = mix(blue.rgb, cyan.rgb, hue * 0.65);
                 color = mix(color, violet.rgb, (1.0 - uv.y) * 0.20);

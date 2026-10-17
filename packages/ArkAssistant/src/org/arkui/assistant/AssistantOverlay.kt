@@ -7,6 +7,7 @@ import android.graphics.Canvas
 import android.graphics.LinearGradient
 import android.graphics.Paint
 import android.graphics.PixelFormat
+import android.graphics.RectF
 import android.graphics.Shader
 import android.hardware.display.DisplayManager
 import android.os.Handler
@@ -37,9 +38,9 @@ import androidx.compose.animation.scaleOut
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
-import androidx.compose.runtime.SideEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.snapshotFlow
 import androidx.compose.ui.platform.ComposeView
 import androidx.compose.ui.graphics.TransformOrigin
 import androidx.lifecycle.Lifecycle
@@ -199,8 +200,10 @@ internal class AssistantOverlay(private val service: AssistantService) : Lifecyc
                         LaunchedEffect(Unit) { attached = true }
                         val show = attached && visible
                         val strength = animateFloatAsState(if (show) 1f else 0f,
-                            tween(if (visible) AssistantMotion.enter else AssistantMotion.exit), label = "backdrop visibility").value
-                        SideEffect { blur.setStrength(strength) }
+                            tween(if (visible) AssistantMotion.enter else AssistantMotion.exit), label = "backdrop visibility")
+                        LaunchedEffect(strength) {
+                            snapshotFlow { strength.value }.collect { blur.setStrength(it) }
+                        }
                         AnimatedVisibility(show,
                             enter = slideInVertically(tween(AssistantMotion.enter, easing = AssistantMotion.spatial)) { it / 5 } +
                                 scaleIn(tween(AssistantMotion.enter), initialScale = 0.96f, transformOrigin = TransformOrigin(0.5f, 1f)) +
@@ -214,6 +217,9 @@ internal class AssistantOverlay(private val service: AssistantService) : Lifecyc
                 }
             }
             frame.addView(compose, FrameLayout.LayoutParams(-1, -2, Gravity.BOTTOM))
+            // Vote only while drawing, including Compose's child views and the wake glow.
+            // Let the display policy choose the high rate supported by the current mode.
+            frame.propagateRequestedFrameRate(View.REQUESTED_FRAME_RATE_CATEGORY_HIGH, true)
             root = frame; composition = compose
             manager.addView(frame, params)
             registry.handleLifecycleEvent(Lifecycle.Event.ON_START)
@@ -263,11 +269,12 @@ internal class AssistantOverlay(private val service: AssistantService) : Lifecyc
     private val restoreInput = Runnable { passthrough = false; updateFlags() }
 
     private fun updateFlags() {
+        val previous = params.flags
         params.flags = params.flags and (WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE
             or WindowManager.LayoutParams.FLAG_NOT_TOUCHABLE).inv()
         if (!focus || passthrough) params.flags = params.flags or WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE
         if (passthrough) params.flags = params.flags or WindowManager.LayoutParams.FLAG_NOT_TOUCHABLE
-        root?.let { manager.updateViewLayout(it, params) }
+        if (params.flags != previous) root?.let { manager.updateViewLayout(it, params) }
     }
 
     fun edit() {
@@ -348,6 +355,12 @@ private class ProgressiveBlur(context: Context) : View(context) {
         private set
     private var color = 0xfff8faf5.toInt()
     private val location = IntArray(2)
+    private val appliedBounds = RectF()
+    private var appliedLayerId = -1
+    private var appliedRadius = -1
+    private var gradientTop = Float.NaN
+    private var gradientBottom = Float.NaN
+    private var gradientColor = 0
     private var observer: ViewTreeObserver? = null
     private val listener = java.util.function.Consumer<Boolean> { enabled = it; invalidate() }
     private val preDraw = ViewTreeObserver.OnPreDrawListener {
@@ -357,16 +370,28 @@ private class ProgressiveBlur(context: Context) : View(context) {
             getLocationInSurface(location)
             val bottom = (height - bottomInset).coerceAtLeast(0).toFloat()
             val depth = minOf(bottom, resources.displayMetrics.density * if (voice) 300 else 280)
+            val left = location[0].toFloat()
             val top = location[1] + bottom - depth
+            val right = left + width
+            val surfaceBottom = location[1] + bottom
+            val radius = if (enabled && strength > 0f && depth > 0f && width > 0)
+                (resources.displayMetrics.density * 56 * strength).toInt().coerceIn(1, 256) else 0
+            val layerId = surface.layerId
+            if (layerId == appliedLayerId && radius == appliedRadius &&
+                (radius == 0 || (appliedBounds.left == left && appliedBounds.top == top &&
+                    appliedBounds.right == right && appliedBounds.bottom == surfaceBottom))) {
+                return@OnPreDrawListener true
+            }
             // Keep the blur aligned with the panel in the same rendered frame.
             SurfaceControl.Transaction().use { transaction ->
-                if (enabled && strength > 0f && depth > 0f && width > 0) {
-                    transaction.setProgressiveBlurRegion(surface, location[0].toFloat(), top,
-                        (location[0] + width).toFloat(), location[1] + bottom,
-                        (resources.displayMetrics.density * 56 * strength).toInt().coerceIn(1, 256))
+                if (radius > 0) {
+                    transaction.setProgressiveBlurRegion(surface, left, top, right, surfaceBottom, radius)
                 } else transaction.setBlurRegions(surface, emptyArray())
                 root.applyTransactionOnDraw(transaction)
             }
+            appliedLayerId = layerId
+            appliedRadius = radius
+            appliedBounds.set(left, top, right, surfaceBottom)
         }
         true
     }
@@ -387,6 +412,8 @@ private class ProgressiveBlur(context: Context) : View(context) {
 
     override fun onAttachedToWindow() {
         super.onAttachedToWindow()
+        appliedLayerId = -1
+        appliedRadius = -1
         observer = viewTreeObserver.also { it.addOnPreDrawListener(preDraw) }
         manager.addCrossWindowBlurEnabledListener(context.mainExecutor, listener)
         enabled = manager.isCrossWindowBlurEnabled
@@ -403,9 +430,12 @@ private class ProgressiveBlur(context: Context) : View(context) {
         val top = bottom - depth
         val rgb = color and 0x00ffffff
         tint.alpha = (strength * 255).toInt()
-        tint.shader = LinearGradient(0f, top, 0f, bottom,
-            intArrayOf(rgb, rgb or 0x18000000, rgb or 0x80000000.toInt()),
-            floatArrayOf(0f, 0.3f, 1f), Shader.TileMode.CLAMP)
+        if (gradientTop != top || gradientBottom != bottom || gradientColor != rgb) {
+            tint.shader = LinearGradient(0f, top, 0f, bottom,
+                intArrayOf(rgb, rgb or 0x18000000, rgb or 0x80000000.toInt()),
+                floatArrayOf(0f, 0.3f, 1f), Shader.TileMode.CLAMP)
+            gradientTop = top; gradientBottom = bottom; gradientColor = rgb
+        }
         canvas.drawRect(0f, top, width.toFloat(), bottom, tint)
     }
 

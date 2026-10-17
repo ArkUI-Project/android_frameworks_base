@@ -58,6 +58,7 @@ import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.StrokeCap
+import androidx.compose.ui.graphics.drawOutline
 import androidx.compose.ui.graphics.toArgb
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.graphics.vector.ImageVector
@@ -77,6 +78,8 @@ import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.Dp
+import androidx.compose.ui.unit.LayoutDirection
 import androidx.compose.ui.viewinterop.AndroidView
 import kotlinx.coroutines.delay
 
@@ -164,18 +167,18 @@ internal fun AssistantDrawer(host: AssistantOverlay) {
     val configured = host.configured
     val voice = host.voice.state
     val voiceShown = voice.active || voice.error.isNotBlank()
-    val voiceReveal by animateFloatAsState(if (voiceShown) 1f else 0f,
+    val voiceReveal = animateFloatAsState(if (voiceShown) 1f else 0f,
         tween(AssistantMotion.enter), label = "invocation to voice glow")
     val sheet = host.expanded && configured
     val backdropColor = animateColorAsState(if (voiceShown) MaterialTheme.colorScheme.primary
-        else MaterialTheme.colorScheme.surfaceContainerLow, tween(180), label = "backdrop color").value
+        else MaterialTheme.colorScheme.surfaceContainerLow, tween(180), label = "backdrop color")
     val showComposer = !task.running || host.supplement
-    val panelColor by animateColorAsState(if (sheet) MaterialTheme.colorScheme.surfaceContainerLow
+    val panelColor = animateColorAsState(if (sheet) MaterialTheme.colorScheme.surfaceContainerLow
         else MaterialTheme.colorScheme.surfaceContainerLow.copy(alpha = 0f),
         tween(AssistantMotion.enter), label = "sheet surface")
-    val panelInset by animateDpAsState(if (sheet) 16.dp else 12.dp,
+    val panelInset = animateDpAsState(if (sheet) 16.dp else 12.dp,
         tween(AssistantMotion.expand, easing = AssistantMotion.spatial), label = "sheet inset")
-    val panelTop by animateDpAsState(if (sheet) 0.dp else 12.dp,
+    val panelTop = animateDpAsState(if (sheet) 0.dp else 12.dp,
         tween(AssistantMotion.expand, easing = AssistantMotion.spatial), label = "sheet top")
     val drag by animateFloatAsState(host.dragOffset, if (host.dragging) snap() else
         spring(dampingRatio = 0.85f, stiffness = 650f), label = "drawer drag")
@@ -183,7 +186,12 @@ internal fun AssistantDrawer(host: AssistantOverlay) {
         host.setFocus(voice.active || (showComposer && host.textInput && !host.progress))
     }
     val keyboardInset = WindowInsets.ime.getBottom(LocalDensity.current)
-    SideEffect { host.setBackdrop(backdropColor.toArgb(), voiceShown, keyboardInset, voiceReveal) }
+    LaunchedEffect(host, backdropColor, voiceShown, keyboardInset, voiceReveal) {
+        snapshotFlow { backdropColor.value to voiceReveal.value }.collect { (color, reveal) ->
+            host.setBackdrop(color.toArgb(), voiceShown, keyboardInset, reveal)
+        }
+    }
+    val panelShape = remember { RoundedCornerShape(topStart = 32.dp, topEnd = 32.dp) }
     CompositionLocalProvider(LocalContentColor provides MaterialTheme.colorScheme.onSurface) {
     Column(Modifier.fillMaxWidth().imePadding(), horizontalAlignment = Alignment.CenterHorizontally) {
         AnimatedContent(voiceShown, modifier = Modifier.widthIn(max = 640.dp).fillMaxWidth()
@@ -196,10 +204,16 @@ internal fun AssistantDrawer(host: AssistantOverlay) {
             }, label = "voice panel") { listening ->
         if (listening && configured) VoicePanel(host) else {
         val bottomInset = WindowInsets.navigationBars.asPaddingValues().calculateBottomPadding()
+        val bottomPadding = maxOf(28.dp, bottomInset + 12.dp)
+        val panelPadding = remember(panelInset, panelTop, bottomPadding) {
+            DrawerPadding(panelInset, panelTop, bottomPadding)
+        }
         Column(Modifier.fillMaxWidth()
-            .background(panelColor, RoundedCornerShape(topStart = 32.dp, topEnd = 32.dp))
-            .padding(horizontal = panelInset)
-            .padding(top = panelTop, bottom = maxOf(28.dp, bottomInset + 12.dp)),
+            .drawWithCache {
+                val outline = panelShape.createOutline(size, layoutDirection, this)
+                onDrawBehind { drawOutline(outline, panelColor.value) }
+            }
+            .padding(panelPadding),
             verticalArrangement = Arrangement.Top) {
             if (!configured) {
                 AssistantSetupPanel(onConfigure = { host.settings() })
@@ -244,6 +258,18 @@ internal fun AssistantDrawer(host: AssistantOverlay) {
         }
     }
     }
+}
+
+/** Read animated padding during measurement, without recomposing the drawer every frame. */
+private class DrawerPadding(
+    private val horizontal: State<Dp>,
+    private val top: State<Dp>,
+    private val bottom: Dp,
+) : PaddingValues {
+    override fun calculateLeftPadding(layoutDirection: LayoutDirection) = horizontal.value
+    override fun calculateTopPadding() = top.value
+    override fun calculateRightPadding(layoutDirection: LayoutDirection) = horizontal.value
+    override fun calculateBottomPadding() = bottom
 }
 
 @Composable
