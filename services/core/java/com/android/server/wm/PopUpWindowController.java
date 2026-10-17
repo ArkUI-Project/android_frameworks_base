@@ -15,6 +15,7 @@ import static android.app.WindowConfiguration.WINDOWING_MODE_PINNED_WINDOW_EXT;
 import static android.app.WindowConfiguration.WINDOWING_MODE_UNDEFINED;
 import static android.os.Process.THREAD_PRIORITY_DEFAULT;
 import static android.view.Display.DEFAULT_DISPLAY;
+import static android.view.WindowManager.TRANSIT_TO_FRONT;
 import static android.view.WindowManager.LayoutParams.TYPE_MINI_WINDOW_DIMMER;
 import static android.view.WindowManager.LayoutParams.TYPE_PINNED_WINDOW_DISMISS_HINT;
 import static android.window.TransitionInfo.FLAG_EXIT_POP_UP_VIEW_BY_DRAG;
@@ -1344,10 +1345,23 @@ public class PopUpWindowController {
             final Task root = task.getRootTask();
             if (!root.isAttached() || !root.showToCurrentUser()
                     || !root.getWindowConfiguration().isPopUpWindowMode()) return;
+            final TransitionController controller = root.mTransitionController;
+            final boolean needsReorder = root.getParent().getTopChild() != root;
+            // Shell owns root-task layers. Keep an order-only transition even when the app
+            // is already resumed: setFocusedTask may otherwise return without committing
+            // the new surface order. Recording the display also updates decoration layers.
+            final Transition transition = needsReorder && controller.isShellTransitionsEnabled()
+                    && !controller.isCollecting()
+                    ? controller.createTransition(TRANSIT_TO_FRONT) : null;
             root.moveToFront("hyperos-small-window-touch");
             if (root.getWindowConfiguration().isMiniExtWindowMode()) {
                 mAtmService.setFocusedTask(root.mTaskId);
                 TopActivityRecorder.getInstance().updateTopMiniWindowTask(root);
+            }
+            if (transition != null) {
+                controller.requestStartTransition(transition, null /* startTask */,
+                        null /* remote */, null /* display */);
+                transition.setAllReady();
             }
             HyperOsWindowDecor.getInstance().update(root);
         }
@@ -1850,12 +1864,17 @@ public class PopUpWindowController {
                                 .getTaskWindowSurfaceInfo();
                         return root.getWindowConfiguration().isPopUpWindowMode()
                                 && root.isVisible() && root.showToCurrentUser() && info != null
-                                && !info.isSurfaceAnimating()
                                 && info.getHyperOsDecorBounds().contains(x, y);
                     });
                     if (touched != null
                             && touched.getWindowConfiguration().isMiniExtWindowMode()) {
-                        focusHyperOsTask(touched);
+                        final TaskWindowSurfaceInfo info = touched.mWindowContainerExt
+                                .getTaskWindowSurfaceInfo();
+                        // An animating top window still occludes the windows behind it.
+                        // Do not let its touch fall through and raise a lower task.
+                        if (!info.isSurfaceAnimating() && !info.isHyperOsClosing()) {
+                            focusHyperOsTask(touched);
+                        }
                     }
                 }
                 return;

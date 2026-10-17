@@ -936,6 +936,7 @@ final class HyperOsWindowDecor {
         @Override
         public boolean performClick() {
             super.performClick();
+            PopUpWindowController.getInstance().focusHyperOsTask(mTask);
             if (mSnapshot.docked) {
                 synchronized (mService.mGlobalLock) {
                     final TaskWindowSurfaceInfo info = liveInfo();
