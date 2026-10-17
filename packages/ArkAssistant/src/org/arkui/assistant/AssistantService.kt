@@ -225,7 +225,8 @@ class AssistantService : Service() {
             }
         }
         session.send(AssistantInvocation.POWER_KEY_REGISTER, Bundle().apply {
-            putParcelable(AssistantInvocation.EXTRA_POWER_KEY_CALLBACK, callback)
+            putParcelable(AssistantInvocation.EXTRA_POWER_KEY_CALLBACK,
+                AssistantInvocation.prepareReceiverForIpc(callback))
         })
     }
 

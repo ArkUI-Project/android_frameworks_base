@@ -6,6 +6,7 @@ import android.app.KeyguardManager;
 import android.content.Context;
 import android.content.Intent;
 import android.content.pm.PackageManager;
+import android.os.Parcel;
 import android.os.ResultReceiver;
 import android.os.UserHandle;
 import android.provider.Settings;
@@ -73,6 +74,19 @@ public final class AssistantInvocation {
         return invoke(context, entry, userId, null);
     }
 
+    /** Keep the Binder callback, without parceling a class private to the sending process. */
+    public static ResultReceiver prepareReceiverForIpc(ResultReceiver receiver) {
+        if (receiver == null) return null;
+        final Parcel parcel = Parcel.obtain();
+        try {
+            receiver.writeToParcel(parcel, 0);
+            parcel.setDataPosition(0);
+            return ResultReceiver.CREATOR.createFromParcel(parcel);
+        } finally {
+            parcel.recycle();
+        }
+    }
+
     public static boolean invoke(Context context, String entry, int userId,
             ResultReceiver powerKeySession) {
         if (!canInvoke(context, entry, userId)) return false;
@@ -84,7 +98,7 @@ public final class AssistantInvocation {
                             AssistantProtocol.PACKAGE + ".AssistantShortcutActivity")
                     .putExtra(EXTRA_ACTION, action)
                     .putExtra(EXTRA_ENTRY, entry)
-                    .putExtra(EXTRA_POWER_KEY_SESSION, powerKeySession)
+                    .putExtra(EXTRA_POWER_KEY_SESSION, prepareReceiverForIpc(powerKeySession))
                     .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK | Intent.FLAG_ACTIVITY_NO_ANIMATION),
                     UserHandle.of(userId));
             return true;
