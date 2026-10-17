@@ -1859,15 +1859,20 @@ public class PopUpWindowController {
                     final int x = (int) event.getRawX();
                     final int y = (int) event.getRawY();
                     if (dc == null || isShadeExpanded(dc) || isInExcludeArea(dc, x, y)) return;
+                    final HyperOsWindowDecor decor = HyperOsWindowDecor.getInstance();
                     final Task touched = dc.getRootTask(root -> {
                         final TaskWindowSurfaceInfo info = root.mWindowContainerExt
                                 .getTaskWindowSurfaceInfo();
                         return root.getWindowConfiguration().isPopUpWindowMode()
                                 && root.isVisible() && root.showToCurrentUser() && info != null
-                                && info.getHyperOsDecorBounds().contains(x, y);
+                                && (info.getHyperOsDecorBounds().contains(x, y)
+                                        || decor.containsInputPoint(root, x, y));
                     });
+                    // Let the decor own focus and gesture capture for its handles/menu.
+                    // Starting a transition here can race its ACTION_DOWN handling.
                     if (touched != null
-                            && touched.getWindowConfiguration().isMiniExtWindowMode()) {
+                            && touched.getWindowConfiguration().isMiniExtWindowMode()
+                            && !decor.containsInputPoint(touched, x, y)) {
                         final TaskWindowSurfaceInfo info = touched.mWindowContainerExt
                                 .getTaskWindowSurfaceInfo();
                         // An animating top window still occludes the windows behind it.

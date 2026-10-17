@@ -54,6 +54,7 @@ final class HyperOsWindowDecor {
     private final ArraySet<Task> mPending = new ArraySet<>();
     // Guarded by the WM lock. Geometry and the app transaction must reach the same frame.
     private final SparseArray<SurfaceFrame> mFrames = new SparseArray<>();
+    private final Region mHitTestRegion = new Region();
     private WindowManagerService mService;
 
     static HyperOsWindowDecor getInstance() {
@@ -166,6 +167,23 @@ final class HyperOsWindowDecor {
         mUiHandler.post(() -> {
             for (int i = mViews.size() - 1; i >= 0; i--) removeView(mViews.keyAt(i));
         });
+    }
+
+    /** Called with the WM lock held; use the input region published by the decor window. */
+    boolean containsInputPoint(Task task, int x, int y) {
+        final DisplayContent display = task.getDisplayContent();
+        if (display == null) return false;
+        final String title = TITLE_PREFIX + task.mTaskId;
+        final WindowState window = display.getWindow(w ->
+                w.getOwningUid() == Process.SYSTEM_UID
+                        && w.mAttrs.type == WindowManager.LayoutParams.TYPE_APPLICATION_OVERLAY
+                        && title.contentEquals(w.mAttrs.getTitle()));
+        if (window == null || !window.isVisible()
+                || (window.mAttrs.flags & WindowManager.LayoutParams.FLAG_NOT_TOUCHABLE) != 0) {
+            return false;
+        }
+        window.getTouchableRegion(mHitTestRegion);
+        return mHitTestRegion.contains(x, y);
     }
 
     /** Called during layer assignment with the WM lock held. */
