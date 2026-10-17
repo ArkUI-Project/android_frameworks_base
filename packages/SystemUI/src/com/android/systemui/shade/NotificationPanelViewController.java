@@ -1701,6 +1701,15 @@ public final class NotificationPanelViewController implements
             }
         }
 
+        if (!expands && mBarState == KEYGUARD
+                && mKeyguardStateController.canDismissLockScreen()) {
+            // A quick, tiny flick must not dismiss the lockscreen. Preserve falsing checks
+            // above, and require a deliberate upward distance before accepting its velocity.
+            float density = mView.getResources().getDisplayMetrics().density;
+            float minimumSwipe = Math.max(72f * density, mView.getHeight() * .12f);
+            if (mInitialExpandY - y < minimumSwipe) expands = true;
+        }
+
         // If we are already running a QS expansion, make sure that we keep the panel open.
         if (mQsController.isExpansionAnimating()) {
             expands = true;

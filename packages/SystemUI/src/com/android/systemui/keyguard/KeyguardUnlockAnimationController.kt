@@ -93,7 +93,8 @@ const val DISMISS_AMOUNT_SHOW_SURFACE_THRESHOLD = 0.15f
  * The dismiss amount is the inverse of the notification panel expansion, which decreases as the
  * lock screen is swiped away.
  */
-const val DISMISS_AMOUNT_EXIT_KEYGUARD_THRESHOLD = 0.3f
+// Keep the lockscreen interactive until the swipe/fling has actually finished dismissing it.
+const val DISMISS_AMOUNT_EXIT_KEYGUARD_THRESHOLD = 1f
 
 /**
  * How long the canned unlock animation takes. This is used if we are unlocking from biometric auth,
@@ -619,42 +620,18 @@ constructor(
             // the time it takes the keyguard exit animation to start. This is an edge case race
             // condition, which we handle by just playing a canned animation on the now-visible
             // surface behind the keyguard to finish unlocking.
-            if (keyguardStateController.isFlingingToDismissKeyguard) {
+            if (keyguardStateController.isFlingingToDismissKeyguard &&
+                !willUnlockWithInWindowLauncherAnimations) {
                 playCannedUnlockAnimation()
             } else if (
-                keyguardStateController.isDismissingFromSwipe &&
+                (keyguardStateController.isDismissingFromSwipe ||
+                    keyguardStateController.isFlingingToDismissKeyguard) &&
                     willUnlockWithInWindowLauncherAnimations
             ) {
-                // If we're swiping to unlock to the Launcher, and can play in-window animations,
-                // make the launcher surface fully visible and play the in-window unlock animation
-                // on the launcher icons. System UI will remain locked, using the swipe-to-unlock
-                // translation logic on the launcher window, until the swipe gesture ends (either in
-                // a successful unlock, or an aborted unlock).
+                // Prepare a reversible peek. Do not play the row animation while the user's
+                // finger is still down; the dismissal fling takes over from this exact amount.
                 surfaceBehindAlpha = 1f
-                setSurfaceBehindAppearAmount(1f)
-
-                try {
-                    launcherUnlockController?.playUnlockAnimation(
-                        true,
-                        UNLOCK_ANIMATION_DURATION_MS + CANNED_UNLOCK_START_DELAY_MS,
-                        0, /* startDelay */
-                    )
-                } catch (e: DeadObjectException) {
-                    // Hello! If you are here investigating a bug where Launcher is blank (no icons)
-                    // then the below assumption about Launcher's destruction was incorrect. This
-                    // would mean prepareToUnlock was called (blanking Launcher in preparation for
-                    // the beginning of the unlock animation), but then somehow we were unable to
-                    // call playUnlockAnimation to animate the icons back in.
-                    Log.e(
-                        TAG,
-                        "launcherUnlockAnimationController was dead, but non-null. " +
-                            "Catching exception as this should mean Launcher is in the process " +
-                            "of being destroyed, but the IPC to System UI telling us hasn't " +
-                            "arrived yet.",
-                    )
-                }
-
-                launcherPreparedForUnlock = false
+                updateSurfaceBehindAppearAmount()
             } else {
                 // Otherwise, we're swiping in an app and should just fade it in. The swipe gesture
                 // will translate it until the end of the swipe gesture.
@@ -823,10 +800,24 @@ constructor(
             return
         }
 
+        if (willUnlockWithInWindowLauncherAnimations) {
+            if (keyguardStateController.isFlingingToDismissKeyguard) {
+                startLauncherSwipeUnlock()
+            } else if (launcherPreparedForUnlock) {
+                val peek = ((keyguardStateController.dismissAmount -
+                    DISMISS_AMOUNT_SHOW_SURFACE_THRESHOLD) /
+                    (1f - DISMISS_AMOUNT_SHOW_SURFACE_THRESHOLD)).coerceIn(0f, 1f) * .22f
+                try {
+                    launcherUnlockController?.setUnlockAmount(peek, false)
+                } catch (e: RemoteException) {
+                    Log.e(TAG, "Unable to update Launcher swipe unlock", e)
+                }
+            }
+        }
+
         // For fling animations, we want to animate the surface in over the full distance. If we're
-        // dismissing the keyguard via a swipe gesture (or cancelling the swipe gesture), we want to
-        // bring in the surface behind over a relatively short swipe distance (~15%), to keep the
-        // interaction tight.
+        // dismissing or cancelling via touch, use the full remaining swipe distance so that
+        // reversing the gesture reverses the same preview instead of snapping to the desktop.
         if (keyguardStateController.isFlingingToDismissKeyguard) {
             setSurfaceBehindAppearAmount(keyguardStateController.dismissAmount)
         } else if (
@@ -839,6 +830,18 @@ constructor(
                 keyguardStateController.dismissAmount - DISMISS_AMOUNT_SHOW_SURFACE_THRESHOLD
             val progress = swipedDistanceSoFar / totalSwipeDistanceToDismiss
             setSurfaceBehindAppearAmount(progress)
+        }
+    }
+
+    private fun startLauncherSwipeUnlock() {
+        if (!launcherPreparedForUnlock) return
+        try {
+            launcherUnlockController?.playUnlockAnimation(
+                true, LAUNCHER_ICONS_ANIMATION_DURATION_MS, 0
+            )
+            launcherPreparedForUnlock = false
+        } catch (e: RemoteException) {
+            Log.e(TAG, "Unable to start Launcher swipe unlock", e)
         }
     }
 
@@ -930,14 +933,8 @@ constructor(
         }
 
         val dismissAmount = keyguardStateController.dismissAmount
-        if (
-            dismissAmount >= 1f ||
-                (keyguardStateController.isDismissingFromSwipe &&
-                    // Don't hide if we're flinging during a swipe, since we need to finish
-                    // animating it out. This will be called again after the fling ends.
-                    !keyguardStateController.isFlingingToDismissKeyguardDuringSwipeGesture &&
-                    dismissAmount >= DISMISS_AMOUNT_EXIT_KEYGUARD_THRESHOLD)
-        ) {
+        if (dismissAmount >= DISMISS_AMOUNT_EXIT_KEYGUARD_THRESHOLD) {
+            if (willUnlockWithInWindowLauncherAnimations) startLauncherSwipeUnlock()
             setSurfaceBehindAppearAmount(1f)
             dismissAmountThresholdsReached = true
             keyguardViewMediator
@@ -974,10 +971,7 @@ constructor(
 
                 // If we're dismissing via swipe to the Launcher, we'll play in-window scale
                 // animations, so don't also scale the window.
-                if (
-                    keyguardStateController.isDismissingFromSwipe &&
-                        willUnlockWithInWindowLauncherAnimations
-                ) {
+                if (willUnlockWithInWindowLauncherAnimations) {
                     scaleFactor = 1f
                 }
 
@@ -985,7 +979,8 @@ constructor(
                 surfaceBehindMatrix.setTranslate(
                     surfaceBehindRemoteAnimationTarget.screenSpaceBounds.left.toFloat(),
                     surfaceBehindRemoteAnimationTarget.screenSpaceBounds.top.toFloat() +
-                        surfaceHeight * SURFACE_BEHIND_START_TRANSLATION_Y * (1f - amount),
+                        (if (willUnlockWithInWindowLauncherAnimations) 0f else
+                            surfaceHeight * SURFACE_BEHIND_START_TRANSLATION_Y * (1f - amount)),
                 )
 
                 // Scale up from a point at the center-bottom of the surface.
@@ -1092,6 +1087,13 @@ constructor(
                 launcherUnlockController?.setUnlockAmount(1f, false /* forceIfAnimating */)
             } catch (e: RemoteException) {
                 Log.e(TAG, "Remote exception in notifyFinishedKeyguardExitAnimation", e)
+            }
+        } else {
+            // A cancelled swipe must not leave the next Launcher frame prepared and invisible.
+            try {
+                launcherUnlockController?.setUnlockAmount(1f, true)
+            } catch (e: RemoteException) {
+                Log.e(TAG, "Unable to restore Launcher after cancelled unlock", e)
             }
         }
 

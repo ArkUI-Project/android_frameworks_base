@@ -20,6 +20,7 @@ package com.android.systemui.keyguard.ui.view
 
 import android.graphics.Rect
 import android.os.DeadObjectException
+import android.os.RemoteException
 import android.util.Log
 import android.view.View
 import com.android.systemui.dagger.SysUISingleton
@@ -66,6 +67,7 @@ constructor(
      * [ILauncherUnlockAnimationController.setUnlockAmount].
      */
     private var preparedForUnlock = false
+    private var observingLauncherTransitions = false
 
     /**
      * Most recent value passed to [ILauncherUnlockAnimationController.setUnlockAmount] during this
@@ -82,13 +84,21 @@ constructor(
      */
     override fun setLauncherUnlockController(
         activityClass: String,
-        launcherController: ILauncherUnlockAnimationController,
+        launcherController: ILauncherUnlockAnimationController?,
     ) {
         interactor.setLauncherActivityClass(activityClass)
+        if (launcherAnimationController !== launcherController) {
+            preparedForUnlock = false
+            manualUnlockAmount = null
+            interactor.setStartedUnlockAnimation(false)
+        }
         launcherAnimationController = launcherController
 
-        // Bind once we have a launcher controller.
-        InWindowLauncherAnimationViewBinder.bind(viewModel, this, scope)
+        // Reconnecting Launcher must not install duplicate collectors and replay animations.
+        if (launcherController != null && !observingLauncherTransitions) {
+            observingLauncherTransitions = true
+            InWindowLauncherAnimationViewBinder.bind(viewModel, this, scope)
+        }
     }
 
     /**
@@ -114,11 +124,12 @@ constructor(
                 preparedForUnlock = true
                 manualUnlockAmount = null
 
-                launcher.prepareForUnlock(
-                    false,
-                    Rect(),
-                    0,
-                ) // TODO(b/293894758): Add smartspace animation support.
+                try {
+                    launcher.prepareForUnlock(false, Rect(), 0)
+                } catch (e: RemoteException) {
+                    preparedForUnlock = false
+                    Log.e(TAG, "Unable to prepare Launcher unlock animation", e)
+                }
             }
         }
     }
@@ -161,8 +172,13 @@ constructor(
     ) {
         if (preparedForUnlock) {
             launcherAnimationController?.let { launcher ->
-                launcher.playUnlockAnimation(unlocked, duration, startDelay)
-                interactor.setStartedUnlockAnimation(true)
+                try {
+                    launcher.playUnlockAnimation(unlocked, duration, startDelay)
+                    interactor.setStartedUnlockAnimation(true)
+                } catch (e: RemoteException) {
+                    interactor.setStartedUnlockAnimation(false)
+                    Log.e(TAG, "Unable to start Launcher unlock animation", e)
+                }
             }
         } else {
             Log.e(TAG, "Attempted to call playUnlockAnimation() before prepareToUnlock().")

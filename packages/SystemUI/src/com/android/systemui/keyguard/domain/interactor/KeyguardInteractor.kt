@@ -396,7 +396,9 @@ constructor(
                         currentKeyguardState == LOCKSCREEN &&
                         legacyShadeExpansion != 1f
                 ) {
-                    emit(MathUtils.constrainedMap(0f, 1f, 0.82f, 1f, legacyShadeExpansion))
+                    // Keep the outgoing clock and lockscreen visible through the drag.
+                    // Alpha follows the same reversible expansion as the translation below.
+                    emit(MathUtils.constrainedMap(0f, 1f, 0.15f, 1f, legacyShadeExpansion))
                 } else if (
                     !onGlanceableHub &&
                         isKeyguardDismissible &&

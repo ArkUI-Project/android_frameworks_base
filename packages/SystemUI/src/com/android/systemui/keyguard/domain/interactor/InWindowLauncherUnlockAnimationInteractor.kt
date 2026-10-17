@@ -107,6 +107,9 @@ constructor(
 
     fun setLauncherActivityClass(className: String) {
         repository.setLauncherActivityClass(className)
+        // Launcher can bind after the lockscreen is already showing (for example after boot).
+        // Refresh the cached foreground task now instead of missing that first unlock.
+        updateIsLauncherUnderneath()
     }
 
     fun setLauncherSmartspaceState(state: SmartspaceState?) {
